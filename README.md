@@ -1,4 +1,4 @@
 appleseed-deps
 ==============
 
-Third-party dependencies for appleseed
+Third-party dependencies for appleseed.
