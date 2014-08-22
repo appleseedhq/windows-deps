@@ -1,5 +1,6 @@
 #!/usr/bin/env python 
 
+import math
 import OpenImageIO as oiio
 from OpenImageIO import ImageBuf, ImageSpec, ImageBufAlgo
 
@@ -89,6 +90,21 @@ try:
     ImageBufAlgo.paste (b, 150, 75, 0, 0, grid)
     write (b, "pasted.tif")
 
+    # rotate90
+    b = ImageBuf()
+    ImageBufAlgo.rotate90 (b, ImageBuf("../oiiotool/image.tif"))
+    write (b, "rotate90.tif")
+
+    # rotate180
+    b = ImageBuf()
+    ImageBufAlgo.rotate180 (b, ImageBuf("../oiiotool/image.tif"))
+    write (b, "rotate180.tif")
+
+    # rotate270
+    b = ImageBuf()
+    ImageBufAlgo.rotate270 (b, ImageBuf("../oiiotool/image.tif"))
+    write (b, "rotate270.tif")
+
     # flip
     b = ImageBuf()
     ImageBufAlgo.flip (b, ImageBuf("../oiiotool/image.tif"))
@@ -103,6 +119,16 @@ try:
     b = ImageBuf()
     ImageBufAlgo.flipflop (b, ImageBuf("../oiiotool/image.tif"))
     write (b, "flipflop.tif")
+
+    # reorient
+    b = ImageBuf()
+    image_small = ImageBuf()
+    ImageBufAlgo.resample (image_small, ImageBuf("../oiiotool/image.tif"),  roi=oiio.ROI(0,160,0,120))
+    ImageBufAlgo.rotate90 (image_small, image_small)
+    image_small.specmod().attribute ("Orientation", 8)
+    ImageBufAlgo.reorient (b, image_small)
+    write (b, "reorient1.tif")
+    image_small = ImageBuf()
 
     # transpose
     b = ImageBuf()
@@ -229,22 +255,48 @@ try:
     ImageBufAlgo.resample (b, grid, roi=oiio.ROI(0,128,0,128))
     write (b, "resample.tif")
 
+    # warp
+    b = ImageBuf()
+    Mwarp = (0.7071068, 0.7071068, 0, -0.7071068, 0.7071068, 0, 128, -53.01933, 1)
+    ImageBufAlgo.warp (b, ImageBuf("resize.tif"), Mwarp)
+    write (b, "warped.tif")
+
+    # rotate
+    b = ImageBuf()
+    ImageBufAlgo.rotate (b, ImageBuf("resize.tif"), math.radians(45.0))
+    write (b, "rotated.tif")
+    b = ImageBuf()
+    ImageBufAlgo.rotate (b, ImageBuf("resize.tif"), math.radians(45.0), 50.0, 50.0)
+    write (b, "rotated-offcenter.tif")
+
     # make_kernel
     bsplinekernel = ImageBuf()
     ImageBufAlgo.make_kernel (bsplinekernel, "bspline", 15, 15)
     write (bsplinekernel, "bsplinekernel.exr")
 
-    # convolve
+    # convolve -- test with bspline blur
     b = ImageBuf()
     ImageBufAlgo.convolve (b, ImageBuf("../oiiotool/tahoe-small.tif"),
                            bsplinekernel)
     write (b, "bspline-blur.tif", oiio.UINT8)
+
+    # median filter
+    b = ImageBuf()
+    ImageBufAlgo.median_filter (b, ImageBuf("../oiiotool/tahoe-small.tif"),
+                                5, 5)
+    write (b, "tahoe-median.tif", oiio.UINT8)
 
     # unsharp_mask
     b = ImageBuf()
     ImageBufAlgo.unsharp_mask (b, ImageBuf("../oiiotool/tahoe-small.tif"),
                                "gaussian", 3.0, 1.0, 0.0)
     write (b, "unsharp.tif", oiio.UINT8)
+
+    # unsharp_mark with median filter
+    b = ImageBuf()
+    ImageBufAlgo.unsharp_mask (b, ImageBuf("../oiiotool/tahoe-small.tif"),
+                               "median", 3.0, 1.0, 0.0)
+    write (b, "unsharp-median.tif", oiio.UINT8)
 
     # computePixelHashSHA1
     print ("SHA-1 of bsplinekernel.exr is: " + 

@@ -40,7 +40,6 @@
 #include "OpenImageIO/imagebufalgo.h"
 #include "OpenImageIO/imagebufalgo_util.h"
 #include "OpenImageIO/dassert.h"
-#include "OpenImageIO/sysutil.h"
 #include "OpenImageIO/thread.h"
 
 
@@ -181,9 +180,10 @@ ImageBufAlgo::flatten (ImageBuf &dst, const ImageBuf &src,
         return false;
     }
 
-    OIIO_DISPATCH_TYPES ("flatten", flatten_, dst.spec().format,
+    bool ok;
+    OIIO_DISPATCH_TYPES (ok, "flatten", flatten_, dst.spec().format,
                          dst, src, roi, nthreads);
-    return false;
+    return ok;
 }
 
 

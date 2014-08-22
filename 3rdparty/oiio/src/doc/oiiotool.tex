@@ -590,7 +590,6 @@ many pixels differed, the maximum amount, etc.).  This command does not
 alter the image stack.
 \apiend
 
-\NEW % 1.4
 \apiitem{--pdiff}
 This command computes the difference of the current image and the next
 image on the stack using a perceptual metric, and prints whether or not they
@@ -752,6 +751,14 @@ flag is found, subsequent inputs will not do this premultiplication. It
 can be turned on again via {\cf --autopremult}.
 \apiend
 
+\apiitem{--autoorient}
+\NEW  % 1.5
+Automatically do the equivalent of {\cf --reorient} on every image as it is
+read in, if it has a nonstandard orientation. This is generally a good idea
+to use if you are using oiiotool to combine images that may have different
+orientations.
+\apiend
+
 \apiitem{-o \rm \emph{filename}}
 Outputs the current image to the named file.  This does not remove the
 current image, it merely saves a copy of it.
@@ -825,7 +832,6 @@ a quality metric (as JPEG does).
 \apiend
 
 \apiitem{--dither}
-\NEW %1.4
 Turns on \emph{dither} when outputting to 8-bit image files (does not affect
 other data types). This adds just a bit of noise that reduces visible
 banding artifacts.
@@ -881,7 +887,7 @@ they only apply to the highest-resolution MIPmap level of the first
 subimage of the current top image.
 
 \apiitem{--attrib {\rm \emph{name value}}}
-Adds or replaces metadata with the given \emph{name} to have the 
+Adds or replaces metadata with the given \emph{name} to have the
 specified \emph{value}.
 
 It will try to infer the type of the metadata from the value: if the
@@ -898,7 +904,7 @@ with:
 \apiend
 
 \apiitem{--sattrib {\rm \emph{name value}}}
-Adds or replaces metadata with the given \emph{name} to have the 
+Adds or replaces metadata with the given \emph{name} to have the
 specified \emph{value}, forcing it to be interpreted as a {\cf string}.
 This is helpful if you want to set a {\cf string} metadata to a value
 that the {\cf --attrib} command would normally interpret as a number.
@@ -930,6 +936,19 @@ keywords.
 Clears all existing keywords in the current image.
 \apiend
 
+\apiitem{--nosoftwareattrib}
+\NEW % 1.5
+When set, this prevents the normal adjustment of \qkw{Software} and
+\qkw{ImageHistory} metadata to reflect what \oiiotool is doing.
+\apiend
+
+\apiitem{--sansattrib}
+\NEW % 1.5
+When set, this edits the command line inserted in the \qkw{Software} and
+\qkw{ImageHistory} metadata to omit any verbose {\cf --attrib} and
+{\cf --sattrib} commands.
+\apiend
+
 \apiitem{--orientation {\rm \emph{orient}}}
 Explicitly sets the image's \qkw{Orientation} metadata to a numeric
 value (see Section~\ref{metadata:orientation} for the numeric codes).
@@ -939,15 +958,20 @@ themselves, and so has no effect for image formats that don't
 support some kind of orientation metadata.
 \apiend
 
-\apiitem{--rotcw \\
---rotccw \\
---rot180}
-Adjusts the image's \qkw{Orientation} metadata by rotating it $90^\circ$
+\apiitem{--orientcw \\
+--orientccw \\
+--orient180}
+Adjusts the image's \qkw{Orientation} metadata by rotating
+the suggested viewing orientation $90^\circ$
 clockwise, $90^\circ$ degrees counter-clockwise, or $180^\circ$,
 respectively, compared to its current setting.  This only changes the
 metadata field that specifies how the image should be displayed, it does
 NOT alter the pixels themselves, and so has no effect for image formats
 that don't support some kind of orientation metadata.
+
+See the {\cf --rotate90}, {\cf --rotate180}, {\cf --rotate270}, and
+{\cf --reorient} commands for true rotation of the pixels (not just the
+metadata).
 \apiend
 
 \apiitem{--origin {\rm \emph{offset}}}
@@ -1071,7 +1095,6 @@ Swap the current image and the next one on the stack.
 \apiend
 
 \apiitem{--label {\rm \emph{name}}}
-\NEW % 1.4
 Gives a name to (and saves) the current image at the top of the stack.
 Thereafter, the label name may be used to refer to that saved image,
 in the usual manner that an ordinary input image would be specified by
@@ -1241,7 +1264,6 @@ different multiplier for each channel in the image, respectively.
 
 \apiitem{--cpow {\rm \emph{value}} \\
 --cpow {\rm \emph{value0,value1,value2...}}}
-\NEW % 1.4
 Raise all the pixel values in the top image to a constant power value.
 If a single constant value is given, all color channels will have their values
 raised to this power.  Alternatively, a series of
@@ -1324,6 +1346,48 @@ include:
 
 \apiend
 
+\apiitem{--rotate90}
+\NEW % 1.5
+Replace the current image with a new image that is rotated 90 degrees
+clockwise.
+
+\noindent Example:
+\begin{code}
+    oiiotool grid.jpg --rotate90 -o rotate90.jpg
+\end{code}
+\spc \includegraphics[width=1.25in]{figures/grid-small.jpg}
+~ {\Huge $\rightarrow$} ~
+\includegraphics[width=1.25in]{figures/rotate90.jpg} \\
+\apiend
+
+\apiitem{--rotate180}
+\NEW % 1.5
+Replace the current image with a new image that is rotated by
+180 degrees.
+
+\noindent Example:
+\begin{code}
+    oiiotool grid.jpg --rotate180 -o rotate180.jpg
+\end{code}
+\spc \includegraphics[width=1.25in]{figures/grid-small.jpg} 
+~ {\Huge $\rightarrow$} ~
+\includegraphics[width=1.25in]{figures/rotate180.jpg} \\
+\apiend
+
+\apiitem{--rotate270}
+\NEW % 1.5
+Replace the current image with a new image that is rotated 270 degrees
+clockwise (or 90 degrees counter-clockwise).
+
+\noindent Example:
+\begin{code}
+    oiiotool grid.jpg --rotate270 -o rotate270.jpg
+\end{code}
+\spc \includegraphics[width=1.25in]{figures/grid-small.jpg}
+~ {\Huge $\rightarrow$} ~
+\includegraphics[width=1.25in]{figures/rotate270.jpg} \\
+\apiend
+
 \apiitem{--flip}
 Replace the current image with a new image that is flipped vertically,
 with the top scanline becoming the bottom, and vice versa.
@@ -1350,17 +1414,19 @@ with the leftmost column becoming the rightmost, and vice versa.
 \includegraphics[width=1.25in]{figures/flop.jpg} \\
 \apiend
 
-\apiitem{--flipflop}
-Replace the current image with a new image that is both flipped and
-flopped, which is the same as a 180 degree rotation.
+\apiitem{--reorient}
+\NEW % 1.5
+Replace the current image with a new image that is rotated and/or flipped
+as necessary to move the pixels to match the Orientation metadata
+that describes the desired display orientation.
 
 \noindent Example:
 \begin{code}
-    oiiotool grid.jpg --flipflop -o flipflop.jpg
+    oiiotool tahoe.jpg --reorient -o oriented.jpg
 \end{code}
-\spc \includegraphics[width=1.25in]{figures/grid-small.jpg} 
-~ {\Huge $\rightarrow$} ~
-\includegraphics[width=1.25in]{figures/flipflop.jpg} \\
+%\spc \includegraphics[width=1.25in]{figures/grid-small.jpg} 
+%~ {\Huge $\rightarrow$} ~
+%\includegraphics[width=1.25in]{figures/flop.jpg} \\
 \apiend
 
 \apiitem{--transpose}
@@ -1421,7 +1487,6 @@ the full/display window.
 \apiend
 
 \apiitem{--cut {\rm \emph{size}}}
-\NEW % 1.4
 Replace the current image with a new copy with the given \emph{size},
 cropping old pixels no longer needed, padding black pixels where they
 previously did not exist in the old image, repositioning the cut region
@@ -1519,6 +1584,58 @@ decreasing resolution. \\
 \end{code}
 \apiend
 
+\apiitem{--rotate {\rm \emph{angle}}}
+\NEW % 1.5
+Replace the current image with a new image that is rotated by the given
+angle (in degrees). Positive angles mean to rotate counter-clockwise,
+negative angles mean clockwise. By default, the center of rotation is at the
+exact center of the display window (a.k.a.\ ``full'' image), but can be
+explicitly set with the optional {\cf center=\emph{x,y}} option.
+
+Optional appended arguments include:
+
+\begin{tabular}{p{10pt} p{1.25in} p{3.5in}}
+ & {\cf center=}\emph{x,y} & Alternate center of rotation. \\
+ & {\cf filter=}\emph{name} & Filter name. The default is \qkw{lanczos3}. \\
+ & {\small \cf recompute_roi=}\emph{val} & If nonzero, recompute the pixel data
+     window to exactly hold the transformed image (default=0). \\
+\end{tabular}
+
+\noindent Examples:
+
+\begin{tinycode}
+  oiiotool mandrill.tif --rotate 45 -o rotated.tif
+
+  oiiotool mandrill.tif --rotate:center=80,91.5:filter=lanczos3 45 -o rotated.tif
+\end{tinycode}
+\spc \includegraphics[width=1.25in]{figures/grid-small.jpg} 
+~ {\Huge $\rightarrow$} ~
+\includegraphics[width=1.25in]{figures/rotate45.jpg} \\
+\apiend
+
+
+\apiitem{--warp {\rm \emph{M33}}}
+\NEW % 1.5
+Replace the current image with a new image that is warped by the given
+$3 \times 3$ matrix (presented as a comma-separated list of values, without
+any spaces).
+
+Optional appended arguments include:
+
+\begin{tabular}{p{10pt} p{1.25in} p{3.5in}}
+ & {\cf filter=}\emph{name} & Filter name. The default is \qkw{lanczos3}. \\
+ & {\small\cf recompute_roi=}\emph{val} & If nonzero, recompute the pixel data
+     window to exactly hold the transformed image (default=0). \\
+\end{tabular}
+
+\noindent Examples:
+
+\begin{tinycode}
+  oiiotool mandrill.tif --warp "0.707,0.707,0,-0.707,0.707,0,128,-53.02,1" -o warped.tif
+\end{tinycode}
+\apiend
+
+
 \apiitem{--convolve}
 Use the top image as a kernel to convolve the next image farther down
 the stack, replacing both with the result.
@@ -1554,6 +1671,21 @@ Optional appended arguments include:
 \apiend
 
 
+\apiitem{--median {\rm \emph{size}}}
+
+\NEW % 1.5
+Perform a median filter on the top image with a window of the given size
+expressed as \emph{width}{\cf x}\emph{height}.  (The sizes are integers.)
+This helps to eliminate noise and other unwanted high-frequency detail, but
+without blurring long edges the way a {\cf --blur} command would.
+\noindent Examples:
+\begin{code}
+    oiiotool noisy.jpg --median 5x5 -o smoothed.jpg
+\end{code}
+% FIXME - should have a visual example
+\apiend
+
+
 \apiitem{--unsharp}
 Unblur the top image using an ``unsharp mask.'' 
 
@@ -1561,7 +1693,9 @@ Optional appended arguments include:
 
 \begin{tabular}{p{10pt} p{1in} p{3.75in}}
  & {\cf kernel=}\emph{name} & Name of the blur kernel (default: {\cf
-    gaussian}). \\
+    gaussian}). If the kernel name is {\cf median}, the unsarp mask
+    algorithm will use a median filter rather than a blurring filter
+    in order to compute the low-frequency image. \\
  & {\cf width=}\emph{w} & Width of the blur kernel (default: 3). \\
  & {\cf contrast=}\emph{c} & Contrast scale (default: 1.0) \\
  & {\cf threshold=}\emph{t} & Threshold for applying the difference
@@ -1573,7 +1707,13 @@ Optional appended arguments include:
     oiiotool image.jpg --unsharp -o sharper.jpg
 
     oiiotool image.jpg --unsharp:width=5:contrast=1.5 -o sharper.jpg
+
+    oiiotool image.jpg --unsharp:kernel=median -o sharper.jpg
+    # Note: median filter helps emphasize compact high-frequency details
+    # without over-sharpening long edges as the default unsharp filter
+    # sometimes does.
 \end{code}
+% FIXME - should have a visual example
 \apiend
 
 
@@ -1603,7 +1743,6 @@ the real component only of the spatial domain result).
 
 \apiitem{--polar \\
 --unpolar}
-\NEW % 1.4
 The {\cf --polar} transforms a 2-channel image whose channels are
 interpreted as complex values (real and imaginary components) into the
 equivalent values expressed in polar form of amplitude and phase (with phase

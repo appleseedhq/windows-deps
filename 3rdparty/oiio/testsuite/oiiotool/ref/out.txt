@@ -93,6 +93,14 @@ Comparing "fit.tif" and "ref/fit.tif"
 PASS
 Comparing "fit2.tif" and "ref/fit2.tif"
 PASS
+Comparing "warped.tif" and "ref/warped.tif"
+PASS
+Comparing "rotated.tif" and "ref/rotated.tif"
+PASS
+Comparing "rotated-offcenter.tif" and "ref/rotated-offcenter.tif"
+PASS
+Comparing "rotated360.tif" and "ref/rotated360.tif"
+PASS
 Comparing "histogram_regular.tif" and "ref/histogram_regular.tif"
 PASS
 Comparing "histogram_cumulative.tif" and "ref/histogram_cumulative.tif"
@@ -107,11 +115,33 @@ Comparing "mosaic.tif" and "ref/mosaic.tif"
 PASS
 Comparing "flip.tif" and "ref/flip.tif"
 PASS
+Comparing "flip-crop.tif" and "ref/flip-crop.tif"
+PASS
 Comparing "flop.tif" and "ref/flop.tif"
+PASS
+Comparing "flop-crop.tif" and "ref/flop-crop.tif"
 PASS
 Comparing "flipflop.tif" and "ref/flipflop.tif"
 PASS
+Comparing "flipflop-crop.tif" and "ref/flipflop-crop.tif"
+PASS
+Comparing "rotate90.tif" and "ref/rotate90.tif"
+PASS
+Comparing "rotate90-crop.tif" and "ref/rotate90-crop.tif"
+PASS
+Comparing "rotate270.tif" and "ref/rotate270.tif"
+PASS
+Comparing "rotate270-crop.tif" and "ref/rotate270-crop.tif"
+PASS
+Comparing "reorient1.tif" and "ref/reorient1.tif"
+PASS
+Comparing "reorient2.tif" and "ref/reorient2.tif"
+PASS
+Comparing "reorient3.tif" and "ref/reorient3.tif"
+PASS
 Comparing "transpose.tif" and "ref/transpose.tif"
+PASS
+Comparing "transpose-crop.tif" and "ref/transpose-crop.tif"
 PASS
 Comparing "cshift.tif" and "ref/cshift.tif"
 PASS
@@ -165,7 +195,11 @@ Comparing "bspline-blur.tif" and "ref/bspline-blur.tif"
 PASS
 Comparing "gauss5x5-blur.tif" and "ref/gauss5x5-blur.tif"
 PASS
+Comparing "tahoe-median.tif" and "ref/tahoe-median.tif"
+PASS
 Comparing "unsharp.tif" and "ref/unsharp.tif"
+PASS
+Comparing "unsharp-median.tif" and "ref/unsharp-median.tif"
 PASS
 Comparing "fft.exr" and "ref/fft.exr"
 PASS

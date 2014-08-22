@@ -28,6 +28,8 @@
   (This is the Modified BSD License)
 */
 
+#include <cstdio>
+
 #include "OpenImageIO/strutil.h"
 #include "OpenImageIO/unittest.h"
 
@@ -302,41 +304,47 @@ void test_conversion ()
 void test_extract ()
 {
     std::vector<int> vals;
+    int n;
 
     vals.clear(); vals.resize (3, -1);
-    Strutil::extract_from_list_string (vals, "1");
+    n = Strutil::extract_from_list_string (vals, "1");
     OIIO_CHECK_EQUAL (vals.size(), 3);
     OIIO_CHECK_EQUAL (vals[0], 1);
     OIIO_CHECK_EQUAL (vals[1], 1);
     OIIO_CHECK_EQUAL (vals[2], 1);
+    OIIO_CHECK_EQUAL (n, 1);
 
     vals.clear(); vals.resize (3, -1);
-    Strutil::extract_from_list_string (vals, "1,3,5");
+    n = Strutil::extract_from_list_string (vals, "1,3,5");
     OIIO_CHECK_EQUAL (vals.size(), 3);
     OIIO_CHECK_EQUAL (vals[0], 1);
     OIIO_CHECK_EQUAL (vals[1], 3);
     OIIO_CHECK_EQUAL (vals[2], 5);
+    OIIO_CHECK_EQUAL (n, 3);
 
     vals.clear(); vals.resize (3, -1);
-    Strutil::extract_from_list_string (vals, "1,,5");
+    n = Strutil::extract_from_list_string (vals, "1,,5");
     OIIO_CHECK_EQUAL (vals.size(), 3);
     OIIO_CHECK_EQUAL (vals[0], 1);
     OIIO_CHECK_EQUAL (vals[1], -1);
     OIIO_CHECK_EQUAL (vals[2], 5);
+    OIIO_CHECK_EQUAL (n, 3);
 
     vals.clear(); vals.resize (3, -1);
-    Strutil::extract_from_list_string (vals, "abc");
+    n = Strutil::extract_from_list_string (vals, "abc");
     OIIO_CHECK_EQUAL (vals.size(), 3);
     OIIO_CHECK_EQUAL (vals[0], 0);
     OIIO_CHECK_EQUAL (vals[1], 0);
     OIIO_CHECK_EQUAL (vals[2], 0);
+    OIIO_CHECK_EQUAL (n, 1);
 
     vals.clear(); vals.resize (3, -1);
-    Strutil::extract_from_list_string (vals, "");
+    n = Strutil::extract_from_list_string (vals, "");
     OIIO_CHECK_EQUAL (vals.size(), 3);
     OIIO_CHECK_EQUAL (vals[0], -1);
     OIIO_CHECK_EQUAL (vals[1], -1);
     OIIO_CHECK_EQUAL (vals[2], -1);
+    OIIO_CHECK_EQUAL (n, 0);
 }
 
 
@@ -490,6 +498,36 @@ void test_parse ()
 
 
 
+
+void
+test_float_formatting ()
+{
+    // For every possible float value, test that printf("%.9g"), which
+    // we are sure preserves full precision as text, exactly matches
+    // Strutil::format("%.9g") and also matches stream output with
+    // precision(9).  VERY EXPENSIVE!  Takes tens of minutes to run.
+    // Don't do this unless you really need to test it.
+    for (unsigned long long i = 0;  i <= (unsigned long long)0xffffffff;  ++i) {
+        unsigned int i32 = (unsigned int)i;
+        float *f = (float *)&i32;
+        std::ostringstream sstream;
+        sstream.precision (9);
+        sstream << *f;
+        char buffer[64];
+        sprintf (buffer, "%.9g", *f);
+        std::string tiny = Strutil::format ("%.9g", *f);
+        if (sstream.str() != tiny || tiny != buffer)
+            printf ("%x  stream '%s'  printf '%s'  Strutil::format '%s'\n",
+                    i32, sstream.str().c_str(), buffer, tiny.c_str());
+        if ((i32 & 0xfffffff) == 0xfffffff) {
+            printf ("%x\n", i32);
+            fflush (stdout);
+        }
+    }
+}
+
+
+
 int
 main (int argc, char *argv[])
 {
@@ -509,6 +547,7 @@ main (int argc, char *argv[])
     test_safe_strcpy ();
     test_string_view ();
     test_parse ();
+    // test_float_formatting ();
 
     return unit_test_failures;
 }
