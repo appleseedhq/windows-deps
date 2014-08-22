@@ -412,7 +412,8 @@ subdirectories = %s
             if library_name is None:
                 library_name_as_cstr = '0'
             else:
-                library_name_as_cstr = '"lib%s.a"' % library_name
+                # library_name_as_cstr = '"lib%s.a"' % library_name
+                library_name_as_cstr = '"%s"' % library_name
             f.write('  { "%s", %s, %d, { %s } },\n' % (
                 name, library_name_as_cstr, is_installed,
                 ', '.join('"%s"' % dep
