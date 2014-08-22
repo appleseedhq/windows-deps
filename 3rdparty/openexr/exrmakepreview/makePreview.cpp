@@ -40,7 +40,7 @@
 //----------------------------------------------------------------------------
 
 
-#include <makePreview.h>
+#include "makePreview.h"
 
 #include <ImfInputFile.h>
 #include <ImfOutputFile.h>
@@ -48,13 +48,15 @@
 #include <ImfRgbaFile.h>
 #include <ImfPreviewImage.h>
 #include <ImfArray.h>
-#include "ImathMath.h"
-#include "ImathFun.h"
+#include <ImathMath.h>
+#include <ImathFun.h>
 #include <math.h>
 #include <iostream>
+#include <algorithm>
 
-using namespace Imf;
-using namespace Imath;
+#include <OpenEXRConfig.h>
+using namespace OPENEXR_IMF_NAMESPACE;
+using namespace IMATH_NAMESPACE;
 using namespace std;
 
 

@@ -45,21 +45,42 @@
 
 #include "ImathVec.h"
 #include "ImathMatrix.h"
+#include "ImfNamespace.h"
+#include "ImfExport.h"
 
-namespace Imf {
+
+OPENEXR_IMF_INTERNAL_NAMESPACE_HEADER_ENTER
 
    
-struct Chromaticities
+struct IMF_EXPORT Chromaticities
 {
-    Imath::V2f	red;
-    Imath::V2f	green;
-    Imath::V2f	blue;
-    Imath::V2f	white;
+    //-----------------------------------------------
+    // The CIE x and y coordinates of the RGB triples
+    // (1,0,0), (0,1,0), (0,0,1) and (1,1,1).
+    //-----------------------------------------------
 
-    Chromaticities (const Imath::V2f &red   = Imath::V2f (0.6400f, 0.3300f),
-		    const Imath::V2f &green = Imath::V2f (0.3000f, 0.6000f),
-		    const Imath::V2f &blue  = Imath::V2f (0.1500f, 0.0600f),
-		    const Imath::V2f &white = Imath::V2f (0.3127f, 0.3290f));
+    IMATH_NAMESPACE::V2f	red;
+    IMATH_NAMESPACE::V2f	green;
+    IMATH_NAMESPACE::V2f	blue;
+    IMATH_NAMESPACE::V2f	white;
+
+    //--------------------------------------------
+    // Default constructor produces chromaticities
+    // according to Rec. ITU-R BT.709-3
+    //--------------------------------------------
+
+    Chromaticities (const IMATH_NAMESPACE::V2f &red   = IMATH_NAMESPACE::V2f (0.6400f, 0.3300f),
+		    const IMATH_NAMESPACE::V2f &green = IMATH_NAMESPACE::V2f (0.3000f, 0.6000f),
+		    const IMATH_NAMESPACE::V2f &blue  = IMATH_NAMESPACE::V2f (0.1500f, 0.0600f),
+		    const IMATH_NAMESPACE::V2f &white = IMATH_NAMESPACE::V2f (0.3127f, 0.3290f));
+    
+    
+    //---------
+    // Equality
+    //---------
+    
+    bool		operator == (const Chromaticities &v) const;    
+    bool		operator != (const Chromaticities &v) const;
 };
 
 
@@ -100,28 +121,11 @@ struct Chromaticities
 // 
 // 	YYZtoRGB(c,Y) returns RGBtoXYZ(c,Y).inverse().
 // 
-// Warning:
-// 
-// 	It would seem that RGBtoXYZ() and XYZtoRGB() are all you need
-// 	to convert RGB values with one set of primary and white point
-// 	chromaticities into perceptually equivalent RGB values with
-// 	different primary and white point chromaticities:
-// 
-// 	    M44f M = RGBtoXYZ (chromaticities1, Y1) *
-// 		     XYZtoRGB (chromaticities2, Y2);
-// 
-// 	However, this simple conversion does not account for white point
-// 	adaptation, and produces undesirable results.  The proper thing
-// 	to do is to perform a Bradford or a von Kries transform, which
-// 	moves the white point of the original color space to the white
-// 	point of the destination color space, dragging other colors with
-// 	it in a sensible fashion.  
-//
 
-Imath::M44f	RGBtoXYZ (const Chromaticities chroma, float Y);
-Imath::M44f	XYZtoRGB (const Chromaticities chroma, float Y);
+IMF_EXPORT IMATH_NAMESPACE::M44f    RGBtoXYZ (const Chromaticities chroma, float Y);
+IMF_EXPORT IMATH_NAMESPACE::M44f    XYZtoRGB (const Chromaticities chroma, float Y);
 
 
-} // namespace Imf
+OPENEXR_IMF_INTERNAL_NAMESPACE_HEADER_EXIT
 
 #endif

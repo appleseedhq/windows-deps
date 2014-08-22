@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucasfilm
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucasfilm
 // Entertainment Company Ltd.  Portions contributed and copyright held by
 // others as indicated.  All rights reserved.
 //
@@ -36,8 +36,6 @@
 //
 //////////////////////////////////////////////////////////////////////////////
 
-#include <tmpDir.h>
-
 #include <ImfRgbaFile.h>
 #include <ImfArray.h>
 #include <ImfThreading.h>
@@ -47,9 +45,10 @@
 #include <assert.h>
 #include <algorithm>
 
-using namespace Imf;
-using namespace Imath;
+
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
+using namespace IMATH_NAMESPACE;
 
 namespace {
 
@@ -204,13 +203,13 @@ writeReadYca (const char fileName[],
 
 
 void
-testYca ()
+testYca (const std::string &tempDir)
 {
     try
     {
         cout << "Testing luminance/chroma input and output" << endl;
 
-	const char *fileName = IMF_TMP_DIR "imf_test_yca.exr";
+	std::string fileName = tempDir + "imf_test_yca.exr";
 
 	Box2i dataWindow[6];
 	dataWindow[0] = Box2i (V2i (0, 0), V2i (1, 17));
@@ -220,11 +219,11 @@ testYca ()
 	dataWindow[4] = Box2i (V2i (0, 0), V2i (1, 1));
 	dataWindow[5] = Box2i (V2i (-18, -28), V2i (247, 255));
 
-	int maxThreads = IlmThread::supportsThreads()? 3: 0;
+	int maxThreads = ILMTHREAD_NAMESPACE::supportsThreads()? 3: 0;
 
 	for (int n = 0; n <= maxThreads; ++n)
 	{
-	    if (IlmThread::supportsThreads())
+	    if (ILMTHREAD_NAMESPACE::supportsThreads())
 	    {
 		setGlobalThreadCount (n);
 		cout << "\nnumber of threads: " << globalThreadCount() << endl;
@@ -240,25 +239,25 @@ testYca ()
 			 readOrder <= RANDOM_Y;
 			 ++readOrder)
 		    {
-			writeReadYca (fileName, dataWindow[i],
+			writeReadYca (fileName.c_str(), dataWindow[i],
 				      WRITE_YCA,
 				      LineOrder (writeOrder),
 				      LineOrder (readOrder),
 				      fillPixelsColor);
 
-			writeReadYca (fileName, dataWindow[i],
+			writeReadYca (fileName.c_str(), dataWindow[i],
 				      WRITE_YC,
 				      LineOrder (writeOrder),
 				      LineOrder (readOrder),
 				      fillPixelsColor);
 
-			writeReadYca (fileName, dataWindow[i],
+			writeReadYca (fileName.c_str(), dataWindow[i],
 				      WRITE_YA,
 				      LineOrder (writeOrder),
 				      LineOrder (readOrder),
 				      fillPixelsGray);
 
-			writeReadYca (fileName, dataWindow[i],
+			writeReadYca (fileName.c_str(), dataWindow[i],
 				      WRITE_Y,
 				      LineOrder (writeOrder),
 				      LineOrder (readOrder),

@@ -42,20 +42,21 @@
 //
 //-----------------------------------------------------------------------------
 
-
 #include <ImfOutputFile.h>
 #include <ImfInputFile.h>
 #include <ImfChannelList.h>
 #include <ImfStringAttribute.h>
 #include <ImfMatrixAttribute.h>
 #include <ImfArray.h>
-#include <drawImage.h>
+
+#include "drawImage.h"
 
 #include <iostream>
 
+#include "namespaceAlias.h"
+using namespace IMF;
 using namespace std;
-using namespace Imf;
-using namespace Imath;
+using namespace IMATH_NAMESPACE;
 
 
 void
@@ -77,21 +78,21 @@ writeGZ1 (const char fileName[],
     //
 
     Header header (width, height);
-    header.channels().insert ("G", Channel (HALF));
-    header.channels().insert ("Z", Channel (FLOAT));
+    header.channels().insert ("G", Channel (IMF::HALF));
+    header.channels().insert ("Z", Channel (IMF::FLOAT));
 
     OutputFile file (fileName, header);
 
     FrameBuffer frameBuffer;
 
     frameBuffer.insert ("G",					// name
-		        Slice (HALF,				// type
+		        Slice (IMF::HALF,			// type
 			       (char *) gPixels,		// base
 			       sizeof (*gPixels) * 1,		// xStride
 			       sizeof (*gPixels) * width));	// yStride
 
     frameBuffer.insert ("Z",					// name
-			Slice (FLOAT,				// type
+			Slice (IMF::FLOAT,			// type
 			       (char *) zPixels,		// base
 			       sizeof (*zPixels) * 1,		// xStride
 			       sizeof (*zPixels) * width));	// yStride
@@ -124,21 +125,21 @@ writeGZ2 (const char fileName[],
 
     Header header (width, height);
     header.dataWindow() = dataWindow;
-    header.channels().insert ("G", Channel (HALF));
-    header.channels().insert ("Z", Channel (FLOAT));
+    header.channels().insert ("G", Channel (IMF::HALF));
+    header.channels().insert ("Z", Channel (IMF::FLOAT));
 
     OutputFile file (fileName, header);
 
     FrameBuffer frameBuffer;
 
     frameBuffer.insert ("G",					// name
-			Slice (HALF,				// type
+			Slice (IMF::HALF,			// type
 			       (char *) gPixels,		// base
 			       sizeof (*gPixels) * 1,		// xStride
 			       sizeof (*gPixels) * width));	// yStride
 
     frameBuffer.insert ("Z",					// name
-			Slice (FLOAT,				// type
+			Slice (IMF::FLOAT,			// type
 			       (char *) zPixels,		// base
 			       sizeof (*zPixels) * 1,		// xStride
 			       sizeof (*zPixels) * width));	// yStride
@@ -182,7 +183,7 @@ readGZ1 (const char fileName[],
     FrameBuffer frameBuffer;
 
     frameBuffer.insert ("R",					// name
-			Slice (HALF,				// type
+			Slice (IMF::HALF,			// type
 			       (char *) (&rPixels[0][0] -	// base
 					 dw.min.x -
 					 dw.min.y * width),
@@ -192,7 +193,7 @@ readGZ1 (const char fileName[],
 			       0.0));				// fillValue
 
     frameBuffer.insert ("G",					// name
-			Slice (HALF,				// type
+			Slice (IMF::HALF,			// type
 			       (char *) (&gPixels[0][0] -	// base
 					 dw.min.x -
 					 dw.min.y * width),
@@ -202,7 +203,7 @@ readGZ1 (const char fileName[],
 			       0.0));				// fillValue
 
     frameBuffer.insert ("Z",					// name
-			Slice (FLOAT,				// type
+			Slice (IMF::FLOAT,			// type
 			       (char *) (&zPixels[0][0] -	// base
 					 dw.min.x -
 					 dw.min.y * width),
@@ -245,13 +246,13 @@ readGZ2 (const char fileName[],
     FrameBuffer frameBuffer;
 
     frameBuffer.insert ("G",					 // name
-                        Slice (HALF,				 // type
+                        Slice (IMF::HALF,			 // type
 			       (char *) &pixels[-dy][-dx].g,	 // base
 				sizeof (pixels[0][0]) * 1,	 // xStride
 				sizeof (pixels[0][0]) * width)); // yStride
 
     frameBuffer.insert ("Z",					 // name
-                        Slice (FLOAT,				 // type
+                        Slice (IMF::FLOAT,			 // type
 			       (char *) &pixels[-dy][-dx].z,	 // base
 				sizeof (pixels[0][0]) * 1,	 // xStride
 				sizeof (pixels[0][0]) * width)); // yStride

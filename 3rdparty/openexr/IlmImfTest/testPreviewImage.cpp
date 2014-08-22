@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2003, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2003-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,8 +33,6 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
-
 #include <ImfRgbaFile.h>
 #include <ImfArray.h>
 #include <ImfPreviewImage.h>
@@ -47,9 +45,10 @@
 #endif
 
 
-using namespace Imf;
-using namespace Imath;
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -91,7 +90,7 @@ readWriteFiles (const char fileName1[],
     int dx = dw.min.x;
     int dy = dw.min.y;
 
-    Array<Imf::Rgba> pixels1 (w * h);
+    Array<OPENEXR_IMF_NAMESPACE::Rgba> pixels1 (w * h);
     file1.setFrameBuffer (pixels1 - dx - dy * w, 1, w);
     file1.readPixels (dw.min.y, dw.max.y);
 
@@ -143,7 +142,7 @@ readWriteFiles (const char fileName1[],
 	int dx = dw.min.x;
 	int dy = dw.min.y;
 
-	Array<Imf::Rgba> pixels2 (w * h);
+	Array<OPENEXR_IMF_NAMESPACE::Rgba> pixels2 (w * h);
 	file2.setFrameBuffer (pixels2 - dx - dy * w, 1, w);
 	file2.readPixels (dw.min.y, dw.max.y);
 
@@ -201,18 +200,18 @@ readWriteFiles (const char fileName1[],
 
 
 void
-testPreviewImage ()
+testPreviewImage (const std::string &tempDir)
 {
-    const char *filename1 = IMF_TMP_DIR "imf_preview1.exr";
-    const char *filename2 = IMF_TMP_DIR "imf_preview2.exr";
+    std::string filename1 = tempDir + "imf_preview1.exr";
+    std::string filename2 = tempDir + "imf_preview2.exr";
 
     try
     {
 	cout << "Testing preview image attribute" << endl;
 
 	readWriteFiles (ILM_IMF_TEST_IMAGEDIR "comp_piz.exr",
-			filename1,
-			filename2);
+			filename1.c_str(),
+			filename2.c_str());
 
 	cout << "ok\n" << endl;
     }

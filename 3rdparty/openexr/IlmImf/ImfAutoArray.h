@@ -39,18 +39,18 @@
 
 //-----------------------------------------------------------------------------
 //
-//	class AutoArray -- a workaround for the
-//	lack of large auto arrays on Mac OS X and
-//      Win32.
+//	class AutoArray -- a workaround for systems with
+//	insufficient stack space for large auto arrays.
 //
 //-----------------------------------------------------------------------------
 
-#include "OpenEXRConfig.h"
+#include "ImfNamespace.h"
+#include <string.h>
 
-namespace Imf {
+OPENEXR_IMF_INTERNAL_NAMESPACE_HEADER_ENTER
 
 
-#if defined (HAVE_DARWIN) || defined (_WIN32) || defined (_WIN64)
+#if !defined (HAVE_LARGE_STACK)
 
 
     template <class T, int size>
@@ -58,7 +58,7 @@ namespace Imf {
     {
       public:
 
-	 AutoArray (): _data (new T [size]) {}
+	 AutoArray (): _data (new T [size]) { memset(_data, 0, size*sizeof(T)); }
 	~AutoArray () {delete [] _data;}
 
 	operator T * ()			{return _data;}
@@ -89,6 +89,7 @@ namespace Imf {
 
 #endif
 
-} // namespace Imf
+OPENEXR_IMF_INTERNAL_NAMESPACE_HEADER_EXIT
+
 
 #endif

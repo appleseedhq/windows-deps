@@ -43,22 +43,24 @@
 
 #include <ImfTileDescription.h>
 #include <ImfCompression.h>
+#include <readInputImage.h>
+#include "namespaceAlias.h"
 
 
 void
-makeLatLongMap (const char inFileName[],
-	        const char outFileName[],
-	        int tileWidth,
-	        int tileHeight,
-	        Imf::LevelMode levelMode,
-	        Imf::LevelRoundingMode roundingMode,
-		Imf::Compression compresssion,
-	        int mapWidth,
-	        float padTop,
-	        float padBottom,
-	        float filterRadius,
-	        int numSamples,
-	        bool verbose);
+makeLatLongMap (EnvmapImage &image,
+                IMF::Header &header,
+                IMF::RgbaChannels channels,
+                const char outFileName[],
+                int tileWidth,
+                int tileHeight,
+                IMF::LevelMode levelMode,
+                IMF::LevelRoundingMode roundingMode,
+                IMF::Compression compresssion,
+                int mapWidth,
+                float filterRadius,
+                int numSamples,
+                bool verbose);
 
 
-#endif
+#endif  // INCLUDED_MAKE_LATLONG_MAP_H

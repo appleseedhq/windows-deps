@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2002, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2002-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -41,9 +41,11 @@
 
 #include <assert.h>
 
-using namespace Imf;
-using namespace Imath;
+
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -234,7 +236,7 @@ testRounding ()
 
 
 void
-testLut ()
+testLut (const std::string&)
 {
     try
     {

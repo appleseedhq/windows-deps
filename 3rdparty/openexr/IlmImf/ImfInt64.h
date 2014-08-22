@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2006, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -32,30 +32,25 @@
 //
 ///////////////////////////////////////////////////////////////////////////
 
-
 #ifndef INCLUDED_IMF_INT64_H
 #define INCLUDED_IMF_INT64_H
 
 //----------------------------------------------------------------------------
 //
-//	Int64 -- unsigned 64-bit integers
+//	Int64 -- unsigned 64-bit integers, imported from namespace Imath
 //
 //----------------------------------------------------------------------------
 
-#include <limits.h>
+#include "ImathInt64.h"
+#include "ImfNamespace.h"
 
-namespace Imf {
+OPENEXR_IMF_INTERNAL_NAMESPACE_HEADER_ENTER
 
+using IMATH_NAMESPACE::Int64;
 
-#if (defined _WIN32 || defined _WIN64) && _MSC_VER >= 1300
-    typedef unsigned __int64 Int64;
-#elif ULONG_MAX == 18446744073709551615LU
-    typedef long unsigned int Int64;
-#else
-    typedef long long unsigned int Int64;
-#endif
+OPENEXR_IMF_INTERNAL_NAMESPACE_HEADER_EXIT
 
 
-} // namespace Imf
 
-#endif
+
+#endif // INCLUDED_IMF_INT64_H

@@ -37,14 +37,17 @@
 
 //-----------------------------------------------------------------------------
 //
-//	class EnvmapImage
+//        class EnvmapImage
 //
 //-----------------------------------------------------------------------------
+
+#include "namespaceAlias.h"
 
 #include <ImfArray.h>
 #include <ImfRgba.h>
 #include <ImfEnvmap.h>
-#include "ImathBox.h"
+#include <ImathBox.h>
+
 
 
 class EnvmapImage
@@ -52,30 +55,31 @@ class EnvmapImage
   public:
 
       EnvmapImage ();
-      EnvmapImage (Imf::Envmap type, const Imath::Box2i &dataWindow);
+      EnvmapImage (IMF::Envmap type, const IMATH::Box2i &dataWindow);
       
-      void				resize (Imf::Envmap type,
-	      					const Imath::Box2i &dataWindow);
+      void                      resize (IMF::Envmap type,
+                                        const IMATH::Box2i &dataWindow);
 
-      void				clear ();
+      void                      clear ();
 
-      Imf::Envmap			type () const;
-      const Imath::Box2i &		dataWindow () const;
+      IMF::Envmap               type () const;
+      const IMATH::Box2i &      dataWindow () const;
 
-      Imf::Array2D<Imf::Rgba> &		pixels ();
-      const Imf::Array2D<Imf::Rgba> &	pixels () const;
+      IMF::Array2D<IMF::Rgba> & pixels ();
+      const IMF::Array2D<IMF::Rgba> &
+                                pixels () const;
       
-      Imf::Rgba 			filteredLookup (Imath::V3f direction,
-							float radius,
-							int numSamples) const;
+      IMF::Rgba                 filteredLookup (IMATH::V3f direction,
+                                                float radius,
+                                                int numSamples) const;
 
   private:
       
-      Imf::Rgba 			sample (const Imath::V2f &pos) const;
+      IMF::Rgba                 sample (const IMATH::V2f &pos) const;
 
-      Imf::Envmap		_type;
-      Imath::Box2i		_dataWindow;
-      Imf::Array2D<Imf::Rgba>	_pixels;
+      IMF::Envmap               _type;
+      IMATH::Box2i              _dataWindow;
+      IMF::Array2D<IMF::Rgba>   _pixels;
 };
 
 

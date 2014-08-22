@@ -1,3 +1,219 @@
+Version 2.0.1
+	* Temporarily turning off optimisation code path
+	  (Piotr Stanczyk)
+	* Added additional tests for future optimisation refactoring
+	  (Piotr Stanczyk / Peter Hillman)
+	* Fixes for StringVectors
+	  (Peter Hillman)
+	* Additional checks for type mismatches
+	  (Peter Hillman)
+	* Fix for Composite Deep Scanline
+	  (Brendan Bolles)
+
+Version 2.0.0
+	* Updated Documentation
+	   (Peter Hillman)
+	* Updated Namespacing mechanism
+	   (Piotr Stanczyk)
+	* Fixes for succd & predd
+	   (Peter Hillman)
+	* Fixes for FPE control registers
+	   (Piotr Stanczyk)
+	* Additional checks and tests on DeepImages, scanlines and tiles
+	   (Peter Hillman)
+	* Folded in Autodesk read optimisations for RGB(A) files
+	  (Pascal Jette, Peter Hillman)
+	* Updated the bootstrap scripts to use libtoolize if glibtoolize isn't available on darwin. 
+	  (Nick Rasmussen)
+	* Numerous minor fixes, missing includes etc
+
+Version 2.0.0.beta.1:
+* Please read the separate file for v2 additions and changes.
+	* Added git specific files 
+	  (Piotr Stanczyk)
+	* Updated the so verison to 20
+	  (Piotr Stanczyk)
+	* Initial use of the CMake build system 
+	  (Nicholas Yue)
+
+Version 1.7.1:
+	* Updated the .so verison to 7.
+	  (Piotr Stanczyk)     
+
+Version 1.7.0:
+	* Added support for targetting builds on 64bit Windows and minimising 
+	  number of compiler warnings on Windows. Thanks to Ger Hobbelt for his
+	  contributions to CreateDLL.
+	  (Ji Hun Yu)
+	* Added new atttribute types:
+	  M33dAttribute   3x3 double-precision matrix
+	  M44dAttribute   4x4 double-precision matrix
+	  V2d             2D double-precision vector
+	  V3d             3D double-precision vector
+	  (Florian Kainz)
+	* Bug fix: crash when reading a damaged image file (found
+	  by Apple).  An exception thrown inside the PIZ Huffman
+	  decoder bypasses initialization of an array of pointers.
+	  The uninitialized pointers are later passed to operator
+	  delete.
+	  (Florian Kainz)
+	* Bug fix: crash when reading a damaged image file (found by
+	  Apple).  Computing the size of input certain buffers may
+	  overflow and wrap around to a small number, later causing
+	  writes beyond the end of the buffer.
+	  (Florian Kainz)
+	* In the "Technical Introduction" document, added
+	  Premultiplied vs. Un-Premulitiplied Color section:
+	  states explicitly that pixels with zero alpha and non-zero
+	  RGB are allowed, points out that preserving such a pixel can
+	  be a problem in application programs with un-premultiplied
+	  internal image representations.
+	  (Florian Kainz)
+	* exrenvmap improvements:
+	  - New command line flags set the type of the input image to
+	    latitude-longitude map or cube-face map, overriding the
+	    envmap attribute in the input file header.
+	  - Cube-face maps can now be assembled from or split into six
+	    square sub-images.
+	  - Converting a cube-face map into a new cube-face map with
+	    the same face size copies the image instead of resampling
+	    it.  This avoids blurring when a cube-face map is assembled
+	    from or split into sub-images.
+	  (Florian Kainz)
+	* Updated standard chromaticities in ImfAcesFile.cpp to match
+	  final ACES (Academy Color Encoding Specification) document.
+	  (Florian Kainz)
+	* Added worldToCamera and worldToNDC matrices to
+	  ImfStandardAttributes.h (Florian Kainz)
+	* Increased the maximum length of attribute and channel names
+	  from 31 to 255 characters.  For files that do contain names
+	  longer than 31 characters, a new LONG_NAMES_FLAG in the fil
+	  version number is set.  This flag causes older versions of
+	  the IlmImf library (1.6.1 and earlier) to reject files with
+	  long names.  Without the flag, older library versions would
+	  mis-interpret files with long names as broken.
+	  (Florian Kainz)
+	* Reading luminance/chroma-encoded files via the RGBA
+	  interface is faster: buffer padding avoids cache thrashing
+	  for certain image sizes, redundant calls to saturation()
+	  have been eliminated.
+	  (Mike Wall)
+	* Added "hemispherical blur" option to exrenvmap.
+	  (Florian Kainz)
+	* Added experimental version of I/O classes for ACES file
+	  format (restricted OpenEXR format with special primaries
+	  and white point); added exr2aces file converter.
+	  (Florian Kainz)
+	* Added new constructors to classes Imf::RgbaInputFile and
+	  Imf::TiledRgbaInputFile.  The new constructors have a
+	  layerName parameter, which allows the caller to specify
+	  which layer of a multi-layer or multi-view image will
+	  be read.
+	  (Florian Kainz)
+	* A number of member functions in classes Imf::Header,
+	  Imf::ChannelList and Imf::FrameBuffer have parameters
+	  of type "const char *".  Added equivalent functions that
+	  take "const std::string &" parameters.
+	  (Florian Kainz)
+	* Added library support for Weta Digital multi-view images:
+	  StringVector attribute type, multiView standard attribute
+	  of type StringVector, utility functions related to grouping
+	  channels into separate views.
+	  (Peter Hillman, Florian Kainz)
+
+Version 1.6.1:
+	* Removed Windows .suo files from distribution.
+	  (Eric Wimmer)
+	* Bug fix: crashes, memory leaks and file descriptor leaks
+	  when reading damaged image files (some reported by Apple,
+	  others found by running IlmImfFuzzTest).
+	  (Florian Kainz)
+	* Added new IlmImfFuzzTest program to test how resilient the
+	  IlmImf library is with respect broken input files: the program
+	  first damages OpenEXR files by partially overwriting them with
+	  random data; then it tries to read the damaged files.  If all
+	  goes well, the program doesn't crash.
+	  (Florian Kainz)
+
+Version 1.6.0:
+	* Bumped DSO version number to 6.0
+	  (Florian Kainz)
+	* Added new standard attributes related to color rendering with
+	  CTL (Color Transformation Language): renderingTransform,
+	  lookModTransform and adoptedNeutral.
+	  (Florian Kainz)
+	* Bug fix: for pixels with luminance near HALF_MIN, conversion
+	  from RGB to luminance/chroma produces NaNs and infinities
+	  (Florian Kainz)
+	* Bug fix: excessive desaturation of small details with certain
+	  colors after repeatedly loading and saving luminance/chroma
+	  encoded images with B44 compression.
+	  (Florian Kainz)
+	* Added B44A compression, a minor variation of B44: in most cases,
+	  the compression ratio is 2.28:1, the same as with B44, but in
+	  uniform image areas where all pixels have the same value, the
+	  compression ratio increases to 10.66:1.  Uniform areas occur, for
+	  example, in an image's alpha channel, which typically contains
+	  large patches that are solid black or white, or in computer-
+	  generated images with a black background.
+	  (Florian Kainz)
+	* Added flag to configure.ac to enable or disable use of large
+	  auto arrays in the IlmImf library.  Default is "enable" for
+	  Linux, "disable" for everything else.
+	  (Darby Johnston, Florian Kainz)
+	* corrected version number on dso's (libtool) - now 5.0
+	* Separated ILMBASE_LDFLAGS and ILMBASE_LIBS so that test programs
+	  can link with static libraries properly
+	* eliminated some warning messages during install
+	  (Andrew Kunz)
+	
+Version 1.5.0:
+	* reorganized packaging of OpenEXR libraries to facilitate
+	  integration with CTL.  Now this library depends on the library
+	  IlmBase.  Some functionality has been moved into OpenEXR_Viewers,
+	  which depends on two other libraries, CTL and OpenEXR_CTL.
+	  Note: previously there were separate releases of
+	  OpenEXR-related plugins for Renderman, Shake and Photoshop.
+	  OpenEXR is supported natively by Rendermand and Photoshop, so
+	  these plugins will not be supported for this or future
+	  versions of OpenEXR.
+	  (Andrew Kunz)
+	* New build scripts for Linux/Unix
+	  (Andrew Kunz)
+	* New Windows project files and build scripts
+	  (Kimball Thurston)
+	* float-to-half conversion now preserves the sign of float zeroes
+	  and of floats that are so small that they become half zeroes.
+	  (Florian Kainz)
+	* Bug fix: Imath::Frustum<T>::planes() returns incorrect planes
+	  if the frustum is orthogonal.
+	  (Philip Hubbard)
+	* added new framesPerSecond optional standard attribute
+	  (Florian Kainz)
+	* Imath cleanup:
+	  - Rewrote function Imath::Quat<T>::setRotation() to make it
+	    numerically more accurate, added confidence tests
+	  - Rewrote function Imath::Quat<T>::slerp() using Don Hatch's
+	    method, which is numerically more accurate, added confidence
+	    tests.
+	  - Rewrote functions Imath::closestPoints(), Imath::intersect(),
+	    added confidence tests.
+	  - Removed broken function Imath::nearestPointOnTriangle().
+	  - Rewrote Imath::drand48(), Imath::lrand48(), etc. to make
+	    them functionally identical with the Unix/Linux versions
+	    of drand48(), lrand48() and friends.
+	  - Replaced redundant definitions of Int64 in Imath and IlmImf
+	    with a single definition in ImathInt64.h.
+	  (Florian Kainz)
+	* exrdisplay: if the file's and the display's RGB chromaticities
+	  differ, the pixels RGB values are transformed from the file's
+	  to the display's RGB space.
+	  (Florian Kainz)
+	* Added new lossy B44 compression method.  HALF channels are
+	  compressed with a fixed ratio of 2.28:1.  UINT and FLOAT
+	  channels are stored verbatim, without compression.
+	  (Florian Kainz)
+
 Version 1.4.0a:
 	* Fixed the ReleaseDLL targets for Visual Studio 2003.
 	  (Barnaby Robson)

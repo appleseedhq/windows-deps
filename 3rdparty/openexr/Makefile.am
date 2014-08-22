@@ -1,11 +1,23 @@
 ## Process this file with automake to produce Makefile.in
 
-SUBDIRS = config Half HalfTest Iex IexTest Imath ImathTest IlmThread IlmImf \
-	  IlmImfTest exrdisplay exrheader exrmaketiled IlmImfExamples doc vc \
-	  exrstdattr exrmakepreview exrenvmap
+# tell autoconf to include the m4 macros in the /m4 directory 
+# (an alternative to the acinclude.m4 mechanism)
+ACLOCAL_AMFLAGS = -I m4
 
-EXTRA_DIST = bootstrap README.win32 README.OSX README.CVS LICENSE openexr.m4 \
-	     config.windows/OpenEXRConfig.h
+SUBDIRS = config IlmImf IlmImfUtil IlmImfTest IlmImfUtilTest \
+	  IlmImfFuzzTest exrheader exrmaketiled IlmImfExamples doc \
+	  exrstdattr exrmakepreview exrenvmap exrmultiview exrmultipart
+
+DIST_SUBDIRS = \
+	$(SUBDIRS) 
+
+EXTRA_DIST = \
+	AUTHORS COPYING ChangeLog INSTALL LICENSE NEWS PATENTS \
+        README README.CVS README.OSX README.win32 \
+	README.git README.namespacing README.cmake.txt \
+	bootstrap openexr.m4 \
+	config.windows/OpenEXRConfig.h \
+        CMakeLists.txt
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = OpenEXR.pc

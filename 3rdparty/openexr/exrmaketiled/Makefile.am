@@ -2,22 +2,23 @@
 
 bin_PROGRAMS = exrmaketiled
 
-INCLUDES = -I$(top_builddir) -I$(top_srcdir)/Iex \
-           -I$(top_srcdir)/Half -I$(top_srcdir)/Imath \
-           -I$(top_srcdir)/IlmImf -I$(top_srcdir)/config
+INCLUDES = -I$(top_builddir) \
+           -I$(top_srcdir)/IlmImf -I$(top_srcdir)/config \
+	   @ILMBASE_CXXFLAGS@
 
-LDADD = \
-	$(top_builddir)/Imath/libImath.la \
+LDADD = @ILMBASE_LDFLAGS@ @ILMBASE_LIBS@ \
 	$(top_builddir)/IlmImf/libIlmImf.la \
-	$(top_builddir)/Iex/libIex.la \
-	$(top_builddir)/Half/libHalf.la \
-	$(top_builddir)/IlmThread/libIlmThread.la \
 	-lz
 
-exrmaketiled_SOURCES = main.cpp Image.h Image.cpp makeTiled.cpp makeTiled.h
+exrmaketiled_SOURCES = main.cpp \
+		       Image.h Image.cpp \
+		       makeTiled.cpp makeTiled.h \
+		       namespaceAlias.h
 
 noinst_HEADERS = Image.h makeTiled.h
 
-EXTRA_DIST = main.cpp Image.h Image.cpp makeTiled.cpp makeTiled.h
-
-
+EXTRA_DIST = main.cpp \
+	     Image.h Image.cpp \
+	     makeTiled.cpp makeTiled.h \
+	     namespaceAlias.h \
+             CMakeLists.txt

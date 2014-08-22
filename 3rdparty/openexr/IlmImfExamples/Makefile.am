@@ -4,27 +4,29 @@ if BUILD_IMFEXAMPLES
 noinst_PROGRAMS = imfexamples
 endif
 
-INCLUDES = -I$(top_builddir) -I$(top_srcdir)/Iex \
-           -I$(top_srcdir)/Half -I$(top_srcdir)/Imath \
-           -I$(top_srcdir)/IlmImf -I$(top_srcdir)/config
+INCLUDES = -I$(top_builddir) \
+           -I$(top_srcdir)/IlmImf -I$(top_srcdir)/config \
+	   @ILMBASE_CXXFLAGS@
 
-LDADD = -L$(top_builddir)/Iex -L$(top_builddir)/Half \
-	-L$(top_builddir)/Imath -L$(top_builddir)/IlmThread \
-	-L$(top_builddir)/IlmImf \
-	-lIlmImf -lIlmThread -lImath -lHalf -lIex -lz
+LDADD = -L$(top_builddir)/IlmImf \
+	@ILMBASE_LDFLAGS@ @ILMBASE_LIBS@ \
+	-lIlmImf -lz
 
 imfexamples_SOURCES = main.cpp drawImage.cpp rgbaInterfaceExamples.cpp \
 		      rgbaInterfaceTiledExamples.cpp \
 		      generalInterfaceExamples.cpp \
 		      lowLevelIoExamples.cpp previewImageExamples.cpp \
 		      generalInterfaceTiledExamples.cpp \
-	              generalInterfaceTiledExamples.h drawImage.h \
+		      generalInterfaceTiledExamples.h drawImage.h \
 		      rgbaInterfaceExamples.h generalInterfaceExamples.h \
 		      rgbaInterfaceTiledExamples.h \
-		      lowLevelIoExamples.h previewImageExamples.h
+		      lowLevelIoExamples.h previewImageExamples.h \
+		      namespaceAlias.h
 
 examplesdir = $(datadir)/doc/OpenEXR-@OPENEXR_VERSION@/examples
 examples_DATA = $(imfexamples_SOURCES)
 
 imfexamplesdir = $(examplesdir)
+
+EXTRA_DIST = CMakeLists.txt
 

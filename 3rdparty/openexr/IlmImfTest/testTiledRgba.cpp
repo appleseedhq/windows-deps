@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,22 +33,29 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
+#include "compareB44.h"
+#include "compareDwa.h"
 
 #include <ImfTiledRgbaFile.h>
+#include <ImfTiledOutputFile.h>
+#include <ImfChannelList.h>
+#include <ImfFrameBuffer.h>
 #include <ImfArray.h>
 #include <ImfThreading.h>
-#include "IlmThread.h"
-#include "ImathRandom.h"
+#include <IlmThread.h>
+#include <ImathRandom.h>
 #include <string>
 #include <stdio.h>
 #include <assert.h>
 #include <vector>
 #include <math.h>
+#include <algorithm>
 
-using namespace Imf;
-using namespace Imath;
+
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -72,11 +79,11 @@ fillPixels (Array2D<Rgba> &pixels, int w, int h)
 
 void
 writeReadRGBAONE (const char fileName[],
-	       int width,
-	       int height,
-	       RgbaChannels channels,
-	       Compression comp,
-           int xSize, int ySize)
+	          int width,
+		  int height,
+		  RgbaChannels channels,
+		  Compression comp,
+		  int xSize, int ySize)
 {
     cout << "levelMode 0" <<
             ", compression " << comp <<
@@ -126,31 +133,71 @@ writeReadRGBAONE (const char fileName[],
         assert (in.compression() == header.compression());
         assert (in.channels() == channels);
 
-        for (int y = 0; y < h; ++y)
-        {
-            for (int x = 0; x < w; ++x)
-            {
-		if (channels & WRITE_R)
-		    assert (p2[y][x].r == p1[y][x].r);
-		else
-		    assert (p2[y][x].r == 0);
+	if (comp == B44_COMPRESSION ||
+            comp == B44A_COMPRESSION ||
+	    comp == DWAA_COMPRESSION ||
+            comp == DWAB_COMPRESSION)
+	{
+	    for (int y = 0; y < h; y += ySize)
+	    {
+		for (int x = 0; x < w; x += xSize)
+		{
+		    int nx = min (w - x, xSize);
+		    int ny = min (h - y, ySize);
 
-		if (channels & WRITE_G)
-		    assert (p2[y][x].g == p1[y][x].g);
-		else
-		    assert (p2[y][x].g == 0);
+		    Array2D<Rgba> p3 (ny, nx);
+		    Array2D<Rgba> p4 (ny, nx);
 
-		if (channels & WRITE_B)
-		    assert (p2[y][x].b == p1[y][x].b);
-		else
-		    assert (p2[y][x].b == 0);
+		    for (int y1 = 0; y1 < ny; ++y1)
+		    {
+			for (int x1 = 0; x1 < nx; ++x1)
+			{
+			    p3[y1][x1] = p1[y + y1][x + x1];
+			    p4[y1][x1] = p2[y + y1][x + x1];
+			}
+		    }
 
-		if (channels & WRITE_A)
-		    assert (p2[y][x].a == p1[y][x].a);
-		else
-		    assert (p2[y][x].a == 1);
-            }
-        }
+                    if (comp == B44_COMPRESSION ||
+                        comp == B44A_COMPRESSION)
+                    {
+                        compareB44 (nx, ny, p3, p4, channels);
+                    }
+		    else if (comp == DWAA_COMPRESSION ||
+                             comp == DWAB_COMPRESSION)
+                    {
+		        compareDwa (nx, ny, p3, p4, channels);
+                    }
+		}
+	    }
+	}
+	else
+	{
+	    for (int y = 0; y < h; ++y)
+	    {
+		for (int x = 0; x < w; ++x)
+		{
+		    if (channels & WRITE_R)
+			assert (p2[y][x].r == p1[y][x].r);
+		    else
+			assert (p2[y][x].r == 0);
+
+		    if (channels & WRITE_G)
+			assert (p2[y][x].g == p1[y][x].g);
+		    else
+			assert (p2[y][x].g == 0);
+
+		    if (channels & WRITE_B)
+			assert (p2[y][x].b == p1[y][x].b);
+		    else
+			assert (p2[y][x].b == 0);
+
+		    if (channels & WRITE_A)
+			assert (p2[y][x].a == p1[y][x].a);
+		    else
+			assert (p2[y][x].a == 1);
+		}
+	    }
+	}
     }
 
     remove (fileName);
@@ -159,11 +206,11 @@ writeReadRGBAONE (const char fileName[],
 
 void
 writeReadRGBAMIP (const char fileName[],
-	       int width,
-	       int height,
-	       RgbaChannels channels,
-	       Compression comp,
-           int xSize, int ySize)
+	          int width,
+		  int height,
+		  RgbaChannels channels,
+		  Compression comp,
+		  int xSize, int ySize)
 {
     cout << "levelMode 1" <<
             ", compression " << comp <<
@@ -267,11 +314,11 @@ writeReadRGBAMIP (const char fileName[],
 
 void
 writeReadRGBARIP (const char fileName[],
-	       int width,
-	       int height,
-	       RgbaChannels channels,
-	       Compression comp,
-           int xSize, int ySize)
+	          int width,
+		  int height,
+		  RgbaChannels channels,
+		  Compression comp,
+		  int xSize, int ySize)
 {
     cout << "levelMode 2" <<
             ", compression " << comp <<
@@ -389,22 +436,43 @@ writeReadRGBARIP (const char fileName[],
 
 
 void
-writeRead (int W, int H, Compression comp, int xSize, int ySize)
+writeRead (const std::string &tempDir,
+           int W,
+           int H,
+           Compression comp,
+           int xSize,
+           int ySize)
 {
-    const char *filename = IMF_TMP_DIR "imf_test_tiled_rgba.exr";
+    std::string filename = tempDir + "imf_test_tiled_rgba.exr";
 
-    writeReadRGBAONE (filename, W, H, WRITE_RGBA, comp, xSize, ySize);
-    writeReadRGBAMIP (filename, W, H, WRITE_RGBA, comp, xSize, ySize);
-    writeReadRGBARIP (filename, W, H, WRITE_RGBA, comp, xSize, ySize);
+    writeReadRGBAONE (filename.c_str(), W, H, WRITE_RGBA, comp, xSize, ySize);
+
+    if (comp != B44_COMPRESSION &&
+        comp != B44A_COMPRESSION &&
+        comp != DWAA_COMPRESSION &&
+        comp != DWAB_COMPRESSION)
+    {
+	//
+	// Skip mipmaps and ripmaps with B44 or DWA compression; writing
+	// an image with a single resolution level, above, should be enough
+        // to verify that B44 and DWA compression work with tiled files.
+	//
+
+	writeReadRGBAMIP
+            (filename.c_str(), W, H, WRITE_RGBA, comp, xSize, ySize);
+
+	writeReadRGBARIP
+            (filename.c_str(), W, H, WRITE_RGBA, comp, xSize, ySize);
+    }
 }
 
 
 void
-writeReadIncomplete ()
+writeReadIncomplete (const std::string &tempDir)
 {
     cout << "\nfile with missing and broken tiles" << endl;
 
-    const char *fileName = IMF_TMP_DIR "imf_test_tiled_incomplete.exr";
+    std::string fileName = tempDir + "imf_test_tiled_incomplete.exr";
 
     //
     // Write a file where every other tile is missing or broken.
@@ -426,12 +494,12 @@ writeReadIncomplete ()
     {
         cout << "writing" << endl;
  
-        remove (fileName);
+        remove (fileName.c_str());
 
 	Header header (width, height);
 	header.lineOrder() = RANDOM_Y;
 
-        TiledRgbaOutputFile out (fileName, header, WRITE_RGBA,
+        TiledRgbaOutputFile out (fileName.c_str(), header, WRITE_RGBA,
                                  tileXSize, tileYSize, ONE_LEVEL);
         
         out.setFrameBuffer (&p1[0][0], 1, width);
@@ -458,7 +526,7 @@ writeReadIncomplete ()
 
         cout << "reading one tile at a time," << flush;
 
-        TiledRgbaInputFile in (fileName);
+        TiledRgbaInputFile in (fileName.c_str());
         const Box2i &dw = in.dataWindow();
 
         assert (dw.max.x - dw.min.x + 1 == width);
@@ -479,11 +547,11 @@ writeReadIncomplete ()
 		{
 		    in.readTile (tileX, tileY);
 		}
-		catch (const Iex::InputExc &)
+		catch (const IEX_NAMESPACE::InputExc &)
 		{
 		    tilePresent = false;	// tile is missing
 		}
-		catch (const Iex::IoExc &)
+		catch (const IEX_NAMESPACE::IoExc &)
 		{
 		    tileBroken = true;		// tile cannot be decoded
 		}
@@ -532,7 +600,7 @@ writeReadIncomplete ()
 
         cout << "reading multiple tiles at a time," << flush;
 
-        TiledRgbaInputFile in (fileName);
+        TiledRgbaInputFile in (fileName.c_str());
         const Box2i &dw = in.dataWindow();
 
         assert (dw.max.x - dw.min.x + 1 == width);
@@ -551,11 +619,11 @@ writeReadIncomplete ()
 	    {
 		in.readTiles (0, in.numXTiles() - 1, tileY, tileY);
 	    }
-	    catch (const Iex::InputExc &)
+	    catch (const IEX_NAMESPACE::InputExc &)
 	    {
 		tilesMissing = true;
 	    }
-	    catch (const Iex::IoExc &)
+	    catch (const IEX_NAMESPACE::IoExc &)
 	    {
 		tilesBroken = true;
 	    }
@@ -578,24 +646,248 @@ writeReadIncomplete ()
 	}
     }
 
-    remove (fileName);
+    remove (fileName.c_str());
+}
+
+
+void
+writeReadLayers(const std::string &tempDir)
+{
+    cout << "\nreading multi-layer file" << endl;
+
+    std::string fileName = tempDir + "imf_test_tiled_multi_layer_rgba.exr";
+
+    const int W = 237;
+    const int H = 119;
+    
+    Array2D<half> p1 (H, W);
+    Array2D<half> p2 (H, W);
+
+    for (int y = 0; y < H; ++y)
+    {
+	for (int x = 0; x < W; ++x)
+	{
+	    p1[y][x] = half (y % 23 + x % 17);
+	    p2[y][x] = half (y % 29 + x % 19);
+	}
+    }
+
+    {
+	Header hdr (W, H);
+	hdr.setTileDescription (TileDescription());
+	hdr.channels().insert ("R", Channel (HALF));
+	hdr.channels().insert ("foo.R", Channel (HALF));
+
+	FrameBuffer fb;
+
+	fb.insert ("R",
+		   Slice (HALF,			// type
+			  (char *) &p1[0][0], 	// base
+			  sizeof (half),	// xStride
+			  sizeof (half) * W));	// yStride
+
+	fb.insert ("foo.R",
+		   Slice (HALF,			// type
+			  (char *) &p2[0][0], 	// base
+			  sizeof (half),	// xStride
+			  sizeof (half) * W));	// yStride
+
+	TiledOutputFile out (fileName.c_str(), hdr);
+	out.setFrameBuffer (fb);
+	out.writeTiles (0, out.numXTiles() - 1, 0, out.numYTiles() - 1);
+    }
+
+    {
+	TiledRgbaInputFile in (fileName.c_str(), "");
+
+	Array2D<Rgba> p3 (H, W);
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readTiles (0, in.numXTiles() - 1, 0, in.numYTiles() - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		assert (p3[y][x].r == p1[y][x]);
+		assert (p3[y][x].g == 0);
+		assert (p3[y][x].b == 0);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	TiledRgbaInputFile in (fileName.c_str(), "foo");
+
+	Array2D<Rgba> p3 (H, W);
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readTiles (0, in.numXTiles() - 1, 0, in.numYTiles() - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		assert (p3[y][x].r == p2[y][x]);
+		assert (p3[y][x].g == 0);
+		assert (p3[y][x].b == 0);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	TiledRgbaInputFile in (fileName.c_str(), "");
+
+	Array2D<Rgba> p3 (H, W);
+
+	in.setFrameBuffer (&p3[0][0], 1, W);
+
+	in.readTiles (0, in.numXTiles() - 1,
+		      0, in.numYTiles() / 2 - 1);
+
+	in.setLayerName ("foo");
+
+	in.setFrameBuffer (&p3[0][0], 1, W);
+
+	in.readTiles (0, in.numXTiles() - 1,
+		      in.numYTiles() / 2, in.numYTiles() - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		if (y < in.numYTiles() / 2 * in.tileYSize())
+		    assert (p3[y][x].r == p1[y][x]);
+		else
+		    assert (p3[y][x].r == p2[y][x]);
+
+		assert (p3[y][x].g == 0);
+		assert (p3[y][x].b == 0);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	Header hdr (W, H);
+	hdr.setTileDescription (TileDescription());
+	hdr.channels().insert ("Y", Channel (HALF));
+	hdr.channels().insert ("foo.Y", Channel (HALF));
+
+	FrameBuffer fb;
+
+	fb.insert ("Y",
+		   Slice (HALF,			// type
+			  (char *) &p1[0][0], 	// base
+			  sizeof (half),	// xStride
+			  sizeof (half) * W));	// yStride
+
+	fb.insert ("foo.Y",
+		   Slice (HALF,			// type
+			  (char *) &p2[0][0], 	// base
+			  sizeof (half),	// xStride
+			  sizeof (half) * W));	// yStride
+
+	TiledOutputFile out (fileName.c_str(), hdr);
+	out.setFrameBuffer (fb);
+	out.writeTiles (0, out.numXTiles() - 1, 0, out.numYTiles() - 1);
+    }
+
+    {
+	TiledRgbaInputFile in (fileName.c_str(), "");
+
+	Array2D<Rgba> p3 (H, W);
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readTiles (0, in.numXTiles() - 1, 0, in.numYTiles() - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		assert (p3[y][x].r == p1[y][x]);
+		assert (p3[y][x].g == p1[y][x]);
+		assert (p3[y][x].b == p1[y][x]);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	TiledRgbaInputFile in (fileName.c_str(), "foo");
+
+	Array2D<Rgba> p3 (H, W);
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readTiles (0, in.numXTiles() - 1, 0, in.numYTiles() - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		assert (p3[y][x].r == p2[y][x]);
+		assert (p3[y][x].g == p2[y][x]);
+		assert (p3[y][x].b == p2[y][x]);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	TiledRgbaInputFile in (fileName.c_str(), "");
+
+	Array2D<Rgba> p3 (H, W);
+
+	in.setFrameBuffer (&p3[0][0], 1, W);
+
+	in.readTiles (0, in.numXTiles() - 1,
+		      0, in.numYTiles() / 2 - 1);
+
+	in.setLayerName ("foo");
+
+	in.setFrameBuffer (&p3[0][0], 1, W);
+
+	in.readTiles (0, in.numXTiles() - 1,
+		      in.numYTiles() / 2, in.numYTiles() - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		if (y < in.numYTiles() / 2 * in.tileYSize())
+		{
+		    assert (p3[y][x].r == p1[y][x]);
+		    assert (p3[y][x].g == p1[y][x]);
+		    assert (p3[y][x].b == p1[y][x]);
+		}
+		else
+		{
+		    assert (p3[y][x].r == p2[y][x]);
+		    assert (p3[y][x].g == p2[y][x]);
+		    assert (p3[y][x].b == p2[y][x]);
+		}
+
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    remove (fileName.c_str());
 }
 
 } // namespace
 
 
 void
-testTiledRgba ()
+testTiledRgba (const std::string &tempDir)
 {
     try
     {
         cout << "Testing the tiled RGBA image interface" << endl;
 
-	int maxThreads = IlmThread::supportsThreads()? 3: 0;
+	int maxThreads = ILMTHREAD_NAMESPACE::supportsThreads()? 3: 0;
 
 	for (int n = 0; n <= maxThreads; ++n)
 	{
-	    if (IlmThread::supportsThreads())
+	    if (ILMTHREAD_NAMESPACE::supportsThreads())
 	    {
 		setGlobalThreadCount (n);
 		cout << "\nnumber of threads: " << globalThreadCount() << endl;
@@ -625,17 +917,19 @@ testTiledRgba ()
 			// tiles are rather slow anyway)
 			//
 
-			writeRead (W[i], H[i], Compression (comp), 1, 1);
+			writeRead (tempDir, W[i], H[i], Compression (comp), 1, 1);
 		    }
 
-		    writeRead (W[i], H[i], Compression (comp), 35, 26);
-		    writeRead (W[i], H[i], Compression (comp), 75, 52);
-		    writeRead (W[i], H[i], Compression (comp), 264, 129);
+		    writeRead (tempDir, W[i], H[i], Compression (comp), 35, 26);
+		    writeRead (tempDir, W[i], H[i], Compression (comp), 75, 52);
+		    writeRead (tempDir, W[i], H[i], Compression (comp), 264, 129);
 		}
 	    }
 
-	    writeReadIncomplete();
+	    writeReadIncomplete (tempDir);
 	}
+
+	writeReadLayers (tempDir);
 
         cout << "ok\n" << endl;
     }

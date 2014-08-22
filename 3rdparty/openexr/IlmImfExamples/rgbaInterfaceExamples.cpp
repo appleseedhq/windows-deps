@@ -43,18 +43,20 @@
 //
 //-----------------------------------------------------------------------------
 
-
 #include <ImfRgbaFile.h>
 #include <ImfStringAttribute.h>
 #include <ImfMatrixAttribute.h>
 #include <ImfArray.h>
-#include <drawImage.h>
+
+#include "drawImage.h"
 
 #include <iostream>
+#include <algorithm>
 
+#include "namespaceAlias.h"
+using namespace IMF;
 using namespace std;
-using namespace Imf;
-using namespace Imath;
+using namespace IMATH_NAMESPACE;
 
 
 void

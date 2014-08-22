@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,19 +33,26 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
+#include "compareB44.h"
+#include "compareDwa.h"
 
 #include <ImfRgbaFile.h>
+#include <ImfOutputFile.h>
+#include <ImfChannelList.h>
+#include <ImfFrameBuffer.h>
+#include <ImfHeader.h>
 #include <ImfArray.h>
 #include <ImfThreading.h>
-#include "IlmThread.h"
+#include <IlmThread.h>
 #include <string>
 #include <stdio.h>
 #include <assert.h>
 
-using namespace Imf;
-using namespace Imath;
+
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -121,12 +128,18 @@ writeReadRGBA (const char fileName[],
     header.lineOrder() = lorder;
     header.compression() = comp;
 
+    cout << "writing ";
+    cout.flush();
+
     {
 	remove (fileName);
 	RgbaOutputFile out (fileName, header, channels);
 	out.setFrameBuffer (&p1[0][0], 1, width);
 	out.writePixels (height);
     }
+
+    cout << "reading ";
+    cout.flush();
 
     {
 	RgbaInputFile in (fileName);
@@ -150,29 +163,42 @@ writeReadRGBA (const char fileName[],
 	assert (in.compression() == header.compression());
 	assert (in.channels() == channels);
 
-	for (int y = 0; y < h; ++y)
+	if (in.compression() == B44_COMPRESSION ||
+	    in.compression() == B44A_COMPRESSION)
 	{
-	    for (int x = 0; x < w; ++x)
+	    compareB44 (width, height, p1, p2, channels);
+	}
+	else if (in.compression() == DWAA_COMPRESSION ||
+	         in.compression() == DWAB_COMPRESSION)
+	{
+	    compareDwa (width, height, p1, p2, channels);
+	}
+	else
+	{
+	    for (int y = 0; y < h; ++y)
 	    {
-		if (channels & WRITE_R)
-		    assert (p2[y][x].r == p1[y][x].r);
-		else
-		    assert (p2[y][x].r == 0);
+		for (int x = 0; x < w; ++x)
+		{
+		    if (channels & WRITE_R)
+			assert (p2[y][x].r == p1[y][x].r);
+		    else
+			assert (p2[y][x].r == 0);
 
-		if (channels & WRITE_G)
-		    assert (p2[y][x].g == p1[y][x].g);
-		else
-		    assert (p2[y][x].g == 0);
+		    if (channels & WRITE_G)
+			assert (p2[y][x].g == p1[y][x].g);
+		    else
+			assert (p2[y][x].g == 0);
 
-		if (channels & WRITE_B)
-		    assert (p2[y][x].b == p1[y][x].b);
-		else
-		    assert (p2[y][x].b == 0);
+		    if (channels & WRITE_B)
+			assert (p2[y][x].b == p1[y][x].b);
+		    else
+			assert (p2[y][x].b == 0);
 
-		if (channels & WRITE_A)
-		    assert (p2[y][x].a == p1[y][x].a);
-		else
-		    assert (p2[y][x].a == 1);
+		    if (channels & WRITE_A)
+			assert (p2[y][x].a == p1[y][x].a);
+		    else
+			assert (p2[y][x].a == 1);
+		}
 	    }
 	}
     }
@@ -182,11 +208,11 @@ writeReadRGBA (const char fileName[],
 
 
 void
-writeReadIncomplete ()
+writeReadIncomplete (const std::string &tempDir)
 {
     cout << "\nfile with missing and broken scan lines" << endl;
 
-    const char *fileName = IMF_TMP_DIR "imf_test_incomplete.exr";
+    std::string fileName = tempDir + "imf_test_incomplete.exr";
 
     //
     // Write a file where some scan lines are missing or broken.
@@ -196,8 +222,6 @@ writeReadIncomplete ()
 
     const int width = 400;
     const int height = 300;
-    const int tileXSize = 30;
-    const int tileYSize = 40;
 
     Array2D<Rgba> p1 (height, width);
 
@@ -208,12 +232,12 @@ writeReadIncomplete ()
     {
         cout << "writing" << endl;
  
-        remove (fileName);
+        remove (fileName.c_str());
 
 	Header header (width, height);
 	header.compression() = ZIPS_COMPRESSION;
 
-        RgbaOutputFile out (fileName, header, WRITE_RGBA);
+        RgbaOutputFile out (fileName.c_str(), header, WRITE_RGBA);
         
         out.setFrameBuffer (&p1[0][0], 1, width);
 	out.writePixels (height / 2);		// write only half of the
@@ -232,7 +256,7 @@ writeReadIncomplete ()
 
         cout << "reading one scan line at a time," << flush;
 
-        RgbaInputFile in (fileName);
+        RgbaInputFile in (fileName.c_str());
         const Box2i &dw = in.dataWindow();
 
         assert (dw.max.x - dw.min.x + 1 == width);
@@ -251,11 +275,11 @@ writeReadIncomplete ()
 	    {
 		in.readPixels (y);
 	    }
-	    catch (const Iex::InputExc &)
+	    catch (const IEX_NAMESPACE::InputExc &)
 	    {
 		scanLinePresent = false;	// scan line is missing
 	    }
-	    catch (const Iex::IoExc &)
+	    catch (const IEX_NAMESPACE::IoExc &)
 	    {
 		scanLineBroken = true;		// scan line cannot be decoded
 	    }
@@ -302,7 +326,7 @@ writeReadIncomplete ()
 
         cout << "reading multiple scan lines at a time," << flush;
 
-        RgbaInputFile in (fileName);
+        RgbaInputFile in (fileName.c_str());
         const Box2i &dw = in.dataWindow();
 
         assert (dw.max.x - dw.min.x + 1 == width);
@@ -319,11 +343,11 @@ writeReadIncomplete ()
 	{
 	    in.readPixels (0, height - 1);
 	}
-	catch (const Iex::InputExc &)
+	catch (const IEX_NAMESPACE::InputExc &)
 	{
 	    scanLinesMissing = true;
 	}
-	catch (const Iex::IoExc &)
+	catch (const IEX_NAMESPACE::IoExc &)
 	{
 	    scanLinesBroken = true;
 	}
@@ -345,7 +369,221 @@ writeReadIncomplete ()
 	}
     }
 
-    remove (fileName);
+    remove (fileName.c_str());
+}
+
+
+void
+writeReadLayers (const std::string &tempDir)
+{
+    cout << "\nreading multi-layer file" << endl;
+
+    std::string fileName = tempDir + "imf_test_multi_layer_rgba.exr";
+
+    const int W = 237;
+    const int H = 119;
+    
+    Array2D<half> p1 (H, W);
+    Array2D<half> p2 (H, W);
+
+    for (int y = 0; y < H; ++y)
+    {
+	for (int x = 0; x < W; ++x)
+	{
+	    p1[y][x] = half (y % 23 + x % 17);
+	    p2[y][x] = half (y % 29 + x % 19);
+	}
+    }
+
+    {
+	Header hdr (W, H);
+	hdr.channels().insert ("R", Channel (HALF));
+	hdr.channels().insert ("foo.R", Channel (HALF));
+
+	FrameBuffer fb;
+
+	fb.insert ("R",
+		   Slice (HALF,			// type
+			  (char *) &p1[0][0], 	// base
+			  sizeof (half),	// xStride
+			  sizeof (half) * W));	// yStride
+
+	fb.insert ("foo.R",
+		   Slice (HALF,			// type
+			  (char *) &p2[0][0], 	// base
+			  sizeof (half),	// xStride
+			  sizeof (half) * W));	// yStride
+
+	OutputFile out (fileName.c_str(), hdr);
+	out.setFrameBuffer (fb);
+	out.writePixels (H);
+    }
+
+    {
+	RgbaInputFile in (fileName.c_str(), "");
+
+	Array2D<Rgba> p3 (H, W);
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readPixels (0, H - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		assert (p3[y][x].r == p1[y][x]);
+		assert (p3[y][x].g == 0);
+		assert (p3[y][x].b == 0);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	RgbaInputFile in (fileName.c_str(), "foo");
+
+	Array2D<Rgba> p3 (H, W);
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readPixels (0, H - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		assert (p3[y][x].r == p2[y][x]);
+		assert (p3[y][x].g == 0);
+		assert (p3[y][x].b == 0);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	RgbaInputFile in (fileName.c_str(), "");
+
+	Array2D<Rgba> p3 (H, W);
+
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readPixels (0, H / 2 - 1);
+
+	in.setLayerName ("foo");
+
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readPixels (H / 2, H - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		if (y < H / 2)
+		    assert (p3[y][x].r == p1[y][x]);
+		else
+		    assert (p3[y][x].r == p2[y][x]);
+
+		assert (p3[y][x].g == 0);
+		assert (p3[y][x].b == 0);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	Header hdr (W, H);
+	hdr.channels().insert ("Y", Channel (HALF));
+	hdr.channels().insert ("foo.Y", Channel (HALF));
+
+	FrameBuffer fb;
+
+	fb.insert ("Y",
+		   Slice (HALF,			// type
+			  (char *) &p1[0][0], 	// base
+			  sizeof (half),	// xStride
+			  sizeof (half) * W));	// yStride
+
+	fb.insert ("foo.Y",
+		   Slice (HALF,			// type
+			  (char *) &p2[0][0], 	// base
+			  sizeof (half),	// xStride
+			  sizeof (half) * W));	// yStride
+
+	OutputFile out (fileName.c_str(), hdr);
+	out.setFrameBuffer (fb);
+	out.writePixels (H);
+    }
+
+    {
+	RgbaInputFile in (fileName.c_str(), "");
+
+	Array2D<Rgba> p3 (H, W);
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readPixels (0, H - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		assert (p3[y][x].r == p1[y][x]);
+		assert (p3[y][x].g == p1[y][x]);
+		assert (p3[y][x].b == p1[y][x]);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	RgbaInputFile in (fileName.c_str(), "foo");
+
+	Array2D<Rgba> p3 (H, W);
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readPixels (0, H - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		assert (p3[y][x].r == p2[y][x]);
+		assert (p3[y][x].g == p2[y][x]);
+		assert (p3[y][x].b == p2[y][x]);
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    {
+	RgbaInputFile in (fileName.c_str(), "");
+
+	Array2D<Rgba> p3 (H, W);
+
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readPixels (0, H / 2 - 1);
+
+	in.setLayerName ("foo");
+
+	in.setFrameBuffer (&p3[0][0], 1, W);
+	in.readPixels (H / 2, H - 1);
+
+	for (int y = 0; y < H; ++y)
+	{
+	    for (int x = 0; x < W; ++x)
+	    {
+		if (y < H / 2)
+		{
+		    assert (p3[y][x].r == p1[y][x]);
+		    assert (p3[y][x].g == p1[y][x]);
+		    assert (p3[y][x].b == p1[y][x]);
+		}
+		else
+		{
+		    assert (p3[y][x].r == p2[y][x]);
+		    assert (p3[y][x].g == p2[y][x]);
+		    assert (p3[y][x].b == p2[y][x]);
+		}
+
+		assert (p3[y][x].a == 1);
+	    }
+	}
+    }
+
+    remove (fileName.c_str());
 }
 
 
@@ -353,7 +591,7 @@ writeReadIncomplete ()
 
 
 void
-testRgba ()
+testRgba (const std::string &tempDir)
 {
     try
     {
@@ -367,11 +605,11 @@ testRgba ()
 	Array2D<Rgba> p1 (H, W);
 	fillPixels (p1, W, H);
 
-	int maxThreads = IlmThread::supportsThreads()? 3: 0;
+	int maxThreads = ILMTHREAD_NAMESPACE::supportsThreads()? 3: 0;
 
 	for (int n = 0; n <= maxThreads; ++n)
 	{
-	    if (IlmThread::supportsThreads())
+	    if (ILMTHREAD_NAMESPACE::supportsThreads())
 	    {
 		setGlobalThreadCount (n);
 		cout << "\nnumber of threads: " << globalThreadCount() << endl;
@@ -381,25 +619,25 @@ testRgba ()
 	    {
 		for (int comp = 0; comp < NUM_COMPRESSION_METHODS; ++comp)
 		{
-		    writeReadRGBA (IMF_TMP_DIR "imf_test_rgba.exr",
+		    writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
 				   W, H, p1,
 				   WRITE_RGBA,
 				   LineOrder (lorder),
 				   Compression (comp));
 
-		    writeReadRGBA (IMF_TMP_DIR "imf_test_rgba.exr",
+		    writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
 				   W, H, p1,
 				   WRITE_RGB,
 				   LineOrder (lorder),
 				   Compression (comp));
 
-		    writeReadRGBA ("imf_test_rgba.exr",
+		    writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
 				   W, H, p1,
 				   WRITE_A,
 				   LineOrder (lorder),
 				   Compression (comp));
 
-		    writeReadRGBA ("imf_test_rgba.exr",
+		    writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
 				   W, H, p1,
 				   RgbaChannels (WRITE_R | WRITE_B),
 				   LineOrder (lorder),
@@ -407,8 +645,10 @@ testRgba ()
 		}
 	    }
 
-	    writeReadIncomplete();
+	    writeReadIncomplete (tempDir);
 	}
+
+	writeReadLayers (tempDir);
 
 	cout << "ok\n" << endl;
     }

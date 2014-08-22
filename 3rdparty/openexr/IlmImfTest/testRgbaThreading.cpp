@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,20 +33,23 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
+#include "compareB44.h"
+#include "compareDwa.h"
 
 #include <ImfRgbaFile.h>
 #include <ImfArray.h>
 #include <string>
 #include <stdio.h>
 #include <assert.h>
-#include "ImathRandom.h"
+#include <ImathRandom.h>
 #include <ImfThreading.h>
-#include "IlmThread.h"
+#include <IlmThread.h>
 
-using namespace Imf;
-using namespace Imath;
+
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -139,29 +142,42 @@ writeReadRGBA (const char fileName[],
 	assert (in.compression() == header.compression());
 	assert (in.channels() == channels);
 
-	for (int y = 0; y < h; ++y)
+	if (in.compression() == B44_COMPRESSION ||
+	    in.compression() == B44A_COMPRESSION)
 	{
-	    for (int x = 0; x < w; ++x)
+	    compareB44 (w, h, p1, p2, channels);
+	}
+	else if (in.compression() == DWAA_COMPRESSION ||
+	         in.compression() == DWAB_COMPRESSION)
+	{
+	    compareDwa (w, h, p1, p2, channels);
+	}
+	else
+	{
+	    for (int y = 0; y < h; ++y)
 	    {
-		if (channels & WRITE_R)
-		    assert (p2[y][x].r == p1[y][x].r);
-		else
-		    assert (p2[y][x].r == 0);
+		for (int x = 0; x < w; ++x)
+		{
+		    if (channels & WRITE_R)
+			assert (p2[y][x].r == p1[y][x].r);
+		    else
+			assert (p2[y][x].r == 0);
 
-		if (channels & WRITE_G)
-		    assert (p2[y][x].g == p1[y][x].g);
-		else
-		    assert (p2[y][x].g == 0);
+		    if (channels & WRITE_G)
+			assert (p2[y][x].g == p1[y][x].g);
+		    else
+			assert (p2[y][x].g == 0);
 
-		if (channels & WRITE_B)
-		    assert (p2[y][x].b == p1[y][x].b);
-		else
-		    assert (p2[y][x].b == 0);
+		    if (channels & WRITE_B)
+			assert (p2[y][x].b == p1[y][x].b);
+		    else
+			assert (p2[y][x].b == 0);
 
-		if (channels & WRITE_A)
-		    assert (p2[y][x].a == p1[y][x].a);
-		else
-		    assert (p2[y][x].a == 1);
+		    if (channels & WRITE_A)
+			assert (p2[y][x].a == p1[y][x].a);
+		    else
+			assert (p2[y][x].a == 1);
+		}
 	    }
 	}
     }
@@ -174,13 +190,13 @@ writeReadRGBA (const char fileName[],
 
 
 void
-testRgbaThreading ()
+testRgbaThreading (const std::string &tempDir)
 {
     try
     {
         cout << "Testing setGlobalThreadCount()" << endl;
 
-        if (!IlmThread::supportsThreads ())
+        if (!ILMTHREAD_NAMESPACE::supportsThreads ())
         {
             cout << "   Threading not supported!" << endl << endl;
             return;
@@ -217,25 +233,25 @@ testRgbaThreading ()
             {
                 for (int lorder = 0; lorder < RANDOM_Y; ++lorder)
                 {
-                    writeReadRGBA (IMF_TMP_DIR "imf_test_rgba.exr",
+                    writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
                                    W, H, p1,
                                    WRITE_RGBA,
                                    LineOrder (lorder),
                                    Compression (comp));
     
-                    writeReadRGBA (IMF_TMP_DIR "imf_test_rgba.exr",
+                    writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
                                    W, H, p1,
                                    WRITE_RGB,
                                    LineOrder (lorder),
                                    Compression (comp));
     
-                    writeReadRGBA ("imf_test_rgba.exr",
+                    writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
                                    W, H, p1,
                                    WRITE_A,
                                    LineOrder (lorder),
                                    Compression (comp));
     
-                    writeReadRGBA ("imf_test_rgba.exr",
+                    writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
                                    W, H, p1,
                                    RgbaChannels (WRITE_R | WRITE_B),
                                    LineOrder (lorder),

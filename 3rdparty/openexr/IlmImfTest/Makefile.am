@@ -24,23 +24,59 @@ IlmImfTest_SOURCES = main.cpp tmpDir.h testAttributes.cpp testChannels.cpp \
 		     testTiledLineOrder.h testTiledRgba.cpp \
 		     testTiledRgba.h compareFloat.h compareFloat.cpp \
 		     testTiledYa.cpp testTiledYa.h \
-		     testYca.cpp testYca.h \
-		     testIsComplete.cpp testIsComplete.h
+		     testYca.cpp testYca.h compareB44.h compareB44.cpp \
+		     testMultiView.cpp testMultiView.h \
+		     testIsComplete.cpp testIsComplete.h \
+		     testMultiPartApi.cpp testMultiPartApi.h \
+		     testMultiPartThreading.cpp testMultiPartThreading.h \
+		     testMultiScanlinePartThreading.cpp testMultiScanlinePartThreading.h \
+		     testMultiTiledPartThreading.cpp testMultiTiledPartThreading.h \
+		     testDeepScanLineBasic.cpp testDeepScanLineBasic.h \
+		     testDeepTiledBasic.cpp testDeepTiledBasic.h \
+		     testMultiPartFileMixingBasic.cpp testMultiPartFileMixingBasic.h \
+		     testMultiPartSharedAttributes.cpp testMultiPartSharedAttributes.h \
+		     testBackwardCompatibility.cpp testBackwardCompatibility.h \
+		     testCopyDeepScanLine.cpp testCopyDeepScanLine.h \
+		     testCopyDeepTiled.cpp testCopyDeepTiled.h \
+		     testCopyMultiPartFile.h testCopyMultiPartFile.cpp \
+		     testCompositeDeepScanLine.h testCompositeDeepScanLine.cpp \
+		     testInputPart.cpp testInputPart.h \
+		     testDeepScanLineMultipleRead.h testDeepScanLineMultipleRead.cpp  \
+		     testPartHelper.h testPartHelper.cpp \
+		     testOptimized.cpp testOptimized.h \
+		     testOptimizedInterleavePatterns.cpp testOptimizedInterleavePatterns.h \
+		     testBadTypeAttributes.cpp testBadTypeAttributes.h \
+		     testFutureProofing.cpp testFutureProofing.h \
+	             compareDwa.cpp compareDwa.h \
+	             testDwaCompressorSimd.cpp testDwaCompressorSimd.h \
+	             testRle.cpp testRle.h
 
-IlmImfTest_CPPFLAGS = -DILM_IMF_TEST_IMAGEDIR=\"$(srcdir)/\" $(AM_CPPFLAGS)
+AM_CPPFLAGS = -DILM_IMF_TEST_IMAGEDIR=\"$(srcdir)/\"
 
-INCLUDES = -I$(top_builddir) -I$(top_srcdir)/Half -I$(top_srcdir)/Iex \
-	   -I$(top_srcdir)/Imath -I$(top_srcdir)/IlmImf \
-	   -I$(top_srcdir)/IlmThread -I$(top_srcdir)/config
+if BUILD_IMFHUGETEST
+IlmImfTest_SOURCES += testDeepScanLineHuge.cpp testDeepScanLineHuge.h
+AM_CPPFLAGS += -DENABLE_IMFHUGETEST
+endif
 
-LDADD = -L$(top_builddir)/Iex -L$(top_builddir)/Half \
-	-L$(top_builddir)/Imath -L$(top_builddir)/IlmThread \
-	-L$(top_builddir)/IlmImf \
-	-lIlmImf -lIlmThread -lImath -lIex -lHalf -lz
+
+INCLUDES = -I$(top_builddir)  \
+	   -I$(top_srcdir)/IlmImf \
+	   -I$(top_srcdir)/config \
+	   @ILMBASE_CXXFLAGS@
+
+LDADD = -L$(top_builddir)/IlmImf \
+	@ILMBASE_LDFLAGS@ @ILMBASE_LIBS@ \
+	-lIlmImf -lz
 
 TESTS = IlmImfTest
 
 EXTRA_DIST = comp_none.exr comp_piz.exr comp_rle.exr comp_zip.exr \
 	     comp_zips.exr lineOrder_decreasing.exr lineOrder_increasing.exr \
 	     test_native1.exr test_native2.exr invalid.exr \
-	     tiled.exr
+	     tiled.exr comp_b44.exr comp_b44_piz.exr \
+             v1.7.test.planar.exr  v1.7.test.tiled.exr v1.7.test.1.exr v1.7.test.interleaved.exr \
+             invalid_shared_attrs_multipart.exr \
+	     tiled_with_scanlineimage_type.exr scanline_with_tiledimage_type.exr \
+	     tiled_with_deepscanline_type.exr tiled_with_deeptile_type.exr \
+	     scanline_with_deepscanline_type.exr scanline_with_deeptiled_type.exr \
+             CMakeLists.txt

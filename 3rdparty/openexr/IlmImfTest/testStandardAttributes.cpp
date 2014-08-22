@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,10 +33,9 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
-
 #include <ImfRgbaFile.h>
 #include <ImfStandardAttributes.h>
+#include <ImfFramesPerSecond.h>
 #include <ImfArray.h>
 #include "ImathRandom.h"
 #include <fstream>
@@ -44,9 +43,10 @@
 #include <stdio.h>
 #include <assert.h>
 
-using namespace Imf;
-using namespace Imath;
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -746,6 +746,120 @@ writeReadTimeCode (const char fileName[])
 }
 
 
+bool
+equal (const Rational &a, const Rational &b)
+{
+    return a.n == b.n && a.d == b.d;
+}
+
+
+void
+rationalMethods ()
+{
+    cout << "rational methods" << endl;
+
+    Rational r0 (0, 1);
+    assert (r0 == 0);
+
+    Rational r1 (1, 1);
+    assert (r1 == 1);
+
+    Rational r2 (1, 4);
+    assert (r2 == 0.25);
+
+    Rational r3 (-8, 2);
+    assert (r3 == -4);
+
+    Rational r4 (0.0);
+    assert (r4 == 0);
+
+    Rational r5 (1e-50);
+    assert (r5 == 0);
+
+    Rational r6 (1.0);
+    assert (r6 == 1.0 && r6.n == 1 && r6.d == 1);
+
+    Rational r7 (-10.0);
+    assert (r7 == -10.0 && r7.n == -10 && r7.d == 1);
+
+    Rational r8 (0.03125);
+    assert (r8 == 0.03125 && r8.n == 1 && r8.d == 32);
+
+    Rational r9 (0.53125);
+    assert (r9 == 0.53125 && r9.n == 17 && r9.d == 32);
+
+    Rational r10 (10.1);
+    assert (equalWithAbsError (double (r10), 10.1, 1e-8));
+
+    Rational r11 (double ((1U << 30) - 1));
+    assert (r11 == double ((1U << 30) - 1));
+
+    assert (equal (guessExactFps (23.976), fps_23_976()));
+    assert (equal (guessExactFps (24.000), fps_24()));
+    assert (equal (guessExactFps (25.000), fps_25()));
+    assert (equal (guessExactFps (29.970), fps_29_97()));
+    assert (equal (guessExactFps (30.000), fps_30()));
+    assert (equal (guessExactFps (47.952), fps_47_952()));
+    assert (equal (guessExactFps (48.000), fps_48()));
+    assert (equal (guessExactFps (50.000), fps_50()));
+    assert (equal (guessExactFps (59.940), fps_59_94()));
+    assert (equal (guessExactFps (60.000), fps_60()));
+    assert (equal (guessExactFps (70.500), Rational (141, 2)));
+}
+
+
+void
+writeReadRational (const char fileName[])
+{
+    cout << "rational attribute" << endl;
+
+    cout << "writing, ";
+
+    Rational r1 (12, 17);
+    Rational r2 (-12, 3);
+
+    static const int W = 100;
+    static const int H = 100;
+
+    Header header (W, H);
+    header.insert ("r1", RationalAttribute (r1));
+    header.insert ("r2", RationalAttribute (r2));
+
+    {
+	RgbaOutputFile out (fileName, header);
+	Rgba pixels[W];
+
+	for (int i = 0; i < W; ++i)
+	{
+	    pixels[i].r = 1;
+	    pixels[i].g = 1;
+	    pixels[i].b = 1;
+	    pixels[i].a = 1;
+	}
+
+	out.setFrameBuffer (pixels, 1, 0);
+	out.writePixels (H);
+    }
+
+    cout << "reading, comparing" << endl;
+
+    {
+	RgbaInputFile in (fileName);
+
+	const Rational &r3 =
+	    in.header().typedAttribute<RationalAttribute>("r1").value();
+
+	const Rational &r4 =
+	    in.header().typedAttribute<RationalAttribute>("r2").value();
+
+	assert (equal (r1, r3));
+	assert (equal (r2, r4));
+    }
+
+    remove (fileName);
+}
+
+
 void
 generatedFunctions ()
 {
@@ -766,11 +880,14 @@ generatedFunctions ()
 
     assert (hasChromaticities (header) == false);
     assert (hasWhiteLuminance (header) == false);
+    assert (hasAdoptedNeutral (header) == false);
+    assert (hasRenderingTransform (header) == false);
+    assert (hasLookModTransform (header) == false);
     assert (hasXDensity (header) == false);
     assert (hasOwner (header) == false);
     assert (hasComments (header) == false);
     assert (hasCapDate (header) == false);
-    assert (hasutcOffset (header) == false);
+    assert (hasUtcOffset (header) == false);
     assert (hasLongitude (header) == false);
     assert (hasLatitude (header) == false);
     assert (hasAltitude (header) == false);
@@ -782,6 +899,12 @@ generatedFunctions ()
     assert (hasKeyCode (header) == false);
     assert (hasTimeCode (header) == false);
     assert (hasWrapmodes (header) == false);
+    assert (hasFramesPerSecond (header) == false);
+    assert (hasMultiView (header) == false);
+    assert (hasWorldToCamera (header) == false);
+    assert (hasWorldToNDC (header) == false);
+    assert (hasDeepImageState (header) == false);
+    assert (hasOriginalDataWindow (header) == false);
 }
 
 
@@ -789,7 +912,7 @@ generatedFunctions ()
 
 
 void
-testStandardAttributes ()
+testStandardAttributes (const std::string &tempDir)
 {
     try
     {
@@ -798,31 +921,37 @@ testStandardAttributes ()
 	convertRGBtoXYZ();
 
 	{
-	    const char *filename = IMF_TMP_DIR "imf_test_chromaticities.exr";
-	    writeReadChromaticities (filename);
+	    std::string filename = tempDir + "imf_test_chromaticities.exr";
+	    writeReadChromaticities (filename.c_str());
 	}
 
 	{
-	    const char *fn1 = IMF_TMP_DIR "imf_test_latlong1.exr";
-	    const char *fn2 = IMF_TMP_DIR "imf_test_latlong2.exr";
-	    latLongMap (fn1, fn2);
+	    std::string fn1 = tempDir + "imf_test_latlong1.exr";
+	    std::string fn2 = tempDir + "imf_test_latlong2.exr";
+	    latLongMap (fn1.c_str(), fn2.c_str());
 	}
 
 	{
-	    const char *fn1 = IMF_TMP_DIR "imf_test_cube1.exr";
-	    const char *fn2 = IMF_TMP_DIR "imf_test_cube2.exr";
-	    cubeMap (fn1, fn2);
+	    std::string fn1 = tempDir + "imf_test_cube1.exr";
+	    std::string fn2 = tempDir + "imf_test_cube2.exr";
+	    cubeMap (fn1.c_str(), fn2.c_str());
 	}
 
 	{
-	    const char *filename = IMF_TMP_DIR "imf_test_keycode.exr";
-	    writeReadKeyCode (filename);
+	    std::string filename = tempDir + "imf_test_keycode.exr";
+	    writeReadKeyCode (filename.c_str());
 	}
 
 	{
 	    timeCodeMethods();
-	    const char *filename = IMF_TMP_DIR "imf_test_timecode.exr";
-	    writeReadTimeCode (filename);
+	    std::string filename = tempDir + "imf_test_timecode.exr";
+	    writeReadTimeCode (filename.c_str());
+	}
+
+	{
+	    rationalMethods();
+	    std::string filename = tempDir + "imf_test_rational.exr";
+	    writeReadRational (filename.c_str());
 	}
 
 	generatedFunctions();

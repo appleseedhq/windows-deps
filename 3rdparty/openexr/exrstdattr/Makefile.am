@@ -2,17 +2,13 @@
 
 bin_PROGRAMS = exrstdattr
 
-INCLUDES = -I$(top_builddir) -I$(top_srcdir)/Iex \
-           -I$(top_srcdir)/Half -I$(top_srcdir)/Imath \
-           -I$(top_srcdir)/IlmImf -I$(top_srcdir)/config
+INCLUDES = -I$(top_builddir) \
+           -I$(top_srcdir)/IlmImf -I$(top_srcdir)/config \
+	   @ILMBASE_CXXFLAGS@
 
-LDADD = \
-	$(top_builddir)/Imath/libImath.la \
+LDADD = @ILMBASE_LDFLAGS@ @ILMBASE_LIBS@ \
 	$(top_builddir)/IlmImf/libIlmImf.la \
-	$(top_builddir)/Iex/libIex.la \
-	$(top_builddir)/Half/libHalf.la \
-	$(top_builddir)/IlmThread/libIlmThread.la \
 	-lz
 
-exrstdattr_SOURCES = main.cpp
+exrstdattr_SOURCES = main.cpp CMakeLists.txt
 

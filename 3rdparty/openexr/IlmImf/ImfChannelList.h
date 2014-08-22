@@ -44,17 +44,20 @@
 //
 //-----------------------------------------------------------------------------
 
-#include <ImfName.h>
-#include <ImfPixelType.h>
+#include "ImfName.h"
+#include "ImfPixelType.h"
+
+#include "ImfNamespace.h"
+#include "ImfExport.h"
+
 #include <map>
 #include <set>
 #include <string>
 
+OPENEXR_IMF_INTERNAL_NAMESPACE_HEADER_ENTER
 
-namespace Imf {
 
-
-struct Channel
+struct IMF_EXPORT Channel
 {
     //------------------------------
     // Data type; see ImfPixelType.h
@@ -75,13 +78,32 @@ struct Channel
     int			ySampling;
 
 
+    //--------------------------------------------------------------
+    // Hint to lossy compression methods that indicates whether
+    // human perception of the quantity represented by this channel
+    // is closer to linear or closer to logarithmic.  Compression
+    // methods may optimize image quality by adjusting pixel data
+    // quantization acording to this hint.
+    // For example, perception of red, green, blue and luminance is
+    // approximately logarithmic; the difference between 0.1 and 0.2
+    // is perceived to be roughly the same as the difference between
+    // 1.0 and 2.0.  Perception of chroma coordinates tends to be
+    // closer to linear than logarithmic; the difference between 0.1
+    // and 0.2 is perceived to be roughly the same as the difference
+    // between 1.0 and 1.1.
+    //--------------------------------------------------------------
+
+    bool		pLinear;
+
+
     //------------
     // Constructor
     //------------
     
     Channel (PixelType type = HALF,
 	     int xSampling = 1,
-	     int ySampling = 1);
+	     int ySampling = 1,
+	     bool pLinear = false);
 
 
     //------------
@@ -92,7 +114,7 @@ struct Channel
 };
 
 
-class ChannelList
+class IMF_EXPORT ChannelList
 {
   public:
 
@@ -103,11 +125,14 @@ class ChannelList
     void			insert (const char name[],
 					const Channel &channel);
 
+    void			insert (const std::string &name,
+					const Channel &channel);
+
     //------------------------------------------------------------------
     // Access to existing channels:
     //
     // [n]		Returns a reference to the channel with name n.
-    //			If no channel with name n exists, an Iex::ArgExc
+    //			If no channel with name n exists, an IEX_NAMESPACE::ArgExc
     //			is thrown.
     //
     // findChannel(n)	Returns a pointer to the channel with name n,
@@ -118,8 +143,14 @@ class ChannelList
     Channel &			operator [] (const char name[]);
     const Channel &		operator [] (const char name[]) const;
 
+    Channel &			operator [] (const std::string &name);
+    const Channel &		operator [] (const std::string &name) const;
+
     Channel *			findChannel (const char name[]);
     const Channel *		findChannel (const char name[]) const;
+
+    Channel *			findChannel (const std::string &name);
+    const Channel *		findChannel (const std::string &name) const;
 
 
     //-------------------------------------------
@@ -133,10 +164,15 @@ class ChannelList
 
     Iterator			begin ();
     ConstIterator		begin () const;
+
     Iterator			end ();
     ConstIterator		end () const;
+
     Iterator			find (const char name[]);
     ConstIterator		find (const char name[]) const;
+
+    Iterator			find (const std::string &name);
+    ConstIterator		find (const std::string &name) const;
 
     
     //-----------------------------------------------------------------
@@ -207,6 +243,14 @@ class ChannelList
 						    Iterator &last);
 
     void			channelsWithPrefix (const char prefix[],
+						    ConstIterator &first,
+						    ConstIterator &last) const;
+
+    void			channelsWithPrefix (const std::string &prefix,
+						    Iterator &first,
+						    Iterator &last);
+
+    void			channelsWithPrefix (const std::string &prefix,
 						    ConstIterator &first,
 						    ConstIterator &last) const;
 
@@ -387,6 +431,6 @@ operator != (const ChannelList::ConstIterator &x,
 }
 
 
-} // namespace Imf
+OPENEXR_IMF_INTERNAL_NAMESPACE_HEADER_EXIT
 
 #endif

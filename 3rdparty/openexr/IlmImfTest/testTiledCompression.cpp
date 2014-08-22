@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,7 +33,8 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
+#include "compareB44.h"
+#include "compareDwa.h"
 
 #include <ImfOutputFile.h>
 #include <ImfInputFile.h>
@@ -41,17 +42,18 @@
 #include <ImfTiledInputFile.h>
 #include <ImfChannelList.h>
 #include <ImfArray.h>
-#include "half.h"
-#include "ImathRandom.h"
+#include <half.h>
+#include <ImathRandom.h>
 #include <ImfTileDescriptionAttribute.h>
-#include <compareFloat.h>
+#include "compareFloat.h"
 
 #include <stdio.h>
 #include <assert.h>
+#include <algorithm>
 
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
-using namespace Imath;
-using namespace Imf;
+using namespace IMATH_NAMESPACE;
 
 
 namespace {
@@ -293,15 +295,61 @@ writeRead (const Array2D<unsigned int> &pi1,
 
         assert (ii == in.header().channels().end());
 
-        for (int y = 0; y < h; ++y)
-        {
-            for (int x = 0; x < w; ++x)
-            {
-                assert (pi1[y][x] == pi2[y][x]);
-                assert (ph1[y][x] == ph2[y][x]);
-                assert (equivalent (pf1[y][x], pf2[y][x], comp));
-            }
-        }
+	if (comp == B44_COMPRESSION ||
+            comp == B44A_COMPRESSION ||
+            comp == DWAA_COMPRESSION ||
+            comp == DWAB_COMPRESSION)
+	{
+	    for (int y = 0; y < h; y += ySize)
+	    {
+		for (int x = 0; x < w; x += xSize)
+		{
+		    int nx = min (w - x, xSize);
+		    int ny = min (h - y, ySize);
+
+		    Array2D<half> ph3 (ny, nx);
+		    Array2D<half> ph4 (ny, nx);
+
+		    for (int y1 = 0; y1 < ny; ++y1)
+		    {
+			for (int x1 = 0; x1 < nx; ++x1)
+			{
+			    ph3[y1][x1] = ph1[y + y1][x + x1];
+			    ph4[y1][x1] = ph2[y + y1][x + x1];
+			}
+		    }
+
+                    if (comp == B44_COMPRESSION ||
+                        comp == B44A_COMPRESSION)
+                    {
+                        compareB44 (nx, ny, ph3, ph4);
+                    }
+                    else if (comp == DWAA_COMPRESSION ||
+                             comp == DWAB_COMPRESSION)
+                    {
+                        //XXX compareDwa (nx, ny, ph3, ph4);
+                    }
+		}
+	    }
+	}
+
+	for (int y = 0; y < h; ++y)
+	{
+	    for (int x = 0; x < w; ++x)
+	    {
+		assert (pi1[y][x] == pi2[y][x]);
+
+		if (comp != B44_COMPRESSION &&
+                    comp != B44A_COMPRESSION &&
+                    comp != DWAA_COMPRESSION &&
+                    comp != DWAB_COMPRESSION)
+                {
+		    assert (ph1[y][x] == ph2[y][x]);
+                }
+
+		assert (equivalent (pf1[y][x], pf2[y][x], comp));
+	    }
+	}
     }
     
     {
@@ -383,7 +431,7 @@ writeRead (const Array2D<unsigned int> &pi1,
             {
                 in.readTile (tileX, tileY);
 
-                Imath::Box2i win = in.dataWindowForTile (tileX, tileY);
+                IMATH_NAMESPACE::Box2i win = in.dataWindowForTile (tileX, tileY);
                 int oX = win.min.x - xOffset;
                 int oY = win.min.y - yOffset;
 
@@ -394,7 +442,15 @@ writeRead (const Array2D<unsigned int> &pi1,
                          x < xSize && x2 <= win.max.x; ++x, x2++)
                     {
                         assert (pi1[oY + y][oX + x] == pi2[y][x]);
-                        assert (ph1[oY + y][oX + x] == ph2[y][x]);
+
+			if (comp != B44_COMPRESSION &&
+                            comp != B44A_COMPRESSION &&
+                            comp != DWAA_COMPRESSION &&
+                            comp != DWAB_COMPRESSION)
+			{
+			    assert (ph1[oY + y][oX + x] == ph2[y][x]);
+			}
+
                         assert (equivalent (pf1[oY + y][oX + x],
                                             pf2[y][x], comp));
                     }
@@ -409,7 +465,8 @@ writeRead (const Array2D<unsigned int> &pi1,
 
 
 void
-writeRead (const Array2D<unsigned int> &pi,
+writeRead (const std::string &tempDir,
+           const Array2D<unsigned int> &pi,
            const Array2D<half> &ph,
            const Array2D<float> &pf,
            int w,
@@ -419,12 +476,12 @@ writeRead (const Array2D<unsigned int> &pi,
            int dx,
            int dy)
 {
-    const char *filename = IMF_TMP_DIR "imf_test_comp.exr";
+    std::string filename = tempDir + "imf_test_comp.exr";
 
     for (int comp = 0; comp < NUM_COMPRESSION_METHODS; ++comp)
     {
         writeRead (pi, ph, pf,
-                   filename,
+                   filename.c_str(),
                    LineOrder (0),
                    w, h,
                    xs, ys,
@@ -437,7 +494,7 @@ writeRead (const Array2D<unsigned int> &pi,
 
 
 void
-testTiledCompression ()
+testTiledCompression (const std::string &tempDir)
 {
     try
     {
@@ -470,16 +527,16 @@ testTiledCompression ()
 		    "yOffset = " << DY[i] << endl;
 
             fillPixels1 (pi, ph, pf, W, H);
-            writeRead (pi, ph, pf, W, H, XS, YS, DX[i], DY[i]);
+            writeRead (tempDir, pi, ph, pf, W, H, XS, YS, DX[i], DY[i]);
 
             fillPixels2 (pi, ph, pf, W, H);
-            writeRead (pi, ph, pf, W, H, XS, YS, DX[i], DY[i]);
+            writeRead (tempDir, pi, ph, pf, W, H, XS, YS, DX[i], DY[i]);
 
             fillPixels3 (pi, ph, pf, W, H);
-            writeRead (pi, ph, pf, W, H, XS, YS, DX[i], DY[i]);
+            writeRead (tempDir, pi, ph, pf, W, H, XS, YS, DX[i], DY[i]);
 
             fillPixels4 (pi, ph, pf, W, H);
-            writeRead (pi, ph, pf, W, H, XS, YS, DX[i], DY[i]);
+            writeRead (tempDir, pi, ph, pf, W, H, XS, YS, DX[i], DY[i]);
         }
 
         cout << "ok\n" << endl;

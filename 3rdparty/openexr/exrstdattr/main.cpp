@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2014, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -42,36 +42,71 @@
 
 #include <ImfStandardAttributes.h>
 #include <ImfVecAttribute.h>
+#include <ImfIntAttribute.h>
 #include <ImfInputFile.h>
 #include <ImfOutputFile.h>
+#include <ImfMultiPartInputFile.h>
+#include <ImfMultiPartOutputFile.h>
 #include <ImfTiledOutputFile.h>
+#include <ImfNamespace.h>
+#include <ImfPartType.h>
+#include <ImfInputPart.h>
+#include <ImfOutputPart.h>
+#include <ImfTiledInputPart.h>
+#include <ImfTiledOutputPart.h>
+#include <ImfDeepScanLineInputPart.h>
+#include <ImfDeepScanLineOutputPart.h>
+#include <ImfDeepTiledInputPart.h>
+#include <ImfDeepTiledOutputPart.h>
+#include <ImathNamespace.h>
 
 #include <map>
 #include <string>
 #include <iostream>
 #include <exception>
+#include <string.h>
 #include <stdlib.h>
 
 using namespace std;
-using namespace Imf;
-using namespace Imath;
+using namespace OPENEXR_IMF_NAMESPACE;
+using namespace IMATH_NAMESPACE;
 
 
 void
 usageMessage (const char argv0[], bool verbose = false)
 {
-    cerr << "usage: " << argv0 << " [options] infile outfile" << endl;
+    cerr << "usage: " << argv0 << " [commands] infile outfile" << endl;
 
     if (verbose)
     {
 	cerr << "\n"
-		"Reads an OpenEXR image from infile, sets the values of\n"
-		"one or more standard attributes in the image's header,\n"
-		"and saves the result in outfile.  Infile and outfile must\n"
-		"not refer to the same file (the program cannot edit an\n"
-		"image file \"in place\").\n"
+		"Reads OpenEXR image file infile, sets the values of one\n"
+		"or more attributes in the headers of the file, and saves\n"
+		"the result in outfile.  Infile and outfile must not refer\n"
+		"to the same file (the program cannot edit an image file "
+                "\"in place\").\n"
 		"\n"
-		"Options for setting attribute values:\n"
+                "Command for selecting headers:\n"
+                "\n"
+                "  -part i\n"
+                "        If i is greater than or equal to zero, and less\n"
+                "        than the number of parts in the input file, then\n"
+                "        the header for part i becomes \"current.\" If i\n"
+                "        is \"any\" or -1, then all headers become current.\n"
+                "        Subsequent attribute setting commands affect only\n"
+                "        the current header or headers.  All headers are\n"
+                "        current before the first -part command.\n"
+                "\n"
+                "        For example, the command sequence\n"
+                "\n"
+                "         -focus 3 -part 2 -aperture 8 -expTime 0.01 "
+                         "-part any -owner luke\n"
+                "\n"
+                "        sets the focus and owner attributes in all\n"
+                "        headers, as well as the aperture and expTime\n"
+                "        attributes in the header of part 2.\n"
+                "\n"
+		"Commands for setting attribute values:\n"
 		"\n"
 		"  -chromaticities f f f f f f f f\n"
 		"        CIE xy chromaticities for the red, green\n"
@@ -81,6 +116,21 @@ usageMessage (const char argv0[], bool verbose = false)
 		"  -whiteLuminance f\n"
 		"        white luminance, in candelas per square meter\n"
 		"        (float, >= 0.0)\n"
+		"\n"
+		"  -adoptedNeutral f f\n"
+		"        CIE xy coordinates that should be considered\n"
+		"        \"neutral\" during color rendering.  Pixels in\n"
+		"        the image file whose xy coordinates match the\n"
+		"        adoptedNeutral value should be mapped to neutral\n"
+		"        values on the display. (2 floats)\n"
+		"\n"
+		"  -renderingTransform s\n"
+		"        name of the CTL rendering transform for this\n"
+		"        image (string)\n"
+		"\n"
+		"  -lookModTransform s\n"
+		"        name of the CTL look modification transform for\n"
+		"        this image (string)\n"
 		"\n"
 		"  -xDensity f\n"
 		"        horizontal output density, in pixels per inch\n"
@@ -128,6 +178,11 @@ usageMessage (const char argv0[], bool verbose = false)
 		"        indicates that the image is an environment map\n"
 		"        (string, LATLONG or CUBE)\n"
 		"\n"
+		"  -framesPerSecond i i\n"
+		"        playback frame rate expressed as a ratio of two\n"
+		"        integers, n and d (the frame rate is n/d frames\n"
+		"        per second)\n"
+		"\n"
 		"  -keyCode i i i i i i i\n"
 		"        key code that uniquely identifies a motion\n"
 		"        picture film frame using 7 integers:\n"
@@ -165,7 +220,19 @@ usageMessage (const char argv0[], bool verbose = false)
 		"  -screenWindowCenter f f\n"
 		"        center of the screen window (2 floats)\n"
 		"\n"
-		"Other Options:\n"
+		"  -string s s\n"
+		"        custom string attribute\n"
+		"        (2 strings, attribute name and value)\n"
+		"\n"
+		"  -float s f\n"
+		"        custom float attribute (string + float,\n"
+		"        attribute name and value)\n"
+		"\n"
+		"  -int s i\n"
+		"        custom integer attribute (string + integer,\n"
+		"        attribute name and value)\n"
+		"\n"
+		"Other Commands:\n"
 		"\n"
 		"  -h        prints this message\n";
 
@@ -176,7 +243,17 @@ usageMessage (const char argv0[], bool verbose = false)
 }
 
 
-typedef map <string, Attribute *> AttrMap;
+struct SetAttr
+{
+    string      name;
+    int         part;
+    Attribute * attr;
+    
+    SetAttr (const string &name, int part, Attribute *attr):
+        name (name), part (part), attr (attr) {}
+};
+
+typedef vector <SetAttr> SetAttrVector;
 
 
 void
@@ -287,7 +364,8 @@ getFloat (const char attrName[],
 	  int argc,
 	  char **argv,
 	  int &i,
-	  AttrMap &attrs,
+          int part,
+	  SetAttrVector &attrs,
 	  void (*check) (const char attrName[], float f) = 0)
 {
     if (i > argc - 2)
@@ -298,7 +376,7 @@ getFloat (const char attrName[],
     if (check)
 	check (attrName, f);
 
-    attrs[attrName] = new FloatAttribute (f);
+    attrs.push_back (SetAttr (attrName, part, new FloatAttribute (f)));
     i += 2;
 }
 
@@ -308,7 +386,8 @@ getPosFloatOrInf (const char attrName[],
 	          int argc,
 		  char **argv,
 		  int &i,
-		  AttrMap &attrs)
+                  int part,
+		  SetAttrVector &attrs)
 {
     if (i > argc - 2)
 	usageMessage (argv[0]);
@@ -331,7 +410,7 @@ getPosFloatOrInf (const char attrName[],
 	}
     }
 
-    attrs[attrName] = new FloatAttribute (f);
+    attrs.push_back (SetAttr (attrName, part, new FloatAttribute (f)));
     i += 2;
 }
 
@@ -341,7 +420,8 @@ getV2f (const char attrName[],
 	int argc,
 	char **argv,
 	int &i,
-	AttrMap &attrs,
+        int part,
+	SetAttrVector &attrs,
 	void (*check) (const char attrName[], const V2f &v) = 0)
 {
     if (i > argc - 3)
@@ -352,7 +432,29 @@ getV2f (const char attrName[],
     if (check)
 	check (attrName, v);
 
-    attrs[attrName] = new V2fAttribute (v);
+    attrs.push_back (SetAttr (attrName, part, new V2fAttribute (v)));
+    i += 3;
+}
+
+
+void
+getRational (const char attrName[],
+	     int argc,
+	     char **argv,
+	     int &i,
+             int part,
+	     SetAttrVector &attrs,
+	     void (*check) (const char attrName[], const Rational &r) = 0)
+{
+    if (i > argc - 3)
+	usageMessage (argv[0]);
+
+    Rational r (strtol (argv[i + 1], 0, 0), strtol (argv[i + 2], 0, 0));
+
+    if (check)
+	check (attrName, r);
+
+    attrs.push_back (SetAttr (attrName, part, new RationalAttribute (r)));
     i += 3;
 }
 
@@ -362,7 +464,8 @@ getString (const char attrName[],
 	   int argc,
 	   char **argv,
 	   int &i,
-	   AttrMap &attrs,
+           int part,
+	   SetAttrVector &attrs,
 	   void (*check) (const char attrName[], const char str[]) = 0)
 {
     if (i > argc - 2)
@@ -373,8 +476,59 @@ getString (const char attrName[],
     if (check)
 	check (attrName, str);
 
-    attrs[attrName] = new StringAttribute (str);
+    attrs.push_back (SetAttr (attrName, part, new StringAttribute (str)));
     i += 2;
+}
+
+
+void
+getNameAndString (int argc,
+		  char **argv,
+		  int &i,
+                  int part,
+		  SetAttrVector &attrs)
+{
+    if (i > argc - 3)
+	usageMessage (argv[0]);
+
+    const char *attrName = argv[i + 1];
+    const char *str = argv[i + 2];
+    attrs.push_back (SetAttr (attrName, part, new StringAttribute (str)));
+    i += 3;
+}
+
+
+void
+getNameAndFloat (int argc,
+		 char **argv,
+		 int &i,
+                 int part,
+		 SetAttrVector &attrs)
+{
+    if (i > argc - 3)
+	usageMessage (argv[0]);
+
+    const char *attrName = argv[i + 1];
+    float f = strtod (argv[i + 2], 0);
+    attrs.push_back (SetAttr (attrName, part, new FloatAttribute (f)));
+    i += 3;
+}
+
+
+void
+getNameAndInt (int argc,
+	       char **argv,
+	       int &i,
+               int part,
+	       SetAttrVector &attrs)
+{
+    if (i > argc - 3)
+	usageMessage (argv[0]);
+
+    const char *attrName = argv[i + 1];
+    int j = strtol (argv[i + 2], 0, 0);
+    attrs.push_back (SetAttr (attrName, part, new IntAttribute (j)));
+    i += 3;
 }
 
 
@@ -383,13 +537,14 @@ getChromaticities (const char attrName[],
 		   int argc,
 	           char **argv,
 		   int &i,
-		   AttrMap &attrs)
+                   int part,
+		   SetAttrVector &attrs)
 {
     if (i > argc - 9)
 	usageMessage (argv[0]);
 
     ChromaticitiesAttribute *a = new ChromaticitiesAttribute;
-    attrs[attrName] = a;
+    attrs.push_back (SetAttr (attrName, part, a));
 
     a->value().red.x   = strtod (argv[i + 1], 0);
     a->value().red.y   = strtod (argv[i + 2], 0);
@@ -408,7 +563,8 @@ getEnvmap (const char attrName[],
 	   int argc,
 	   char **argv,
 	   int &i,
-	   AttrMap &attrs)
+           int part,
+	   SetAttrVector &attrs)
 {
     if (i > argc - 2)
 	usageMessage (argv[0]);
@@ -431,7 +587,7 @@ getEnvmap (const char attrName[],
 	exit (1);
     }
 
-    attrs[attrName] = new EnvmapAttribute (type);
+    attrs.push_back (SetAttr (attrName, part, new EnvmapAttribute (type)));
     i += 2;
 }
 
@@ -441,13 +597,14 @@ getKeyCode (const char attrName[],
 	    int argc,
 	    char **argv,
 	    int &i,
-	    AttrMap &attrs)
+            int part,
+	    SetAttrVector &attrs)
 {
     if (i > argc - 8)
 	usageMessage (argv[0]);
 
     KeyCodeAttribute *a = new KeyCodeAttribute;
-    attrs[attrName] = a;
+    attrs.push_back (SetAttr (attrName, part, a));
 
     a->value().setFilmMfcCode   (strtol (argv[i + 1], 0, 0));
     a->value().setFilmType      (strtol (argv[i + 2], 0, 0));
@@ -465,17 +622,37 @@ getTimeCode (const char attrName[],
 	    int argc,
 	    char **argv,
 	    int &i,
-	    AttrMap &attrs)
+            int part,
+	    SetAttrVector &attrs)
 {
     if (i > argc - 3)
 	usageMessage (argv[0]);
 
     TimeCodeAttribute *a = new TimeCodeAttribute;
-    attrs[attrName] = a;
+    attrs.push_back (SetAttr (attrName, part, a));
 
     a->value().setTimeAndFlags (strtoul (argv[i + 1], 0, 16));
     a->value().setUserData     (strtoul (argv[i + 2], 0, 16));
     i += 3;
+}
+
+
+void
+getPart (const char attrName[],
+         int argc,
+         char **argv,
+         int &i,
+         int &part)
+{
+    if (i > argc - 2)
+	usageMessage (argv[0]);
+
+    if (!strcmp (argv[i + 1], "any"))
+        part = -1;
+    else
+        part = strtol (argv[i + 1], 0, 0);
+
+    i += 2;
 }
 
 
@@ -496,97 +673,129 @@ main(int argc, char **argv)
 	const char *inFileName = 0;
 	const char *outFileName = 0;
 
-	AttrMap attrs;
-
+	SetAttrVector attrs;
+	int part = -1;
 	int i = 1;
 
 	while (i < argc)
 	{
 	    const char *attrName = argv[i] + 1;
 
-	    if (!strcmp (argv[i], "-chromaticities"))
+	    if (!strcmp (argv[i], "-part"))
 	    {
-		getChromaticities (attrName, argc, argv, i, attrs);
+                getPart (attrName, argc, argv, i, part);
+	    }
+	    else if (!strcmp (argv[i], "-chromaticities"))
+	    {
+		getChromaticities (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-whiteLuminance"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs);
+		getFloat (attrName, argc, argv, i, part, attrs);
+	    }
+	    else if (!strcmp (argv[i], "-adoptedNeutral"))
+	    {
+		getV2f (attrName, argc, argv, i, part, attrs);
+	    }
+	    else if (!strcmp (argv[i], "-renderingTransform"))
+	    {
+		getString (attrName, argc, argv, i, part, attrs);
+	    }
+	    else if (!strcmp (argv[i], "-lookModTransform"))
+	    {
+		getString (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-xDensity"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs, isPositive);
+		getFloat (attrName, argc, argv, i, part, attrs, isPositive);
 	    }
 	    else if (!strcmp (argv[i], "-owner"))
 	    {
-		getString (attrName, argc, argv, i, attrs);
+		getString (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-comments"))
 	    {
-		getString (attrName, argc, argv, i, attrs);
+		getString (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-capDate"))
 	    {
-		getString (attrName, argc, argv, i, attrs, isDate);
+		getString (attrName, argc, argv, i, part, attrs, isDate);
 	    }
 	    else if (!strcmp (argv[i], "-utcOffset"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs);
+		getFloat (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-longitude"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs);
+		getFloat (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-latitude"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs);
+		getFloat (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-altitude"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs);
+		getFloat (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-focus"))
 	    {
-		getPosFloatOrInf (attrName, argc, argv, i, attrs);
+		getPosFloatOrInf (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-expTime"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs, isPositive);
+		getFloat (attrName, argc, argv, i, part, attrs, isPositive);
 	    }
 	    else if (!strcmp (argv[i], "-aperture"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs, isPositive);
+		getFloat (attrName, argc, argv, i, part, attrs, isPositive);
 	    }
 	    else if (!strcmp (argv[i], "-isoSpeed"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs, isPositive);
+		getFloat (attrName, argc, argv, i, part, attrs, isPositive);
 	    }
 	    else if (!strcmp (argv[i], "-envmap"))
 	    {
-		getEnvmap (attrName, argc, argv, i, attrs);
+		getEnvmap (attrName, argc, argv, i, part, attrs);
+	    }
+	    else if (!strcmp (argv[i], "-framesPerSecond"))
+	    {
+		getRational (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-keyCode"))
 	    {
-		getKeyCode (attrName, argc, argv, i, attrs);
+		getKeyCode (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-timeCode"))
 	    {
-		getTimeCode (attrName, argc, argv, i, attrs);
+		getTimeCode (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-wrapmodes"))
 	    {
-		getString (attrName, argc, argv, i, attrs);
+		getString (attrName, argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-pixelAspectRatio"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs, isPositive);
+		getFloat (attrName, argc, argv, i, part, attrs, isPositive);
 	    }
 	    else if (!strcmp (argv[i], "-screenWindowWidth"))
 	    {
-		getFloat (attrName, argc, argv, i, attrs, isNonNegative);
+		getFloat (attrName, argc, argv, i, part, attrs, isNonNegative);
 	    }
 	    else if (!strcmp (argv[i], "-screenWindowCenter"))
 	    {
-		getV2f (attrName, argc, argv, i, attrs);
+		getV2f (attrName, argc, argv, i, part, attrs);
+	    }
+	    else if (!strcmp (argv[i], "-string"))
+	    {
+		getNameAndString (argc, argv, i, part, attrs);
+	    }
+	    else if (!strcmp (argv[i], "-float"))
+	    {
+		getNameAndFloat (argc, argv, i, part, attrs);
+	    }
+	    else if (!strcmp (argv[i], "-int"))
+	    {
+		getNameAndInt (argc, argv, i, part, attrs);
 	    }
 	    else if (!strcmp (argv[i], "-h"))
 	    {
@@ -613,25 +822,76 @@ main(int argc, char **argv)
 	}
 
 	//
-	// Load the input file, add the new attributes,
-	// and save the result in the output file.
+	// Load the headers from the input file
+        // and add attributes to the headers.
 	//
 
-	InputFile in (inFileName);
-	Header header = in.header();
+	MultiPartInputFile in (inFileName);
+	int numParts = in.parts();
+        vector <Header> headers;
 
-	for (AttrMap::const_iterator i = attrs.begin(); i != attrs.end(); ++i)
-	    header.insert (i->first.c_str(), *i->second);
+        for (int part = 0; part < numParts; ++part)
+        {
+            Header h = in.header (part);
 
-	if (header.hasTileDescription())
+            for (int i = 0; i < attrs.size(); ++i)
+            {
+                const SetAttr &attr = attrs[i];
+
+                if (attr.part == -1 || attr.part == part)
+                {
+                    h.insert (attr.name, *attr.attr);
+                }
+                else if (attr.part < 0 || attr.part >= numParts)
+                {
+                    cerr << "Invalid part number " << attr.part << ". "
+                            "Part numbers in file " << inFileName << " "
+                            "go from 0 to " << numParts - 1 << "." << endl;
+
+                    return 1;
+                }
+            }
+
+            headers.push_back(h);
+        }
+
+        //
+        // Crete an output file with the modified headers,
+        // and copy the pixels from the input file to the
+        // output file.
+        //
+
+	MultiPartOutputFile out (outFileName, &headers[0], numParts);
+
+	for (int p = 0; p < numParts; ++p)
 	{
-	    TiledOutputFile out (outFileName, header);
-	    out.copyPixels (in);
-	}
-	else
-	{
-	    OutputFile out (outFileName, header);
-	    out.copyPixels (in);
+	    const Header &h = in.header (p);
+	    const string &type = h.type();
+
+	    if (type == SCANLINEIMAGE)
+	    {
+	        InputPart  inPart  (in,  p);
+	        OutputPart outPart (out, p);
+	        outPart.copyPixels (inPart);
+	    }
+	    else if (type == TILEDIMAGE)
+	    {
+	        TiledInputPart  inPart  (in,  p);
+	        TiledOutputPart outPart (out, p);
+	        outPart.copyPixels (inPart);
+	    }
+	    else if (type == DEEPSCANLINE)
+	    {
+	        DeepScanLineInputPart  inPart  (in,  p);
+	        DeepScanLineOutputPart outPart (out, p);
+	        outPart.copyPixels (inPart);
+	    }
+	    else if (type == DEEPTILE)
+	    {
+	        DeepTiledInputPart  inPart  (in,  p);
+	        DeepTiledOutputPart outPart (out, p);
+	        outPart.copyPixels (inPart);
+	    }
 	}
     }
     catch (const exception &e)

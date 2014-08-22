@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,22 +33,22 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
-
 #include <ImfTiledOutputFile.h>
 #include <ImfInputFile.h>
 #include <ImfTiledInputFile.h>
 #include <ImfChannelList.h>
 #include <ImfArray.h>
-#include "half.h"
+#include <half.h>
 
 #include <vector>
 #include <stdio.h>
 #include <assert.h>
 
+
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
-using namespace Imath;
-using namespace Imf;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -120,41 +120,52 @@ writeCopyReadONE (const char fileName1[],
     {
         cout << " reading" << flush;
 
-        TiledInputFile in (fileName2);
+        TiledInputFile in1 (fileName1);
+        TiledInputFile in2 (fileName2);
 
-        const Box2i &dw = in.header().dataWindow();
+        const Box2i &dw = in2.header().dataWindow();
         int w = dw.max.x - dw.min.x + 1;
         int h = dw.max.y - dw.min.y + 1;
         int dx = dw.min.x;
         int dy = dw.min.y;
 
+        Array2D<half> ph1 (h, w);
         Array2D<half> ph2 (h, w);
 
-        FrameBuffer fb;
+        FrameBuffer fb1;
+        FrameBuffer fb2;
 
-        fb.insert ("H",
-                   Slice (HALF,
-                          (char *) &ph2[-dy][-dx],
-                          sizeof (ph2[0][0]),
-                          sizeof (ph2[0][0]) * w));
+        fb1.insert ("H",
+                    Slice (HALF,
+                           (char *) &ph1[-dy][-dx],
+                           sizeof (ph1[0][0]),
+                           sizeof (ph1[0][0]) * w));
 
-        in.setFrameBuffer (fb);
-        in.readTiles (0, in.numXTiles() - 1, 0, in.numYTiles() - 1);
+        fb2.insert ("H",
+                    Slice (HALF,
+                           (char *) &ph2[-dy][-dx],
+                           sizeof (ph2[0][0]),
+                           sizeof (ph2[0][0]) * w));
+
+        in1.setFrameBuffer (fb1);
+        in1.readTiles (0, in1.numXTiles() - 1, 0, in1.numYTiles() - 1);
+        in2.setFrameBuffer (fb2);
+        in2.readTiles (0, in2.numXTiles() - 1, 0, in2.numYTiles() - 1);
 
         cout << " comparing" << flush;
 
-        assert (in.header().displayWindow() == hdr.displayWindow());
-        assert (in.header().dataWindow() == hdr.dataWindow());
-        assert (in.header().pixelAspectRatio() == hdr.pixelAspectRatio());
-        assert (in.header().screenWindowCenter() == hdr.screenWindowCenter());
-        assert (in.header().screenWindowWidth() == hdr.screenWindowWidth());
-        assert (in.header().lineOrder() == hdr.lineOrder());
-        assert (in.header().compression() == hdr.compression());
-        assert (in.header().channels() == hdr.channels());
+        assert (in2.header().displayWindow() == hdr.displayWindow());
+        assert (in2.header().dataWindow() == hdr.dataWindow());
+        assert (in2.header().pixelAspectRatio() == hdr.pixelAspectRatio());
+        assert (in2.header().screenWindowCenter() == hdr.screenWindowCenter());
+        assert (in2.header().screenWindowWidth() == hdr.screenWindowWidth());
+        assert (in2.header().lineOrder() == hdr.lineOrder());
+        assert (in2.header().compression() == hdr.compression());
+        assert (in2.header().channels() == hdr.channels());
 
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x)
-            assert (ph1[y][x] == ph2[y][x]);
+		assert (ph1[y][x] == ph2[y][x]);
     }
 
     remove (fileName1);
@@ -235,49 +246,69 @@ writeCopyReadMIP (const char fileName1[],
     {
         cout << " reading" << flush;
 
-        TiledInputFile in (fileName2);
+        TiledInputFile in1 (fileName1);
+        TiledInputFile in2 (fileName2);
 
-        const Box2i &dw = in.header().dataWindow();
+        const Box2i &dw = in2.header().dataWindow();
         int dx = dw.min.x;
         int dy = dw.min.y;
 
-        int numLevels = in.numLevels();
+        int numLevels = in2.numLevels();
+        Array < Array2D<half> > levels1 (numLevels);
         Array < Array2D<half> > levels2 (numLevels);
 
         for (int level = 0; level < numLevels; ++level)
         {
-            int levelWidth = in.levelWidth(level);
-            int levelHeight = in.levelHeight(level);
+            int levelWidth = in2.levelWidth(level);
+            int levelHeight = in2.levelHeight(level);
+            levels1[level].resizeErase(levelHeight, levelWidth);
             levels2[level].resizeErase(levelHeight, levelWidth);
 
-            FrameBuffer fb; 
+            FrameBuffer fb1; 
+            FrameBuffer fb2; 
 
-            fb.insert ("H",
-                       Slice (HALF,
-                              (char *) &levels2[level][-dy][-dx],
-                              sizeof (levels2[level][0][0]),
-                              sizeof (levels2[level][0][0]) * levelWidth));
+            fb1.insert ("H",
+                        Slice (HALF,
+                               (char *) &levels1[level][-dy][-dx],
+                               sizeof (levels1[level][0][0]),
+                               sizeof (levels1[level][0][0]) * levelWidth));
 
-            in.setFrameBuffer (fb);
-            in.readTiles (0, in.numXTiles(level) - 1,
-                          0, in.numYTiles(level) - 1, level);
+            fb2.insert ("H",
+                        Slice (HALF,
+                               (char *) &levels2[level][-dy][-dx],
+                               sizeof (levels2[level][0][0]),
+                               sizeof (levels2[level][0][0]) * levelWidth));
+
+            in1.setFrameBuffer (fb1);
+            in2.setFrameBuffer (fb2);
+
+            in1.readTiles (0, in1.numXTiles(level) - 1,
+                           0, in1.numYTiles(level) - 1, level);
+
+            in2.readTiles (0, in2.numXTiles(level) - 1,
+                           0, in2.numYTiles(level) - 1, level);
         }
 
         cout << " comparing" << flush;
 
-        assert (in.header().displayWindow() == hdr.displayWindow());
-        assert (in.header().dataWindow() == hdr.dataWindow());
-        assert (in.header().pixelAspectRatio() == hdr.pixelAspectRatio());
-        assert (in.header().screenWindowCenter() == hdr.screenWindowCenter());
-        assert (in.header().screenWindowWidth() == hdr.screenWindowWidth());
-        assert (in.header().lineOrder() == hdr.lineOrder());
-        assert (in.header().compression() == hdr.compression());
-        assert (in.header().channels() == hdr.channels());
+        assert (in2.header().displayWindow() == hdr.displayWindow());
+        assert (in2.header().dataWindow() == hdr.dataWindow());
+        assert (in2.header().pixelAspectRatio() == hdr.pixelAspectRatio());
+        assert (in2.header().screenWindowCenter() == hdr.screenWindowCenter());
+        assert (in2.header().screenWindowWidth() == hdr.screenWindowWidth());
+        assert (in2.header().lineOrder() == hdr.lineOrder());
+        assert (in2.header().compression() == hdr.compression());
+        assert (in2.header().channels() == hdr.channels());
 
         for (int l = 0; l < numLevels; ++l)
-            for (int y = 0; y < in.levelHeight(l); ++y)
-                for (int x = 0; x < in.levelWidth(l); ++x)                    
-                    assert ((levels2[l])[y][x] == (levels[l])[y][x]);
+            for (int y = 0; y < in1.levelHeight(l); ++y)
+                for (int x = 0; x < in1.levelWidth(l); ++x)                    
+		{
+                    assert ((levels2[l])[y][x] == (levels1[l])[y][x]);
+
+		    if (comp != B44_COMPRESSION && comp != B44A_COMPRESSION)
+			assert ((levels2[l])[y][x] == (levels[l])[y][x]);
+		}
     }
 
     remove (fileName1);
@@ -359,56 +390,79 @@ writeCopyReadRIP (const char fileName1[],
     {
         cout << " reading" << flush;
 
-        TiledInputFile in (fileName2);
+        TiledInputFile in1 (fileName1);
+        TiledInputFile in2 (fileName2);
 
-        const Box2i &dw = in.header().dataWindow();
+        const Box2i &dw = in2.header().dataWindow();
         int dx = dw.min.x;
         int dy = dw.min.y;
 
-        int numXLevels = in.numXLevels();
-        int numYLevels = in.numYLevels();
+        int numXLevels = in2.numXLevels();
+        int numYLevels = in2.numYLevels();
+        Array2D < Array2D<half> > levels1 (numYLevels, numXLevels);
         Array2D < Array2D<half> > levels2 (numYLevels, numXLevels);
 
         for (int ylevel = 0; ylevel < numYLevels; ++ylevel)
         {
             for (int xlevel = 0; xlevel < numXLevels; ++xlevel)
             {
-                int levelWidth  = in.levelWidth(xlevel);
-                int levelHeight = in.levelHeight(ylevel);
+                int levelWidth  = in2.levelWidth(xlevel);
+                int levelHeight = in2.levelHeight(ylevel);
+                levels1[ylevel][xlevel].resizeErase(levelHeight, levelWidth);
                 levels2[ylevel][xlevel].resizeErase(levelHeight, levelWidth);
 
-                FrameBuffer fb;
-                fb.insert ("H",
+                FrameBuffer fb1;
+                FrameBuffer fb2;
+
+                fb1.insert ("H",
+		   Slice (HALF,
+			  (char *) &levels1[ylevel][xlevel][-dy][-dx],
+			  sizeof (levels1[ylevel][xlevel][0][0]),
+			  sizeof (levels1[ylevel][xlevel][0][0]) * levelWidth));
+
+                fb2.insert ("H",
 		   Slice (HALF,
 			  (char *) &levels2[ylevel][xlevel][-dy][-dx],
 			  sizeof (levels2[ylevel][xlevel][0][0]),
 			  sizeof (levels2[ylevel][xlevel][0][0]) * levelWidth));
 
-                in.setFrameBuffer (fb);
+                in1.setFrameBuffer (fb1);
+                in2.setFrameBuffer (fb2);
 
-                in.readTiles (0, in.numXTiles(xlevel) - 1,
-                              0, in.numYTiles(ylevel) - 1,
-                              xlevel, ylevel);
+                in1.readTiles (0, in1.numXTiles(xlevel) - 1,
+                               0, in1.numYTiles(ylevel) - 1,
+                               xlevel, ylevel);
+
+                in2.readTiles (0, in2.numXTiles(xlevel) - 1,
+                               0, in2.numYTiles(ylevel) - 1,
+                               xlevel, ylevel);
             }
         }
 
         cout << " comparing" << flush;
 
-        assert (in.header().displayWindow() == hdr.displayWindow());
-        assert (in.header().dataWindow() == hdr.dataWindow());
-        assert (in.header().pixelAspectRatio() == hdr.pixelAspectRatio());
-        assert (in.header().screenWindowCenter() == hdr.screenWindowCenter());
-        assert (in.header().screenWindowWidth() == hdr.screenWindowWidth());
-        assert (in.header().lineOrder() == hdr.lineOrder());
-        assert (in.header().compression() == hdr.compression());
-        assert (in.header().channels() == hdr.channels());
+        assert (in2.header().displayWindow() == hdr.displayWindow());
+        assert (in2.header().dataWindow() == hdr.dataWindow());
+        assert (in2.header().pixelAspectRatio() == hdr.pixelAspectRatio());
+        assert (in2.header().screenWindowCenter() == hdr.screenWindowCenter());
+        assert (in2.header().screenWindowWidth() == hdr.screenWindowWidth());
+        assert (in2.header().lineOrder() == hdr.lineOrder());
+        assert (in2.header().compression() == hdr.compression());
+        assert (in2.header().channels() == hdr.channels());
 
         for (int ly = 0; ly < numYLevels; ++ly)
             for (int lx = 0; lx < numXLevels; ++lx)
-                for (int y = 0; y < in.levelHeight(ly); ++y)
-                    for (int x = 0; x < in.levelWidth(lx); ++x)
+                for (int y = 0; y < in1.levelHeight(ly); ++y)
+                    for (int x = 0; x < in1.levelWidth(lx); ++x)
+		    {
                         assert ((levels2[ly][lx])[y][x] ==
-                                (levels[ly][lx])[y][x]);
+                                (levels1[ly][lx])[y][x]);
+
+			if (comp != B44_COMPRESSION && comp != B44A_COMPRESSION)
+			    assert ((levels2[ly][lx])[y][x] ==
+				    (levels[ly][lx])[y][x]);
+
+		    }
     }
 
     remove (fileName1);
@@ -418,22 +472,22 @@ writeCopyReadRIP (const char fileName1[],
 
 
 void
-writeCopyRead (int w, int h, int xs, int ys, int dx, int dy)
+writeCopyRead (const std::string &tempDir, int w, int h, int xs, int ys, int dx, int dy)
 {
-    const char *filename1 = IMF_TMP_DIR "imf_test_copy1.exr";
-    const char *filename2 = IMF_TMP_DIR "imf_test_copy2.exr";
+    std::string filename1 = tempDir + "imf_test_copy1.exr";
+    std::string filename2 = tempDir + "imf_test_copy2.exr";
 
     for (int comp = 0; comp < NUM_COMPRESSION_METHODS; ++comp)
     {
 	for (int rmode = 0; rmode < NUM_ROUNDINGMODES; ++rmode)
 	{
-	    writeCopyReadONE (filename1, filename2, w, h, xs, ys, dx, dy,
+	    writeCopyReadONE (filename1.c_str(), filename2.c_str(), w, h, xs, ys, dx, dy,
 			      Compression (comp), LevelRoundingMode (rmode));
 
-	    writeCopyReadMIP (filename1, filename2, w, h, xs, ys, dx, dy,
+	    writeCopyReadMIP (filename1.c_str(), filename2.c_str(), w, h, xs, ys, dx, dy,
 			      Compression (comp), LevelRoundingMode (rmode));
 			      
-	    writeCopyReadRIP (filename1, filename2, w, h, xs, ys, dx, dy,
+	    writeCopyReadRIP (filename1.c_str(), filename2.c_str(), w, h, xs, ys, dx, dy,
 			      Compression (comp), LevelRoundingMode (rmode));
 	}
     }
@@ -443,7 +497,7 @@ writeCopyRead (int w, int h, int xs, int ys, int dx, int dy)
 
 
 void
-testTiledCopyPixels ()
+testTiledCopyPixels (const std::string &tempDir)
 {
     try
     {
@@ -455,10 +509,10 @@ testTiledCopyPixels ()
         const int DY = 29;
         const int YS = 55;
 
-        writeCopyRead (W, H, DX, YS, 0,  0);
-        writeCopyRead (W, H, DX, YS, 0,  DY);
-        writeCopyRead (W, H, DX, YS, DX, 0);
-        writeCopyRead (W, H, DX, YS, DX, DY);
+        writeCopyRead (tempDir, W, H, DX, YS, 0,  0);
+        writeCopyRead (tempDir, W, H, DX, YS, 0,  DY);
+        writeCopyRead (tempDir, W, H, DX, YS, DX, 0);
+        writeCopyRead (tempDir, W, H, DX, YS, DX, DY);
 
         cout << "ok\n" << endl;
     }

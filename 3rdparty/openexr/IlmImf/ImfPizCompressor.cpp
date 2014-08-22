@@ -39,27 +39,30 @@
 //
 //-----------------------------------------------------------------------------
 
-#include <ImfPizCompressor.h>
-#include <ImfHeader.h>
-#include <ImfChannelList.h>
-#include <ImfHuf.h>
-#include <ImfWav.h>
-#include <ImfMisc.h>
-#include "ImathBox.h"
-#include "ImathFun.h"
-#include "Iex.h"
-#include <ImfIO.h>
-#include <ImfXdr.h>
-#include <ImfAutoArray.h>
+#include "ImfPizCompressor.h"
+#include "ImfHeader.h"
+#include "ImfChannelList.h"
+#include "ImfHuf.h"
+#include "ImfWav.h"
+#include "ImfMisc.h"
+#include "ImfCheckedArithmetic.h"
+#include <ImathFun.h>
+#include <ImathBox.h>
+#include <Iex.h>
+#include "ImfIO.h"
+#include "ImfXdr.h"
+#include "ImfAutoArray.h"
 #include <string.h>
 #include <assert.h>
+#include "ImfNamespace.h"
 
-namespace Imf {
+OPENEXR_IMF_INTERNAL_NAMESPACE_SOURCE_ENTER
 
-using Imath::divp;
-using Imath::modp;
-using Imath::Box2i;
-using Imath::V2i;
+using IMATH_NAMESPACE::divp;
+using IMATH_NAMESPACE::modp;
+using IMATH_NAMESPACE::Box2i;
+using IMATH_NAMESPACE::V2i;
+using IEX_NAMESPACE::InputExc;
 
 namespace {
 
@@ -151,20 +154,6 @@ applyLut (const unsigned short lut[USHORT_RANGE],
 }
 
 
-//
-// Return the number of samples a channel with
-// subsampling rate s has in the interval [a, b].
-//
-
-int
-numSamples (int s, int a, int b)
-{
-    int a1 = divp (a, s);
-    int b1 = divp (b, s);
-    return  b1 - a1 + ((a1 * s < a)? 0: 1);
-}
-
-
 } // namespace
 
 
@@ -181,8 +170,8 @@ struct PizCompressor::ChannelData
 
 PizCompressor::PizCompressor
     (const Header &hdr,
-     int maxScanLineSize,
-     int numScanLines)
+     size_t maxScanLineSize,
+     size_t numScanLines)
 :
     Compressor (hdr),
     _maxScanLineSize (maxScanLineSize),
@@ -194,8 +183,17 @@ PizCompressor::PizCompressor
     _channels (hdr.channels()),
     _channelData (0)
 {
-    _tmpBuffer = new unsigned short [maxScanLineSize * numScanLines / 2];
-    _outBuffer = new char [maxScanLineSize * numScanLines + 65536 + 8192];
+    size_t tmpBufferSize =
+                uiMult (maxScanLineSize, numScanLines) / 2;
+
+    size_t outBufferSize =
+                uiAdd (uiMult (maxScanLineSize, numScanLines),
+                       size_t (65536 + 8192));
+
+    _tmpBuffer = new unsigned short
+            [checkArraySize (tmpBufferSize, sizeof (unsigned short))];
+
+    _outBuffer = new char [outBufferSize];
 
     const ChannelList &channels = header().channels();
     bool onlyHalfChannels = true;
@@ -270,7 +268,7 @@ PizCompressor::compress (const char *inPtr,
 int
 PizCompressor::compressTile (const char *inPtr,
 			     int inSize,
-			     Imath::Box2i range,
+			     IMATH_NAMESPACE::Box2i range,
 			     const char *&outPtr)
 {
     return compress (inPtr, inSize, range, outPtr);
@@ -294,7 +292,7 @@ PizCompressor::uncompress (const char *inPtr,
 int
 PizCompressor::uncompressTile (const char *inPtr,
 			       int inSize,
-			       Imath::Box2i range,
+			       IMATH_NAMESPACE::Box2i range,
 			       const char *&outPtr)
 {
     return uncompress (inPtr, inSize, range, outPtr);
@@ -304,7 +302,7 @@ PizCompressor::uncompressTile (const char *inPtr,
 int
 PizCompressor::compress (const char *inPtr,
 			 int inSize,
-			 Imath::Box2i range,
+			 IMATH_NAMESPACE::Box2i range,
 			 const char *&outPtr)
 {
     //
@@ -313,7 +311,7 @@ PizCompressor::compress (const char *inPtr,
     //
 
     //
-    // Special case ­- empty input buffer
+    // Special case ï¿½- empty input buffer
     //
 
     if (inSize == 0)
@@ -390,7 +388,7 @@ PizCompressor::compress (const char *inPtr,
     else
     {
 	//
-	// Native, machine-independent data format
+	// Native, machine-dependent data format
 	//
 
 	for (int y = minY; y <= maxY; ++y)
@@ -486,7 +484,7 @@ PizCompressor::compress (const char *inPtr,
 int
 PizCompressor::uncompress (const char *inPtr,
 			   int inSize,
-			   Imath::Box2i range,
+			   IMATH_NAMESPACE::Box2i range,
 			   const char *&outPtr)
 {
     //
@@ -552,6 +550,12 @@ PizCompressor::uncompress (const char *inPtr,
 
     Xdr::read <CharPtrIO> (inPtr, minNonZero);
     Xdr::read <CharPtrIO> (inPtr, maxNonZero);
+
+    if (maxNonZero >= BITMAP_SIZE)
+    {
+	throw InputExc ("Error in header for PIZ-compressed data "
+			"(invalid bitmap size).");
+    }
 
     if (minNonZero <= maxNonZero)
     {
@@ -626,7 +630,7 @@ PizCompressor::uncompress (const char *inPtr,
     else
     {
 	//
-	// Native, machine-independent data format
+	// Native, machine-dependent data format
 	//
 
 	for (int y = minY; y <= maxY; ++y)
@@ -660,4 +664,4 @@ PizCompressor::uncompress (const char *inPtr,
 }
 
 
-} // namespace Imf
+OPENEXR_IMF_INTERNAL_NAMESPACE_SOURCE_EXIT

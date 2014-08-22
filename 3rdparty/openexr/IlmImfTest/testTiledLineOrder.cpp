@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,25 +33,25 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
-
 #include <ImfTiledOutputFile.h>
 #include <ImfInputFile.h>
-#include "ImathRandom.h"
+#include <ImathRandom.h>
 #include <ImfTiledInputFile.h>
 #include <ImfChannelList.h>
 #include <ImfArray.h>
 #include <ImfThreading.h>
-#include "IlmThread.h"
-#include "half.h"
+#include <IlmThread.h>
+#include <half.h>
 
 #include <vector>
 #include <stdio.h>
 #include <assert.h>
 
+
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
-using namespace Imath;
-using namespace Imf;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -580,12 +580,18 @@ writeCopyReadRIP (const char fileName[],
 
 
 void
-writeCopyRead (int w, int h, int xs, int ys)
+writeCopyRead (const std::string &tempDir, int w, int h, int xs, int ys)
 {
-    const char *filename = IMF_TMP_DIR "imf_test_copy.exr";
+    std::string filename = tempDir + "imf_test_copy.exr";
 
     for (int comp = 0; comp < NUM_COMPRESSION_METHODS; ++comp)
     {
+	if (comp == B44_COMPRESSION ||
+            comp == B44A_COMPRESSION)
+        {
+	    continue;
+        }
+
         for (int lorder = 0; lorder < RANDOM_Y; ++lorder)
         {
 	    for (int rmode = 0; rmode < NUM_ROUNDINGMODES; ++rmode)
@@ -594,21 +600,21 @@ writeCopyRead (int w, int h, int xs, int ys)
 		{
 		    for (int ts = 0; ts <= 1; ++ts)
 		    {
-			writeCopyReadONE (filename, w, h,
+			writeCopyReadONE (filename.c_str(), w, h,
 					  (LineOrder)lorder,
 					  (LevelRoundingMode) rmode,
 					  xs, ys,
 					  Compression (comp),
 					  (bool)tb, (bool)ts);
 
-			writeCopyReadMIP (filename, w, h,
+			writeCopyReadMIP (filename.c_str(), w, h,
 					  (LineOrder)lorder,
 					  (LevelRoundingMode) rmode,
 					  xs, ys,
 					  Compression (comp),
 					  (bool)tb, (bool)ts);
 
-			writeCopyReadRIP (filename, w, h,
+			writeCopyReadRIP (filename.c_str(), w, h,
 					  (LineOrder)lorder,
 					  (LevelRoundingMode) rmode,
 					  xs, ys,
@@ -625,7 +631,7 @@ writeCopyRead (int w, int h, int xs, int ys)
 
 
 void
-testTiledLineOrder ()
+testTiledLineOrder (const std::string &tempDir)
 {
     try
     {
@@ -637,17 +643,17 @@ testTiledLineOrder ()
         const int XS = 55;
         const int YS = 55;
 
-	int maxThreads = IlmThread::supportsThreads()? 3: 0;
+	int maxThreads = ILMTHREAD_NAMESPACE::supportsThreads()? 3: 0;
 
 	for (int n = 0; n <= maxThreads; ++n)
 	{
-	    if (IlmThread::supportsThreads())
+	    if (ILMTHREAD_NAMESPACE::supportsThreads())
 	    {
 		setGlobalThreadCount (n);
 		cout << "\nnumber of threads: " << globalThreadCount() << endl;
 	    }
 
-	    writeCopyRead (W, H, XS, YS);
+	    writeCopyRead (tempDir, W, H, XS, YS);
 	}
 
         cout << "ok\n" << endl;

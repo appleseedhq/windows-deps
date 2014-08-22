@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2003, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2003-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -45,8 +45,9 @@
 #endif
 
 
-using namespace Imf;
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
+
 
 namespace {
 
@@ -56,6 +57,7 @@ testFile1 (const char fileName[], bool isImfFile)
     cout << fileName << " " << flush;
 
     ifstream f (fileName, ios_base::binary);
+    assert (!!f);
 
     char bytes[4];
     f.read (bytes, sizeof (bytes));
@@ -114,7 +116,7 @@ testFile2 (const char fileName[], bool exists, bool exrFile, bool tiledFile)
 
 
 void
-testMagic ()
+testMagic (const std::string &)
 {
     try
     {

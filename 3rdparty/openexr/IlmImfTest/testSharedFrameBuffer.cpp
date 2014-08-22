@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,26 +33,27 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
+#include "compareB44.h"
+#include "compareDwa.h"
 
 #include <ImfRgbaFile.h>
 #include <ImfArray.h>
 #include <string>
-#include "ImathRandom.h"
+#include <ImathRandom.h>
 #include <ImfThreading.h>
-#include "IlmThread.h"
-#include "IlmThreadMutex.h"
-#include "IlmThreadSemaphore.h"
+#include <IlmThread.h>
+#include <IlmThreadMutex.h>
+#include <IlmThreadSemaphore.h>
 #include <ImfThreading.h>
-#include "ImathRandom.h"
 
 #include <stdio.h>
 #include <assert.h>
 
+
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
-using namespace Imath;
-using namespace Imf;
-using namespace IlmThread;
+using namespace IMATH_NAMESPACE;
+using namespace ILMTHREAD_NAMESPACE;
 
 
 namespace {
@@ -242,29 +243,43 @@ writeReadRGBA (const char fileName[],
 	assert (in.channels() == channels);
 
         cout << "comparing " << endl;
-	for (int y = 0; y < h; ++y)
+
+	if (in.compression() == B44_COMPRESSION ||
+	    in.compression() == B44A_COMPRESSION)
 	{
-	    for (int x = 0; x < w; ++x)
+	    compareB44 (width, height, p1, p2, channels);
+	}
+	else if (in.compression() == DWAA_COMPRESSION ||
+	         in.compression() == DWAB_COMPRESSION)
+	{
+	    compareDwa (width, height, p1, p2, channels);
+	}
+	else
+	{
+	    for (int y = 0; y < h; ++y)
 	    {
-		if (channels & WRITE_R)
-		    assert (p2[y][x].r == p1[y][x].r);
-		else
-		    assert (p2[y][x].r == 0);
+		for (int x = 0; x < w; ++x)
+		{
+		    if (channels & WRITE_R)
+			assert (p2[y][x].r == p1[y][x].r);
+		    else
+			assert (p2[y][x].r == 0);
 
-		if (channels & WRITE_G)
-		    assert (p2[y][x].g == p1[y][x].g);
-		else
-		    assert (p2[y][x].g == 0);
+		    if (channels & WRITE_G)
+			assert (p2[y][x].g == p1[y][x].g);
+		    else
+			assert (p2[y][x].g == 0);
 
-		if (channels & WRITE_B)
-		    assert (p2[y][x].b == p1[y][x].b);
-		else
-		    assert (p2[y][x].b == 0);
+		    if (channels & WRITE_B)
+			assert (p2[y][x].b == p1[y][x].b);
+		    else
+			assert (p2[y][x].b == 0);
 
-		if (channels & WRITE_A)
-		    assert (p2[y][x].a == p1[y][x].a);
-		else
-		    assert (p2[y][x].a == 1);
+		    if (channels & WRITE_A)
+			assert (p2[y][x].a == p1[y][x].a);
+		    else
+			assert (p2[y][x].a == 1);
+		}
 	    }
 	}
     }
@@ -277,14 +292,14 @@ writeReadRGBA (const char fileName[],
 
 
 void
-testSharedFrameBuffer ()
+testSharedFrameBuffer (const std::string &tempDir)
 {
     try
     {
 	cout << "Testing reading from and writing to files using\n"
 		"multiple threads and a shared framebuffer" << endl;
 
-        if (!IlmThread::supportsThreads ())
+        if (!ILMTHREAD_NAMESPACE::supportsThreads ())
         {
             cout << "   Threading not supported!" << endl << endl;
             return;
@@ -305,22 +320,22 @@ testSharedFrameBuffer ()
 
             for (int comp = 0; comp < NUM_COMPRESSION_METHODS; ++comp)
             {
-                writeReadRGBA (IMF_TMP_DIR "imf_test_rgba.exr",
+                writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
                                 W, H, p1,
                                 WRITE_RGBA,
                                 Compression (comp));
 
-                writeReadRGBA (IMF_TMP_DIR "imf_test_rgba.exr",
+                writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
                                 W, H, p1,
                                 WRITE_RGB,
                                 Compression (comp));
 
-                writeReadRGBA ("imf_test_rgba.exr",
+                writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
                                 W, H, p1,
                                 WRITE_A,
                                 Compression (comp));
 
-                writeReadRGBA ("imf_test_rgba.exr",
+                writeReadRGBA ((tempDir + "imf_test_rgba.exr").c_str(),
                                 W, H, p1,
                                 RgbaChannels (WRITE_R | WRITE_B),
                                 Compression (comp));

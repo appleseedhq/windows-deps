@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucas
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
 // 
 // All rights reserved.
@@ -33,22 +33,24 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
+#include "compareB44.h"
 
 #include <ImfOutputFile.h>
 #include <ImfInputFile.h>
 #include <ImfChannelList.h>
 #include <ImfArray.h>
-#include "ImathRandom.h"
-#include "half.h"
-#include <compareFloat.h>
+#include <ImathRandom.h>
+#include <half.h>
+#include "compareFloat.h"
 
 #include <stdio.h>
 #include <assert.h>
 
+namespace IMF = OPENEXR_IMF_NAMESPACE;
+using namespace IMF;
 using namespace std;
-using namespace Imath;
-using namespace Imf;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -177,19 +179,19 @@ writeRead (const Array2D<unsigned int> &pi1,
     hdr.compression() = comp;
 
     hdr.channels().insert ("I",			// name
-			   Channel (UINT,	// type
+			   Channel (IMF::UINT,	// type
 				    xs,		// xSampling
 				    ys)		// ySampling
 			  );
 
     hdr.channels().insert ("H",			// name
-			   Channel (HALF,	// type
+			   Channel (IMF::HALF,	// type
 				    xs,		// xSampling
 				    ys)		// ySampling
 			  );
 
     hdr.channels().insert ("F",			// name
-			   Channel (FLOAT,	// type
+			   Channel (IMF::FLOAT,	// type
 				    xs,		// xSampling
 				    ys)		// ySampling
 			  );
@@ -198,7 +200,7 @@ writeRead (const Array2D<unsigned int> &pi1,
 	FrameBuffer fb; 
 
 	fb.insert ("I",						// name
-		   Slice (UINT,					// type
+		   Slice (IMF::UINT,				// type
 			  (char *) &pi1[-yOffset / ys][-xOffset / xs], // base
 			  sizeof (pi1[0][0]), 			// xStride
 			  sizeof (pi1[0][0]) * (width / xs),	// yStride
@@ -207,7 +209,7 @@ writeRead (const Array2D<unsigned int> &pi1,
 		  );
 	
 	fb.insert ("H",						// name
-		   Slice (HALF,					// type
+		   Slice (IMF::HALF,				// type
 			  (char *) &ph1[-yOffset / ys][-xOffset / xs], // base
 			  sizeof (ph1[0][0]), 			// xStride
 			  sizeof (ph1[0][0]) * (width / xs),	// yStride
@@ -216,7 +218,7 @@ writeRead (const Array2D<unsigned int> &pi1,
 		  );
 	
 	fb.insert ("F",						// name
-		   Slice (FLOAT,				// type
+		   Slice (IMF::FLOAT,				// type
 			  (char *) &pf1[-yOffset / ys][-xOffset / xs], // base
 			  sizeof (pf1[0][0]), 			// xStride
 			  sizeof (pf1[0][0]) * (width / xs),	// yStride
@@ -254,7 +256,7 @@ writeRead (const Array2D<unsigned int> &pi1,
 	    int ys = in.header().channels()["I"].ySampling;
 
 	    fb.insert ("I",					// name
-		       Slice (UINT,				// type
+		       Slice (IMF::UINT,			// type
 			      (char *) &pi2[-dy / ys][-dx / xs], // base
 			      sizeof (pi2[0][0]), 		// xStride
 			      sizeof (pi2[0][0]) * (w / xs),	// yStride
@@ -268,7 +270,7 @@ writeRead (const Array2D<unsigned int> &pi1,
 	    int ys = in.header().channels()["H"].ySampling;
 
 	    fb.insert ("H",					// name
-		       Slice (HALF,				// type
+		       Slice (IMF::HALF,			// type
 			      (char *) &ph2[-dy / ys][-dx / xs], // base
 			      sizeof (ph2[0][0]), 		// xStride
 			      sizeof (ph2[0][0]) * (w / xs),	// yStride
@@ -282,7 +284,7 @@ writeRead (const Array2D<unsigned int> &pi1,
 	    int ys = in.header().channels()["F"].ySampling;
 
 	    fb.insert ("F",					// name
-		       Slice (FLOAT,				// type
+		       Slice (IMF::FLOAT,			// type
 			      (char *) &pf2[-dy / ys][-dx / xs], // base
 			      sizeof (pf2[0][0]), 		// xStride
 			      sizeof (pf2[0][0]) * (w / xs),	// yStride
@@ -325,9 +327,26 @@ writeRead (const Array2D<unsigned int> &pi1,
 	    for (int x = 0; x < w / xs; ++x)
 	    {
 		assert (pi1[y][x] == pi2[y][x]);
-		assert (ph1[y][x].bits() == ph2[y][x].bits());
 		assert (equivalent (pf1[y][x], pf2[y][x], comp));
+
+		if (comp != B44_COMPRESSION &&
+                    comp != B44A_COMPRESSION)
+                {
+		    assert (ph1[y][x].bits() == ph2[y][x].bits());
+                }
 	    }
+	}
+
+	if (comp == B44_COMPRESSION ||
+            comp == B44A_COMPRESSION)
+	{
+	    Array2D<half> ph3 (h / ys, w / xs);
+
+	    for (int y = 0; y < h / ys; ++y)
+		for (int x = 0; x < w / xs; ++x)
+		    ph3[y][x] = ph1[y][x];
+
+	    compareB44 (w / xs, h / ys, ph3, ph2);
 	}
     }
 
@@ -337,7 +356,8 @@ writeRead (const Array2D<unsigned int> &pi1,
 
 
 void
-writeRead (const Array2D<unsigned int> &pi,
+writeRead (const std::string &tempDir,
+           const Array2D<unsigned int> &pi,
 	   const Array2D<half> &ph,
 	   const Array2D<float> &pf,
 	   int w,
@@ -345,7 +365,7 @@ writeRead (const Array2D<unsigned int> &pi,
 	   int dx,
 	   int dy)
 {
-    const char *filename = IMF_TMP_DIR "imf_test_comp.exr";
+    std::string filename = tempDir + "imf_test_comp.exr";
 
     for (int xs = 1; xs <= 2; ++xs)
     {
@@ -354,7 +374,7 @@ writeRead (const Array2D<unsigned int> &pi,
 	    for (int comp = 0; comp < NUM_COMPRESSION_METHODS; ++comp)
 	    {
 		writeRead (pi, ph, pf,
-			   filename,
+			   filename.c_str(),
 			   w  * xs, h  * ys,
 			   dx * xs, dy * ys,
 			   Compression (comp),
@@ -368,7 +388,7 @@ writeRead (const Array2D<unsigned int> &pi,
 
 
 void
-testCompression ()
+testCompression (const std::string &tempDir)
 {
     try
     {
@@ -394,16 +414,16 @@ testCompression ()
 	assert (NUM_PIXELTYPES == 3);
 
 	fillPixels1 (pi, ph, pf, W, H);
-	writeRead (pi, ph, pf, W, H, DX, DY);
+	writeRead (tempDir, pi, ph, pf, W, H, DX, DY);
 
 	fillPixels2 (pi, ph, pf, W, H);
-	writeRead (pi, ph, pf, W, H, DX, DY);
+	writeRead (tempDir, pi, ph, pf, W, H, DX, DY);
 
 	fillPixels3 (pi, ph, pf, W, H);
-	writeRead (pi, ph, pf, W, H, DX, DY);
+	writeRead (tempDir, pi, ph, pf, W, H, DX, DY);
 
 	fillPixels4 (pi, ph, pf, W, H);
-	writeRead (pi, ph, pf, W, H, DX, DY);
+	writeRead (tempDir, pi, ph, pf, W, H, DX, DY);
 
 	cout << "ok\n" << endl;
     }

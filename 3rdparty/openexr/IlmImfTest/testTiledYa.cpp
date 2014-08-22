@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2004, Industrial Light & Magic, a division of Lucasfilm
+// Copyright (c) 2004-2012, Industrial Light & Magic, a division of Lucasfilm
 // Entertainment Company Ltd.  Portions contributed and copyright held by
 // others as indicated.  All rights reserved.
 //
@@ -37,8 +37,6 @@
 //////////////////////////////////////////////////////////////////////////////
 
 
-#include <tmpDir.h>
-
 #include <ImfTiledRgbaFile.h>
 #include <ImfArray.h>
 #include <ImfThreading.h>
@@ -47,9 +45,11 @@
 #include <assert.h>
 #include <math.h>
 
-using namespace Imf;
-using namespace Imath;
+
+using namespace OPENEXR_IMF_NAMESPACE;
 using namespace std;
+using namespace IMATH_NAMESPACE;
+
 
 namespace {
 
@@ -172,27 +172,27 @@ writeReadYa (Box2i &dw,
 
 
 void
-testTiledYa ()
+testTiledYa (const std::string &tempDir)
 {
     try
     {
         cout << "Testing tiled luminance input and output" << endl;
 
-	const char *fileName = IMF_TMP_DIR "imf_test_tiled_ya.exr";
+	std::string fileName = tempDir + "imf_test_tiled_ya.exr";
 
-	int maxThreads = IlmThread::supportsThreads()? 3: 0;
+	int maxThreads = ILMTHREAD_NAMESPACE::supportsThreads()? 3: 0;
 
 	for (int n = 0; n <= maxThreads; ++n)
 	{
-	    if (IlmThread::supportsThreads())
+	    if (ILMTHREAD_NAMESPACE::supportsThreads())
 	    {
 		setGlobalThreadCount (n);
 		cout << "\nnumber of threads: " << globalThreadCount() << endl;
 	    }
 
 	    Box2i dataWindow (V2i (-17, -29), V2i (348, 556));
-	    writeReadYa (dataWindow, 19, 27, fileName, waves);
-	    writeReadYa (dataWindow, 19, 27, fileName, wheel);
+	    writeReadYa (dataWindow, 19, 27, fileName.c_str(), waves);
+	    writeReadYa (dataWindow, 19, 27, fileName.c_str(), wheel);
 	}
 
         cout << "ok\n" << endl;
