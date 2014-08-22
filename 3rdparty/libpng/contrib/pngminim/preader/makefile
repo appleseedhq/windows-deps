@@ -4,10 +4,12 @@
 #CC=cc
 CC=gcc
 LD=$(CC)
-STRIP=strip
 
 # If awk fails try
 # make AWK=nawk
+
+# If cpp fails try
+# make CPP=/lib/cpp
 
 RM=rm -f
 COPY=cp
@@ -28,7 +30,8 @@ XLIB = -L/usr/X11R6/lib -lX11
 #LIBS = $(XLIB)
 LIBS = $(XLIB) -lm                      #platforms that need libm
 
-CFLAGS=-DPNG_USER_CONFIG -DNO_GZCOMPRESS -DNO_GZIP -I. $(XINC) -O1
+CPPFLAGS=-I. $(XINC) -DPNG_USER_CONFIG -DNO_GZCOMPRESS -DZ_SOLO -DNO_GZIP
+CFLAGS=-O1 -Wall
 
 C=.c
 O=.o
@@ -94,7 +97,7 @@ OBJS    = $(PROGOBJS) $(PNGOBJS) $(ZOBJS)
 # implicit make rules -------------------------------------------------------
 
 .c$(O):
-	$(CC) -c $(CFLAGS) $<
+	$(CC) -c $(CPPFLAGS) $(CFLAGS) $<
 
 # dependencies
 
@@ -102,23 +105,22 @@ all: $(PROGDOCS) rpng2-x$(E)
 
 rpng2-x$(E): $(OBJS)
 	$(LD) -o rpng2-x$(E) $(OBJS) $(LIBS)
-	$(STRIP) rpng2-x$(E)
 
 # The DFA_XTRA setting turns all libpng options off then
 # turns on those required for this minimal build.
 # The CPP_FLAGS setting causes pngusr.h to be included in
 # both the build of pnglibconf.h and, subsequently, when
 # building libpng itself.
-$(PNGCONF): $(PNGSRC)/scripts/pnglibconf.mak\
+$(PNGCONF): $(PNGSRC)/scripts/pnglibconf.mak $(ZH)\
 	$(PNGSRC)/scripts/pnglibconf.dfa \
 	$(PNGSRC)/scripts/options.awk pngusr.h pngusr.dfa
 	$(RM) pnglibconf.h pnglibconf.dfn
-	$(MAKE) $(MAKEFLAGS) -f $(PNGSRC)/scripts/pnglibconf.mak\
-	    srcdir=$(PNGSRC) CPPFLAGS="-DPNG_USER_CONFIG"\
+	$(MAKE) -f $(PNGSRC)/scripts/pnglibconf.mak $(MAKEFLAGS)\
+	    srcdir=$(PNGSRC) CPPFLAGS="-DPNG_USER_CONFIG -I."\
 	    DFA_XTRA="pngusr.dfa" $@
 
 clean:
-	$(MAKE) $(MAKEFLAGS) -f $(PNGSRC)/scripts/pnglibconf.mak\
+	$(MAKE) -f $(PNGSRC)/scripts/pnglibconf.mak $(MAKEFLAGS)\
 	    srcdir=$(PNGSRC) clean
 	$(RM) rpng2-x$(O)
 	$(RM) rpng2-x$(E)
