@@ -46,13 +46,13 @@ project (alembic)
 # This must come after project () otherwise CMAKE_SYSTEM_NAME is undefined.
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set (WINDOWS TRUE)
-    include (../../src/cmake/config/win-vs110.txt)
+    include (../../../appleseed/src/cmake/config/win-vs110.txt)
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set (DARWIN TRUE)
-    include (../../src/cmake/config/mac-gcc4.txt)
+    include (../../../appleseed/src/cmake/config/mac-gcc4.txt)
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set (LINUX TRUE)
-    include (../../src/cmake/config/linux-gcc4.txt)
+    include (../../../appleseed/src/cmake/config/linux-gcc4.txt)
 else ()
     message (FATAL_ERROR "Unsupported platform or compiler (CMAKE_SYSTEM_NAME is \"${CMAKE_SYSTEM_NAME}\"). "
                          "Edit ${CMAKE_CURRENT_LIST_FILE} to add support for it.")
@@ -63,7 +63,7 @@ endif ()
 # Output directory.
 #--------------------------------------------------------------------------------------------------
 
-set (LIBRARY_OUTPUT_PATH ${CMAKE_SOURCE_DIR}/../../build/${platform}/alembic)
+set (LIBRARY_OUTPUT_PATH ${CMAKE_SOURCE_DIR}/../../stage/alembic)
 
 
 #--------------------------------------------------------------------------------------------------
@@ -96,9 +96,9 @@ include_directories (${Boost_INCLUDE_DIRS})
 include_directories (
     include
     lib
-    ../openexr/include/OpenEXR
+    ../../stage/ilmbase-debug/include/OpenEXR
     ../hdf5/hl/src
-    ../hdf5/build       # for H5pubconf.h (a generated file)
+    ../hdf5/windows/src       # for H5pubconf.h (a generated file)
     ../hdf5/src
 )
 
