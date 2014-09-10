@@ -15,6 +15,6 @@ Third-party dependencies for appleseed.
    ~~~
        BuildAll.bat "Visual Studio 12 Win64" C:\path\to\boost
    ~~~
-   where `C:\path\to\boost` is the absolute path to the root directory of your copy of the [Boost libraries](http://www.boost.org/).
+   where `C:\path\to\boost` is the absolute path to the root directory of your copy of the [Boost C++ Libraries](http://www.boost.org/).
    
 4. Wait a long time. You're done.
