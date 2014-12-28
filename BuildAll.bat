@@ -87,7 +87,7 @@ echo Building libpng...
     cd libpng
         mkdir build-debug 2>nul
         cd build-debug
-            cmake -G %generator% -DCMAKE_BUILD_TYPE=Debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\libpng-debug ..
+            cmake -G %generator% -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\libpng-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv libpng.sln /build Debug /project INSTALL > buildlog.txt
             copy png16_static.dir\Debug\vc110.pdb %root%stage\libpng-debug\lib
@@ -95,7 +95,7 @@ echo Building libpng...
 
         mkdir build-release 2>nul
         cd build-release
-            cmake -G %generator% -DCMAKE_BUILD_TYPE=Release -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstatic.lib -DCMAKE_INSTALL_PREFIX=%root%stage\libpng-release ..
+            cmake -G %generator% -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstatic.lib -DCMAKE_INSTALL_PREFIX=%root%stage\libpng-release ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv libpng.sln /build Release /project INSTALL > buildlog.txt
         cd ..
