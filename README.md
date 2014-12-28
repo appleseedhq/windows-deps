@@ -1,7 +1,7 @@
 Third-Party Dependencies for appleseed
 ======================================
 
-This repository contains the source code of all third-party libraries required to build appleseed, except Qt and Boost.
+This repository contains the source code of all third-party libraries required to build appleseed, except [Qt](http://qt-project.org/) and the [Boost C++ Libraries](http://www.boost.org/).
 
 You can either build these libraries yourself using the instructions below, or download prebuilt packages from the [Releases](https://github.com/appleseedhq/appleseed-deps/releases) page.
 
@@ -23,7 +23,7 @@ You will need to have a build of Boost C++ Libraries. Please refer to the sectio
    ~~~
    BuildAll.bat "Visual Studio 12 Win64" C:\path\to\boost
    ~~~
-   where `C:\path\to\boost` is the absolute path to the root directory of your copy of the [Boost C++ Libraries](http://www.boost.org/).
+   where `C:\path\to\boost` is the absolute path to the root directory of your copy of Boost.
    
 4. Wait a long time. You're done.
 
