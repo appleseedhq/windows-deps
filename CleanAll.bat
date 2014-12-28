@@ -27,11 +27,6 @@ REM OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 REM THE SOFTWARE.
 REM
 
-if not defined VCINSTALLDIR (
-    echo Please run this batch file from a Visual Studio Native Tools Command Prompt.
-    goto end
-)
-
 cd src
 
 echo Removing LLVM build files...
