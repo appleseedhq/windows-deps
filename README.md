@@ -9,9 +9,11 @@ You can either build these libraries yourself using the instructions below, or d
 
 #### Prerequisites
 
-You will need to have a build of Boost C++ Libraries. Please refer to the section [Building Boost C++ Libraries](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-boost-c-libraries-1470-or-later) from appleseed's build guide.
+You will need to have Git and CMake to build these libraries. Check out the [Required Tools](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed#required-tools) section from appleseed's build guide for details.
 
-#### Building the Third-Party Libraries
+You will also need to have a build of Boost C++ Libraries. Please refer to the [Building Boost C++ Libraries](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-boost-c-libraries-1470-or-later) section from appleseed's build guide.
+
+#### Building the Libraries
 
 1. Clone this repository on your machine.
 2. Open a VS 2012 or VS 2013 x64 command prompt.
