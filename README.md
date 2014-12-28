@@ -15,24 +15,27 @@ You will also need to have a build of Boost C++ Libraries. Please refer to the [
 
 #### Building the Libraries
 
-1. Clone this repository on your machine.
+1. Clone this repository on your machine:
+   ```
+   git clone git://github.com/appleseedhq/appleseed-deps.git
+   ```
+
 2. Open a VS 2012 or VS 2013 x64 command prompt.
 3. If you're using VS 2012, run:
-   ~~~
+   ```
    BuildAll.bat "Visual Studio 11 Win64" C:\path\to\boost
-   ~~~
+   ```
    If you're using VS 2013, run:
-   ~~~
+   ```
    BuildAll.bat "Visual Studio 12 Win64" C:\path\to\boost
-   ~~~
-   where `C:\path\to\boost` is the absolute path to the root directory of your copy of Boost.
-   
+   ```
+
 4. Wait a long time. You're done.
 
 #### Building appleseed
 
 Follow the [instructions](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-appleseed) from appleseed's build guide, but make sure to add
 ```
--DAPPLESEED_DEPS_STAGE_DIR=<absolute-path-to-appleseed-deps\stage>
+-DAPPLESEED_DEPS_STAGE_DIR=C:\path\to\appleseed-deps\stage
 ```
 to CMake's command line.
