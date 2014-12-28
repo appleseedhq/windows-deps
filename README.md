@@ -35,7 +35,7 @@ You will also need to have a build of Boost C++ Libraries. Please refer to the [
 
 #### Building appleseed
 
-Follow the [instructions](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-appleseed) from appleseed's build guide, but make sure to add
+In addition to the [instructions](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-appleseed) from appleseed's build guide, make sure to add
 ```
 -DAPPLESEED_DEPS_STAGE_DIR=C:\path\to\appleseed-deps\stage
 ```
