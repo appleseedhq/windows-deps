@@ -19,7 +19,7 @@ You will also need to have a build of Boost C++ Libraries. Please refer to the [
    ```
    git clone git://github.com/appleseedhq/appleseed-deps.git
    ```
-   (This will create the root `appleseed-deps` directory.)
+   (This will create the root `appleseed-deps\` directory.)
 
 2. Open a VS 2012 or VS 2013 x64 command prompt.
 3. If you're using VS 2012, run:
