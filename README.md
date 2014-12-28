@@ -1,15 +1,17 @@
-appleseed-deps
-==============
+Third-Party Dependencies for appleseed
+======================================
 
-Third-party dependencies for appleseed.
+This repository contains the source code of all third-party libraries required to build appleseed, except Qt and Boost.
+
+You can either build these libraries yourself using the instructions below, or download prebuilt packages from the [Releases](https://github.com/appleseedhq/appleseed-deps/releases) page.
 
 ## Build Instructions on Windows
 
-#### Building Boost C++ Libraries
+#### Prerequisites
 
-Follow the [instructions](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-boost-c-libraries-1470-or-later) from appleseed's build guide.
+You will need to have a build of Boost C++ Libraries. Please refer to the section [Building Boost C++ Libraries](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-boost-c-libraries-1470-or-later) from appleseed's build guide.
 
-#### Building the Third-Party Dependencies
+#### Building the Third-Party Libraries
 
 1. Clone this repository on your machine.
 2. Open a VS 2012 or VS 2013 x64 command prompt.
