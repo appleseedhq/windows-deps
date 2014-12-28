@@ -9,7 +9,7 @@ Third-party dependencies for appleseed.
 
 Follow the [instructions](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-boost-c-libraries-1470-or-later) from appleseed's build guide.
 
-### Building the Third-Party Dependencies
+#### Building the Third-Party Dependencies
 
 1. Clone this repository on your machine.
 2. Open a VS 2012 or VS 2013 x64 command prompt.
