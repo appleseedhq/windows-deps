@@ -200,7 +200,7 @@ echo ===========================================================================
         cd build-debug
             cmake -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\ilmbase-debug -DOPENEXR_HOME=%root%stage\openexr-debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\libpng-debug\include -DPNG_LIBRARY=%root%stage\libpng-debug\lib\libpng16_staticd.lib -DJPEG_INCLUDE_DIR=%root%stage\libjpeg-turbo-debug\include -DJPEG_LIBRARY=%root%stage\libjpeg-turbo-debug\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\libtiff-debug\include -DTIFF_LIBRARY=%root%stage\libtiff-debug\lib\libtiff.lib -DCMAKE_INSTALL_PREFIX=%root%stage\oiio-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
-            devenv oiio.sln /build Debug /project INSTALL > buildlog.txt
+            devenv OpenImageIO.sln /build Debug /project INSTALL > buildlog.txt
             copy src\libOpenImageIO\OpenImageIO.dir\Debug\vc110.pdb %root%stage\oiio-debug\lib
         cd ..
 
@@ -208,7 +208,7 @@ echo ===========================================================================
         cd build-release
             cmake -G %generator% -DCMAKE_BUILD_TYPE=Release -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\ilmbase-release -DOPENEXR_HOME=%root%stage\openexr-release -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\libpng-debug\include -DPNG_LIBRARY=%root%stage\libpng-release\lib\libpng16_static.lib -DJPEG_INCLUDE_DIR=%root%stage\libjpeg-turbo-release\include -DJPEG_LIBRARY=%root%stage\libjpeg-turbo-release\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\libtiff-release\include -DTIFF_LIBRARY=%root%stage\libtiff-release\lib\libtiff.lib -DCMAKE_INSTALL_PREFIX=%root%stage\oiio-release ..
             echo Compiling, messages are redirected to buildlog.txt...
-            devenv oiio.sln /build Release /project INSTALL > buildlog.txt
+            devenv OpenImageIO.sln /build Release /project INSTALL > buildlog.txt
         cd ..
     cd ..
 
