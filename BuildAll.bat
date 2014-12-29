@@ -150,18 +150,16 @@ echo ===========================================================================
 echo Building libtiff...
 echo ===============================================================================
 
-    cd libtiff
-        nmake -f Makefile.vc clean >nul 2>nul
-        copy nmake-debug.opt nmake.opt
+    cd libtiff-debug
         nmake -f Makefile.vc
         mkdir %root%stage\libtiff-debug\lib 2>nul
         mkdir %root%stage\libtiff-debug\include 2>nul
         copy libtiff\libtiff.lib %root%stage\libtiff-debug\lib
         copy libtiff\libtiff.pdb %root%stage\libtiff-debug\lib
         copy libtiff\*.h %root%stage\libtiff-debug\include
+    cd ..
 
-        nmake -f Makefile.vc clean >nul 2>nul
-        copy nmake-release.opt nmake.opt
+    cd libtiff-release
         nmake -f Makefile.vc
         mkdir %root%stage\libtiff-release\lib 2>nul
         mkdir %root%stage\libtiff-release\include 2>nul
