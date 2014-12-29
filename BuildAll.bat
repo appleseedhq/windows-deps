@@ -64,6 +64,7 @@ echo ===========================================================================
 
         pushd src
         xcopy /E /Q /Y *.hpp %root%stage\xerces-c\include\
+        xcopy /E /Q /Y *.c %root%stage\xerces-c\include\
         popd
     cd ..
 
