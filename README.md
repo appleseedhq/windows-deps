@@ -22,6 +22,7 @@ You will also need to have a build of Boost C++ Libraries. Please refer to the [
    This will place everything inside an `appleseed-deps\` directory.
 
 2. Open a VS 2012 or VS 2013 x64 command prompt.
+
 3. If you're using VS 2012, run:
    ```
    BuildAll.bat "Visual Studio 11 Win64" C:\path\to\boost
@@ -35,8 +36,33 @@ You will also need to have a build of Boost C++ Libraries. Please refer to the [
 
 #### Building appleseed
 
-In addition to the [instructions](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-appleseed) from appleseed's build guide, make sure to add
-```
--DAPPLESEED_DEPS_STAGE_DIR=C:\path\to\appleseed-deps\stage
-```
-to CMake's command line.
+1. Clone the appleseed repository on your machine:
+   ```
+   git clone git://github.com/appleseedhq/appleseed.git
+   ```
+   This will place everything inside an `appleseed\` directory.
+
+2. Open a VS 2012 or VS 2013 x64 command prompt.
+
+3. If you're using VS 2012, run:
+   ```
+   cmake -G "Visual Studio 11 Win64"
+     -DBOOST_ROOT=C:\path\to\boost
+     -DQT_QMAKE_EXECUTABLE=C:\path\to\qmake.exe
+     -DAPPLESEED_DEPS_STAGE_DIR=C:\path\to\appleseed-deps\stage
+     ..
+   ```
+   If you're using VS 2013, run:
+   ```
+   cmake -G "Visual Studio 12 Win64"
+     -DBOOST_ROOT=C:\path\to\boost
+     -DQT_QMAKE_EXECUTABLE=C:\path\to\qmake.exe
+     -DAPPLESEED_DEPS_STAGE_DIR=C:\path\to\appleseed-deps\stage
+     ..
+   ```
+
+4. Open the solution file `build\appleseed.sln`.
+
+5. Go to *Build* and select *Rebuild Solution*.
+
+6. [Configure the Visual Studio solution](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#configuring-the-visual-studio-solution).
