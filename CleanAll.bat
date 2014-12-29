@@ -29,6 +29,12 @@ REM
 
 cd src
 
+echo Removing Xerces-C build files...
+
+    cd xerces-c
+        rmdir /S /Q Projects\Win32\VC11.appleseed\xerces-all\build 2>nul
+    cd ..
+
 echo Removing LLVM build files...
 
     cd llvm

@@ -51,6 +51,19 @@ goto end
 cd src
 
 echo ===============================================================================
+echo Building Xerces-C...
+echo ===============================================================================
+
+    cd xerces-c
+        echo Compiling, messages are redirected to buildlog.txt...
+        pushd Projects\Win32\VC11.appleseed\xerces-all
+        mkdir build 2>nul
+        devenv xerces-all.sln /build "Static Debug" /project all > build\buildlog.txt
+        devenv xerces-all.sln /build "Static Release" /project all >> build\buildlog.txt
+        popd
+    cd ..
+
+echo ===============================================================================
 echo Building LLVM...
 echo ===============================================================================
 
