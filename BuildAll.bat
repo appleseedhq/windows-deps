@@ -61,6 +61,10 @@ echo ===========================================================================
         devenv xerces-all.sln /build "Static Debug" /project all > build\buildlog.txt
         devenv xerces-all.sln /build "Static Release" /project all >> build\buildlog.txt
         popd
+
+        pushd src
+        xcopy /E /Q /Y *.hpp %root%stage\xerces-c\include\
+        popd
     cd ..
 
 echo ===============================================================================
