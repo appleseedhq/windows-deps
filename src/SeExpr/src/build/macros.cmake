@@ -8,7 +8,7 @@ macro(BuildParserScanner FLEX_L_PREFIX BISON_Y_PREFIX PARSER_PREFIX GENERATED_CP
   if(1 OR (BISON_EXE STREQUAL "BISON_EXE-NOTFOUND") OR (FLEX_EXE STREQUAL "FLEX_EXE-NOTFOUND")  OR (SED_EXE STREQUAL "SED_EXE-NOTFOUND"))
     # don't have flex/bison/sed, use pregenerated versions
     set (${GENERATED_CPPS} generated/${BISON_Y_PREFIX}.cpp generated/${FLEX_L_PREFIX}.cpp )
-  else ((BISON_EXE STREQUAL "BISON_EXE-NOTFOUND") OR (FLEX_EXE STREQUAL "FLEX_EXE-NOTFOUND")  OR (SED_EXE STREQUAL "SED_EXE-NOTFOUND"))
+  else()
     ## build the parser from the flex/yacc sources
     
     ADD_CUSTOM_COMMAND(
@@ -54,7 +54,7 @@ macro(BuildParserScanner FLEX_L_PREFIX BISON_Y_PREFIX PARSER_PREFIX GENERATED_CP
     ## set build files
     set (${GENERATED_CPPS} ${FLEX_L_PREFIX}.cpp ${BISON_Y_PREFIX}.cpp)
     #add_custom_target(run ALL DEPENDS ${${GENERATED_CPPS}})
-  endif( (BISON_EXE STREQUAL "BISON_EXE-NOTFOUND") OR (FLEX_EXE STREQUAL "FLEX_EXE-NOTFOUND")  OR (SED_EXE STREQUAL "SED_EXE-NOTFOUND"))
+  endif()
   
 
 endmacro()
