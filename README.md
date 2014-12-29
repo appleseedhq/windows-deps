@@ -21,7 +21,7 @@ You will also need to have a build of Boost C++ Libraries. Please refer to the [
    ```
    This will place everything inside an `appleseed-deps\` directory.
 
-2. Open a VS 2012 or VS 2013 x64 command prompt.
+2. Open a VS 2012 or VS 2013 x64 command prompt and navigate to the `appleseed-deps\` directory.
 
 3. If you're using VS 2012, run:
    ```
@@ -42,27 +42,33 @@ You will also need to have a build of Boost C++ Libraries. Please refer to the [
    ```
    This will place everything inside an `appleseed\` directory.
 
-2. Open a VS 2012 or VS 2013 x64 command prompt.
+2. Open a VS 2012 or VS 2013 x64 command prompt and navigate to the `appleseed\` directory.
 
-3. If you're using VS 2012, run:
+3. Type:
    ```
-   cmake -G "Visual Studio 11 Win64"
+   mkdir build
+   cd build
+   ```
+
+4. If you're using VS 2012, run:
+   ```
+   cmake -G "Visual Studio 11 Win64" ..
+     -DWITH_OSL=ON -DWITH_DISNEY_MATERIAL=ON
      -DBOOST_ROOT=C:\path\to\boost
      -DQT_QMAKE_EXECUTABLE=C:\path\to\qmake.exe
      -DAPPLESEED_DEPS_STAGE_DIR=C:\path\to\appleseed-deps\stage
-     ..
    ```
    If you're using VS 2013, run:
    ```
-   cmake -G "Visual Studio 12 Win64"
+   cmake -G "Visual Studio 12 Win64" ..
+     -DWITH_OSL=ON -DWITH_DISNEY_MATERIAL=ON
      -DBOOST_ROOT=C:\path\to\boost
      -DQT_QMAKE_EXECUTABLE=C:\path\to\qmake.exe
      -DAPPLESEED_DEPS_STAGE_DIR=C:\path\to\appleseed-deps\stage
-     ..
    ```
 
-4. Open the solution file `build\appleseed.sln`.
+5. Open the solution file `build\appleseed.sln`.
 
-5. Go to *Build* and select *Rebuild Solution*.
+6. Go to *Build* and select *Rebuild Solution*.
 
-6. [Configure the Visual Studio solution](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#configuring-the-visual-studio-solution).
+7. [Configure the Visual Studio solution](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#configuring-the-visual-studio-solution).
