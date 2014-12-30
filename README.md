@@ -13,6 +13,8 @@ You will need to have Git and CMake to build these libraries. Check out the [Req
 
 You will also need to have a build of Boost C++ Libraries. Please refer to the [Building Boost C++ Libraries](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-boost-c-libraries-1470-or-later) section from appleseed's build guide.
 
+Finally, you will need about 18 GB of available disk space.
+
 #### Building the Libraries
 
 1. Clone this repository on your machine:
@@ -32,7 +34,7 @@ You will also need to have a build of Boost C++ Libraries. Please refer to the [
    BuildAll.bat "Visual Studio 12 Win64" C:\path\to\boost
    ```
 
-4. Wait a long time. You're done.
+4. Wait a couple hours. You're done.
 
 #### Building appleseed
 
