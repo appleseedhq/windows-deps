@@ -91,4 +91,26 @@ Finally, you will need a lot of free disk space on your machine. Space requireme
 
 6. Go to *Build* and select *Rebuild Solution*.
 
-7. [Configure the Visual Studio solution](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#configuring-the-visual-studio-solution).
+#### Configuring the appleseed Visual Studio Solution
+
+In order to run appleseed.cli or appleseed.studio from within the Visual Studio solution, some things need to be adjusted:
+
+1. Select the projects of all the executable programs (at the time of writing: `animatecamera`, `appleseed.cli`, `appleseed.studio`, `convertmeshfile`, `dumpmetadata`, `makefluffy`, `maketiledexr` and `updateprojectfile`) in the Solution Explorer.
+
+2. Right-click on one of them, and select *Properties*.
+
+3. Select *All Configurations*.
+
+4. In *Configuration Properties* -> *Debugging*:
+   - Set *Command* to `$(SolutionDir)..\sandbox\bin\$(Configuration)\$(TargetFileName)`
+   - Set *Working Directory* to `$(SolutionDir)..\sandbox\`
+
+   You should end up with something like this:
+   
+   ![](https://raw.github.com/appleseedhq/appleseed-wiki/master/images/vs-solution-configuration.png)
+
+5. Click OK to close the *Property Pages* window.
+
+6. Select appleseed.studio as the startup project (right-click on `appleseed.studio` in the Solution Explorer and select *Set as StartUp Project*).
+
+7. Press F5 to start appleseed.studio.
