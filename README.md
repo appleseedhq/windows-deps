@@ -53,7 +53,7 @@ Finally, you will need a lot of free disk space on your machine. Space requireme
    ```
    This will place everything inside an `appleseed-deps\` directory.
 
-2. Open a VS 2012 or VS 2013 **x64** command prompt and navigate to the `appleseed-deps\` directory.
+2. Open a Visual Studio **x64 Native Tools** Command Prompt and navigate to the `appleseed-deps\` directory.
 
 3. Type:
    ```
@@ -70,7 +70,7 @@ Finally, you will need a lot of free disk space on your machine. Space requireme
    ```
    This will place everything inside an `appleseed\` directory.
 
-2. Open a VS 2012 or VS 2013 **x64** command prompt and navigate to the `appleseed\` directory.
+2. Open a Visual Studio **x64 Native Tools** Command Prompt and navigate to the `appleseed\` directory.
 
 3. Type:
    ```
