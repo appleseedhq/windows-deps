@@ -27,6 +27,9 @@ REM OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 REM THE SOFTWARE.
 REM
 
+choice /M "This will remove not only intermediate build files, but also PDB files. Press Y to continue, N to cancel."
+if %errorlevel% equ 2 goto end
+
 cd src
 
 echo Removing Xerces-C build files...
