@@ -9,11 +9,31 @@ You can either build these libraries yourself using the instructions below, or d
 
 #### Prerequisites
 
-You will need to have Git and CMake to build these libraries. Check out the [Required Tools](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed#required-tools) section from appleseed's build guide for details.
+##### Tools
 
-You will also need to have a build of Boost C++ Libraries. Please refer to the [Building Boost C++ Libraries](https://github.com/appleseedhq/appleseed/wiki/Building-appleseed-on-Windows#building-boost-c-libraries-1470-or-later) section from appleseed's build guide.
+The following tools are required to build the third-party libraries and appleseed itself:
 
-Finally, you will need about 18 GB of available disk space.
+* [Microsoft Visual Studio 2012](http://www.visualstudio.com/) or later. In principle, Visual Studio Community 2013 should work as well, but we haven't tested to confirm it. It may or may not work with earlier versions or with the Express edition of Visual Studio. The instructions below assume Visual Studio 2012 (internally version 11.0): if you are using Visual Studio 2013 or later, you will need to adapt the CMake commands accordingly.
+
+* [Git](http://git-scm.com/). Not only is Git required to retrieve the source code from GitHub, it is also invoked by appleseed's build system to generate a version string from the Git repository. On Windows, we recommend [Git Extensions](https://code.google.com/p/gitextensions/) or [SourceTree](http://www.sourcetreeapp.com/).
+
+* [CMake](http://www.cmake.org/) 2.8.12 or later. Some people reported that they were successful in building appleseed with slightly older versions. It may or may not work. Version 2.8.12 is the earliest we officially support.
+
+* [Python 2.x](https://www.python.org/). Python is required by LLVM's build system. We recommend using the Python 2.x series, version 2.7 or later. It may or may not work with earlier versions, or with the Python 3.x series.
+
+**Important:** make sure both Python and Git are in your PATH.
+
+##### Libraries
+
+The following libraries are also required:
+
+* [Boost C++ Libraries](http://www.boost.org/).
+
+* [Qt](http://qt-project.org/).
+
+##### Others
+
+Finally, you will need about 18 GB of available disk space on your machine.
 
 #### Building the Libraries
 
@@ -23,7 +43,7 @@ Finally, you will need about 18 GB of available disk space.
    ```
    This will place everything inside an `appleseed-deps\` directory.
 
-2. Open a VS 2012 or VS 2013 x64 command prompt and navigate to the `appleseed-deps\` directory.
+2. Open a VS 2012 or VS 2013 **x64** command prompt and navigate to the `appleseed-deps\` directory.
 
 3. If you're using VS 2012, run:
    ```
@@ -44,7 +64,7 @@ Finally, you will need about 18 GB of available disk space.
    ```
    This will place everything inside an `appleseed\` directory.
 
-2. Open a VS 2012 or VS 2013 x64 command prompt and navigate to the `appleseed\` directory.
+2. Open a VS 2012 or VS 2013 **x64** command prompt and navigate to the `appleseed\` directory.
 
 3. Type:
    ```
