@@ -29,7 +29,7 @@ The following libraries are also required:
 
 * [Boost C++ Libraries](http://www.boost.org/) 1.47 or later. We recommend using Boost 1.55 in order to match the version used in the [CY2015 VFX Reference Platform](http://www.vfxplatform.com/).
 
-* [Qt](http://qt-project.org/) 4.8.x. We do not support Qt 5.x at this time. You can download the latest Qt 4.8.x from the [Qt Downloads archive](http://download.qt.io/archive/qt/4.8/).
+* [Qt 4.8.x](http://qt-project.org/). We do not support Qt 5.x at this time. You can download the latest Qt 4.8.x from the [Qt Downloads archive](http://download.qt.io/archive/qt/4.8/).
 
 ##### Disk Space
 
