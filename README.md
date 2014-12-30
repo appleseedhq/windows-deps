@@ -31,9 +31,19 @@ The following libraries are also required:
 
 * [Qt](http://qt-project.org/).
 
-##### Others
+##### Disk Space
 
-Finally, you will need about 18 GB of available disk space on your machine.
+Finally, you will need a lot of free disk space on your machine. Space requirements are as follow:
+
+| Component          | Required Disk Space (*)   |
+| ------------------ | ------------------------- |
+| Boost 1.55         | 3.4 GB                    |
+| Qt 4.8             | 4.1 GB                    |
+| appleseed-deps     | 18.1 GB                   |
+| appleseed          | 10.9 GB                   |
+| **Total**          | **36.5 GB**               |
+
+(*) Total maximum disk space, including source code, Git repository when applicable, intermediate build files and binaries for all build configurations.
 
 #### Building the Libraries
 
