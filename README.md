@@ -27,9 +27,9 @@ The following tools are required to build the third-party libraries and applesee
 
 The following libraries are also required:
 
-* [Boost C++ Libraries](http://www.boost.org/).
+* [Boost C++ Libraries](http://www.boost.org/) 1.47 or later. We recommend using Boost 1.55 in order to match the version used in the [CY2015 VFX Reference Platform](http://www.vfxplatform.com/).
 
-* [Qt](http://qt-project.org/).
+* [Qt](http://qt-project.org/) 4.8.x. We do not support Qt 5.x at this time. You can download the latest Qt 4.8.x from the [Qt Downloads archive](http://download.qt.io/archive/qt/4.8/).
 
 ##### Disk Space
 
@@ -45,7 +45,7 @@ Finally, you will need a lot of free disk space on your machine. Space requireme
 
 (*) Total maximum disk space, including source code, Git repository when applicable, intermediate build files and binaries for all build configurations.
 
-#### Building the Libraries
+#### Building the Third-Party Libraries
 
 1. Clone this repository on your machine:
    ```
@@ -55,13 +55,9 @@ Finally, you will need a lot of free disk space on your machine. Space requireme
 
 2. Open a VS 2012 or VS 2013 **x64** command prompt and navigate to the `appleseed-deps\` directory.
 
-3. If you're using VS 2012, run:
+3. Type:
    ```
    BuildAll.bat "Visual Studio 11 Win64" C:\path\to\boost
-   ```
-   If you're using VS 2013, run:
-   ```
-   BuildAll.bat "Visual Studio 12 Win64" C:\path\to\boost
    ```
 
 4. Wait a couple hours. You're done.
@@ -82,17 +78,9 @@ Finally, you will need a lot of free disk space on your machine. Space requireme
    cd build
    ```
 
-4. If you're using VS 2012, run:
+4. Type:
    ```
    cmake -G "Visual Studio 11 Win64" ..
-     -DWITH_OSL=ON -DWITH_DISNEY_MATERIAL=ON
-     -DBOOST_ROOT=C:\path\to\boost
-     -DQT_QMAKE_EXECUTABLE=C:\path\to\qmake.exe
-     -DAPPLESEED_DEPS_STAGE_DIR=C:\path\to\appleseed-deps\stage
-   ```
-   If you're using VS 2013, run:
-   ```
-   cmake -G "Visual Studio 12 Win64" ..
      -DWITH_OSL=ON -DWITH_DISNEY_MATERIAL=ON
      -DBOOST_ROOT=C:\path\to\boost
      -DQT_QMAKE_EXECUTABLE=C:\path\to\qmake.exe
