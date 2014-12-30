@@ -64,7 +64,11 @@ echo Removing libjpeg-turbo build files...
 
 echo Removing libtiff build files...
 
-    cd libtiff
+    cd libtiff-debug
+        nmake -f Makefile.vc clean >nul 2>nul
+    cd ..
+
+    cd libtiff-release
         nmake -f Makefile.vc clean >nul 2>nul
     cd ..
 
