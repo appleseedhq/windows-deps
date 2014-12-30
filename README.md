@@ -93,7 +93,7 @@ Finally, you will need a lot of free disk space on your machine. Space requireme
 
 #### Configuring the appleseed Visual Studio Solution
 
-In order to run appleseed.cli or appleseed.studio from within the Visual Studio solution, some things need to be adjusted:
+In order to run the various appleseed tools from within the Visual Studio solution, some things need to be adjusted.
 
 1. Select the projects of all the executable programs (at the time of writing: `animatecamera`, `appleseed.cli`, `appleseed.studio`, `convertmeshfile`, `dumpmetadata`, `makefluffy`, `maketiledexr` and `updateprojectfile`) in the Solution Explorer.
 
