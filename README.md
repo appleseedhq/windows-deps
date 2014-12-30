@@ -13,13 +13,13 @@ You can either build these libraries yourself using the instructions below, or d
 
 The following tools are required to build the third-party libraries and appleseed itself:
 
-* [Microsoft Visual Studio 2012](http://www.visualstudio.com/) or later. In principle, Visual Studio Community 2013 should work as well, but we haven't tested to confirm it. It may or may not work with earlier versions or with the Express edition of Visual Studio. The instructions below assume Visual Studio 2012 (internally version 11.0): if you are using Visual Studio 2013 or later, you will need to adapt the CMake commands accordingly.
+* [Microsoft Visual Studio](http://www.visualstudio.com/) 2012 or later. In principle, Visual Studio Community 2013 should work as well, but we haven't tested to confirm it. It may or may not work with earlier versions or with the Express edition of Visual Studio. The instructions below assume Visual Studio 2012 (internally version 11.0): if you are using Visual Studio 2013 or later, you will need to adapt the CMake commands accordingly.
 
 * [Git](http://git-scm.com/). Not only is Git required to retrieve the source code from GitHub, it is also invoked by appleseed's build system to generate a version string from the Git repository. On Windows, we recommend [Git Extensions](https://code.google.com/p/gitextensions/) or [SourceTree](http://www.sourcetreeapp.com/).
 
 * [CMake](http://www.cmake.org/) 2.8.12 or later. Some people reported that they were successful in building appleseed with slightly older versions. It may or may not work. Version 2.8.12 is the earliest we officially support.
 
-* [Python 2.x](https://www.python.org/). Python is required by LLVM's build system. We recommend using the Python 2.x series, version 2.7 or later. It may or may not work with earlier versions, or with the Python 3.x series.
+* [Python](https://www.python.org/) 2.x. Python is required by LLVM's build system. We recommend using the Python 2.x series, version 2.7 or later. It may or may not work with earlier versions, or with the Python 3.x series.
 
 **Important:** make sure both Python and Git are in your PATH.
 
@@ -29,7 +29,7 @@ The following libraries are also required:
 
 * [Boost C++ Libraries](http://www.boost.org/) 1.47 or later. We recommend using Boost 1.55 in order to match the version used in the [CY2015 VFX Reference Platform](http://www.vfxplatform.com/).
 
-* [Qt 4.8.x](http://qt-project.org/). We do not support Qt 5.x at this time. You can download the latest Qt 4.8.x from the [Qt Downloads archive](http://download.qt.io/archive/qt/4.8/).
+* [Qt](http://qt-project.org/) 4.8.x. We do not support Qt 5.x at this time. You can download the latest Qt 4.8.x from the [Qt Downloads archive](http://download.qt.io/archive/qt/4.8/).
 
 ##### Disk Space
 
