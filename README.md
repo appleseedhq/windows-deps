@@ -35,17 +35,29 @@ The following libraries are also required:
 
 Finally, you will need a lot of free disk space on your machine. Space requirements are as follow:
 
-| Component          | Required Disk Space (*)   |
-| ------------------ | ------------------------- |
-| Boost 1.55         | 3.4 GB                    |
-| Qt 4.8             | 4.1 GB                    |
-| appleseed-deps     | 18.1 GB                   |
-| appleseed          | 10.9 GB                   |
-| **Total**          | **36.5 GB**               |
+* If you choose to build appleseed-deps from source:
+
+  | Component      | Required Disk Space (*) |
+  | -------------- | ----------------------- |
+  | Boost 1.55     | 3.4 GB                  |
+  | Qt 4.8         | 4.1 GB                  |
+  | appleseed-deps | 18.1 GB                 |
+  | appleseed      | 10.9 GB                 |
+  | **Total **     | **36.5 GB**             |
+
+* If you choose to use a prebuilt appleseed-deps package:
+
+  | Component      | Required Disk Space (*) |
+  | -------------- | ----------------------- |
+  | Boost 1.55     | 3.4 GB                  |
+  | Qt 4.8         | 4.1 GB                  |
+  | appleseed-deps | 4.5 GB                  |
+  | appleseed      | 10.9 GB                 |
+  | **Total **     | **22.9 GB**             |
 
 (*) Total maximum disk space, including source code, Git repository when applicable, intermediate build files and binaries for all build configurations.
 
-#### Building the Third-Party Libraries
+#### Alternative 1: Building Third-Party Libraries From Source
 
 1. Clone this repository on your machine:
    ```
@@ -61,6 +73,12 @@ Finally, you will need a lot of free disk space on your machine. Space requireme
    ```
 
 4. Wait a couple hours. You're done.
+
+#### Alternative 2: Downloading Prebuilt Third-Party Libraries
+
+1. Download the latest version of the prebuilt third-party libraries package from the [Releases](https://github.com/appleseedhq/appleseed-deps/releases) page.
+
+2. Create an `appleseed-deps\` directory in the location of your choice, and extract the zip file inside it. The `appleseed-deps\` directory should now contain a single directory called `stage\`.
 
 #### Building appleseed
 
