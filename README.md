@@ -111,6 +111,6 @@ In order to run the various appleseed tools from within the Visual Studio soluti
 
 5. Click OK to close the *Property Pages* window.
 
-6. Select appleseed.studio as the startup project (right-click on `appleseed.studio` in the Solution Explorer and select *Set as StartUp Project*).
+6. Right-click on the `appleseed.studio` project in the Solution Explorer and select *Set as StartUp Project*.
 
 7. Press F5 to start appleseed.studio.
