@@ -6,7 +6,7 @@ REM Visit http://appleseedhq.net/ for additional information and resources.
 REM
 REM This software is released under the MIT license.
 REM
-REM Copyright (c) 2014 Francois Beaune, The appleseedhq Organization
+REM Copyright (c) 2014-2015 Francois Beaune, The appleseedhq Organization
 REM
 REM Permission is hereby granted, free of charge, to any person obtaining a copy
 REM of this software and associated documentation files (the "Software"), to deal
