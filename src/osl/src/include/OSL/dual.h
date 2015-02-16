@@ -478,7 +478,7 @@ inline Dual2<T> pow (const Dual2<T> &u, const Dual2<T> &v)
     if (u.val() == T(0))
         return Dual2<T> ( T(0) );    // 0^v == 0
     if (u.val() < T(0)) {
-        if (truncf(v.val()) != v.val())
+        if (OIIO::truncf(v.val()) != v.val())
             return T(0);  // return 0 rather than imaginary
         // The function is not continuous in v, so assume v's derivs zero.
         // This gets rid of the log(u), which makes life easier.

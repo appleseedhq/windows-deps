@@ -451,7 +451,7 @@ inline float safe_log2(float x) {
     if (x <= 0.0f)
         return -std::numeric_limits<float>::max();
     else
-        return log2f(x);
+        return OIIO::log2f(x);
 }
 
 inline float safe_log10(float x) {
@@ -497,7 +497,7 @@ MAKE_UNARY_PERCOMPONENT_OP (log2, safe_log2, log2)
 MAKE_UNARY_PERCOMPONENT_OP (log10, safe_log10, log10)
 MAKE_UNARY_PERCOMPONENT_OP (logb, safe_logb, logb)
 MAKE_UNARY_PERCOMPONENT_OP (exp, fast_expf, fast_expf)
-MAKE_UNARY_PERCOMPONENT_OP (exp2, exp2f, exp2)
+MAKE_UNARY_PERCOMPONENT_OP (exp2, OIIO::exp2f, exp2)
 MAKE_UNARY_PERCOMPONENT_OP (expm1, expm1f, expm1)
 MAKE_BINARY_PERCOMPONENT_OP (pow, safe_pow, pow)
 MAKE_BINARY_PERCOMPONENT_VF_OP (pow, safe_pow, pow)
@@ -539,10 +539,10 @@ OSL_SHADEOP void osl_round_vv (void *r, void *x_) {
     const Vec3 &x (VEC(x_));
     VEC(r).setValue (roundf(x[0]), roundf(x[1]), roundf(x[2]));
 }
-OSL_SHADEOP float osl_trunc_ff (float x) { return truncf(x); }
+OSL_SHADEOP float osl_trunc_ff (float x) { return OIIO::truncf(x); }
 OSL_SHADEOP void osl_trunc_vv (void *r, void *x_) {
     const Vec3 &x (VEC(x_));
-    VEC(r).setValue (truncf(x[0]), truncf(x[1]), truncf(x[2]));
+    VEC(r).setValue (OIIO::truncf(x[0]), OIIO::truncf(x[1]), OIIO::truncf(x[2]));
 }
 OSL_SHADEOP float osl_sign_ff (float x) {
     return x < 0.0f ? -1.0f : (x==0.0f ? 0.0f : 1.0f);
