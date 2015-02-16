@@ -18,6 +18,7 @@
 #define _SeExprSpecType_h_
 
 #include <SeVec3d.h>
+#include <algorithm>
 #include <vector>
 #include <sstream>
 #include <SeCurve.h>
