@@ -5,4 +5,4 @@ before_install:
   - sudo service mysql stop
   - sudo service postgresql stop
   - sudo apt-get -y update
-script: ./travis-ci-build.sh
+script: sh travis-ci-build.sh
