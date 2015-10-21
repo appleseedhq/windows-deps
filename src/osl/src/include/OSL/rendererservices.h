@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 OSL_NAMESPACE_ENTER
 
 class RendererServices;
+class ShadingContext;
 struct ShaderGlobals;
 
 
@@ -57,8 +58,25 @@ typedef void (*SetupClosureFunc)(RendererServices *, int id, void *data);
 /// renderer may provide callback to the ShadingSystem.
 class OSLEXECPUBLIC RendererServices {
 public:
+    typedef TextureSystem::TextureHandle TextureHandle;
+    typedef TextureSystem::Perthread TexturePerthread;
+
+
     RendererServices (TextureSystem *texsys=NULL);
     virtual ~RendererServices () { }
+
+    /// Given the name of a 'feature', return whether this RendererServices
+    /// supports it. Feature names include:
+    ///    <none>
+    ///
+    /// This allows some customization of JIT generated code based on the
+    /// facilities and features of a particular renderer. It also allows
+    /// future expansion of RendererServices methods (with trivial default
+    /// implementations) without requiring every renderer implementation to
+    /// support it, as long as the OSL runtime only uses that feature if the
+    /// supports("feature") says it's present, thus preserving source
+    /// compatibility.
+    virtual int supports (string_view feature) const { return false; }
 
     /// Get the 4x4 matrix that transforms by the specified
     /// transformation at the given time.  Return true if ok, false
@@ -183,6 +201,19 @@ public:
     /// Does the current object have the named user-data associated with it?
     virtual bool has_userdata (ustring name, TypeDesc type, ShaderGlobals *sg) = 0;
 
+    /// Given the name of a texture, return an opaque handle that can be
+    /// used with texture calls to avoid the name lookups.
+    virtual TextureHandle * get_texture_handle (ustring filename);
+
+    /// Return true if the texture handle (previously returned by
+    /// get_texture_handle()) is a valid texture that can be subsequently
+    /// read or sampled.
+    virtual bool good (TextureHandle *texture_handle);
+
+    /// Return a thread-specific opaque pointer to the texture system.
+    /// Knowing the context may help this go faster.
+    virtual TexturePerthread * get_texture_perthread (ShadingContext *context=NULL);
+
     /// Filtered 2D texture lookup for a single point.
     ///
     /// s,t are the texture coordinates; dsdx, dtdx, dsdy, and dtdy are
@@ -192,12 +223,22 @@ public:
     /// pixels in screen space, adjacent samples in parameter space on a
     /// surface, etc.
     ///
+    /// The filename will always be passed, and it's ok for the renderer
+    /// implementation to use only that (and in fact should be prepared to
+    /// deal with texture_handle and texture_thread_info being NULL). But
+    /// sometimes OSL can figure out the texture handle or thread info also
+    /// and may pass them as non-NULL, in which case the renderer may (if it
+    /// can) use that extra information to perform a less expensive texture
+    /// lookup.
+    ///
     /// Return true if the file is found and could be opened, otherwise
     /// return false.
-    virtual bool texture (ustring filename, TextureOpt &options,
-                          ShaderGlobals *sg,
+    virtual bool texture (ustring filename, TextureHandle *texture_handle,
+                          TexturePerthread *texture_thread_info,
+                          TextureOpt &options, ShaderGlobals *sg,
                           float s, float t, float dsdx, float dtdx,
-                          float dsdy, float dtdy, float *result);
+                          float dsdy, float dtdy, int nchannels,
+                          float *result, float *dresultds, float *dresultdt);
 
     /// Filtered 3D texture lookup for a single point.
     ///
@@ -207,30 +248,65 @@ public:
     /// can be any imposed 3D coordinates, such as pixels in screen
     /// space and depth along the ray, etc.
     ///
+    /// The filename will always be passed, and it's ok for the renderer
+    /// implementation to use only that (and in fact should be prepared to
+    /// deal with texture_handle and texture_thread_info being NULL). But
+    /// sometimes OSL can figure out the texture handle or thread info also
+    /// and may pass them as non-NULL, in which case the renderer may (if it
+    /// can) use that extra information to perform a less expensive texture
+    /// lookup.
+    ///
     /// Return true if the file is found and could be opened, otherwise
     /// return false.
-    virtual bool texture3d (ustring filename, TextureOpt &options,
-                            ShaderGlobals *sg, const Vec3 &P,
-                            const Vec3 &dPdx, const Vec3 &dPdy,
-                            const Vec3 &dPdz, float *result);
+    virtual bool texture3d (ustring filename, TextureHandle *texture_handle,
+                            TexturePerthread *texture_thread_info,
+                            TextureOpt &options, ShaderGlobals *sg,
+                            const Vec3 &P, const Vec3 &dPdx, const Vec3 &dPdy,
+                            const Vec3 &dPdz, int nchannels,
+                            float *result, float *dresultds,
+                            float *dresultdt, float *dresultdr);
 
     /// Filtered environment lookup for a single point.
     ///
     /// R is the directional texture coordinate; dRd[xy] are the
     /// differentials of R in canonical directions x, y.
     ///
+    /// The filename will always be passed, and it's ok for the renderer
+    /// implementation to use only that (and in fact should be prepared to
+    /// deal with texture_handle and texture_thread_info being NULL). But
+    /// sometimes OSL can figure out the texture handle or thread info also
+    /// and may pass them as non-NULL, in which case the renderer may (if it
+    /// can) use that extra information to perform a less expensive texture
+    /// lookup.
+    ///
     /// Return true if the file is found and could be opened, otherwise
     /// return false.
-    virtual bool environment (ustring filename, TextureOpt &options,
-                              ShaderGlobals *sg, const Vec3 &R,
-                              const Vec3 &dRdx, const Vec3 &dRdy, float *result);
+    virtual bool environment (ustring filename, TextureHandle *texture_handle,
+                              TexturePerthread *texture_thread_info,
+                              TextureOpt &options, ShaderGlobals *sg,
+                              const Vec3 &R, const Vec3 &dRdx, const Vec3 &dRdy,
+                              int nchannels, float *result,
+                              float *dresultds, float *dresultdt);
 
     /// Get information about the given texture.  Return true if found
     /// and the data has been put in *data.  Return false if the texture
     /// doesn't exist, doesn't have the requested data, if the data
     /// doesn't match the type requested. or some other failure.
-    virtual bool get_texture_info (ShaderGlobals *sg,
-                                   ustring filename, int subimage,
+    ///
+    /// The filename will always be passed, and it's ok for the renderer
+    /// implementation to use only that (and in fact should be prepared to
+    /// deal with texture_handle and texture_thread_info being NULL). But
+    /// sometimes OSL can figure out the texture handle or thread info also
+    /// and may pass them as non-NULL, in which case the renderer may (if it
+    /// can) use that extra information to perform a less expensive texture
+    /// lookup.
+    ///
+    /// Note to renderers: if sg is NULL, that means get_texture_info is
+    /// being called speculatively by the runtime optimizer, and it doesn't
+    /// know which object the shader will be run on.
+    virtual bool get_texture_info (ShaderGlobals *sg, ustring filename,
+                                   TextureHandle *texture_handle,
+                                   int subimage,
                                    ustring dataname, TypeDesc datatype,
                                    void *data);
 
@@ -295,6 +371,18 @@ public:
 
     /// Return a pointer to the texture system (if available).
     virtual TextureSystem *texturesys () const;
+
+    /// Options we use for noise calls.
+    struct NoiseOpt {
+        int anisotropic;
+        int do_filter;
+        Vec3 direction;
+        float bandwidth;
+        float impulses;
+        NoiseOpt () : anisotropic(0), do_filter(true),
+            direction(1.0f,0.0f,0.0f), bandwidth(1.0f), impulses(16.0f) { }
+    };
+
 };
 
 

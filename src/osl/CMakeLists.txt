@@ -3,8 +3,8 @@ project (OSL)
 # Release version of the library
 set (OSL_LIBRARY_VERSION_MAJOR 1)
 set (OSL_LIBRARY_VERSION_MINOR 6)
-set (OSL_LIBRARY_VERSION_PATCH 0)
-set (OSL_LIBRARY_VERSION_RELEASE_TYPE "dev")   # "dev", "betaX", "RCY", ""
+set (OSL_LIBRARY_VERSION_PATCH 8)
+set (OSL_LIBRARY_VERSION_RELEASE_TYPE "")   # "dev", "betaX", "RCY", ""
 
 # Version of the OSO file format and instruction set
 set (OSO_FILE_VERSION_MAJOR 1)
@@ -60,6 +60,10 @@ if (CMAKE_CXX_COMPILER MATCHES "[Cc]lang")
     set (CMAKE_COMPILER_IS_CLANG 1)
     message (STATUS "The compiler seems to be clang")
 endif ()
+if (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
+    set (CMAKE_COMPILER_IS_INTEL 1)
+    message (STATUS "Using Intel as the compiler")
+endif ()
 
 ## turn on more detailed warnings and consider warnings as errors
 set (STOP_ON_WARNING ON CACHE BOOL "Stop building if there are any compiler warnings")
@@ -105,10 +109,18 @@ if (BUILDSTATIC)
     add_definitions ("-DOSL_STATIC_LIBRARY")
 endif()
 
+set (USE_fPIC OFF CACHE BOOL "Build with -fPIC")
+if (USE_fPIC)
+    add_definitions ("-fPIC")
+endif ()
+
 if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_GNUCC)
     # CMake doesn't automatically know what do do with
     # include_directories(SYSTEM...) when using clang or gcc.
     set (CMAKE_INCLUDE_SYSTEM_FLAG_CXX "-isystem ")
+    
+    # this allows native instructions to be used for sqrtf instead of a function call
+    add_definitions ("-fno-math-errno")
 endif ()
 
 if (CMAKE_COMPILER_IS_CLANG)
@@ -137,13 +149,13 @@ if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_GNUCC)
 endif ()
 
 # Try to detect if this is an OSX distro new enough that the system library
-# is libc++, in which case we should force use of Boost Wave (because that
-# avoids a nonstandard g++ extension in the other code path).
-if (EXISTS "/usr/lib/libc++.dylib" OR OSL_USE_LIBCPP)
+# is libc++.
+if (EXISTS "/usr/lib/libc++.dylib")
     set (OSL_SYSTEM_HAS_LIBCPP ON)
 endif ()
 
 set (VERBOSE OFF CACHE BOOL "Print lots of messages while compiling")
+set (OSL_BUILD_TESTS ON CACHE BOOL "Build the unit tests, testshade, testrender")
 set (BUILDSTATIC OFF CACHE BOOL "Build static library instead of shared")
 set (HIDE_SYMBOLS OFF CACHE BOOL "Hide symbols not in the public API")
 set (USE_EXTERNAL_PUGIXML OFF CACHE BOOL
@@ -154,13 +166,13 @@ if (WIN32)
 else ()
     set (USE_LLVM_BITCODE ON CACHE BOOL "Generated embedded LLVM bitcode")
 endif ()
-if (WIN32 OR OSL_SYSTEM_HAS_LIBCPP)
-    set (USE_BOOST_WAVE ON CACHE BOOL "Use Boost Wave as preprocessor")
-else ()
-    set (USE_BOOST_WAVE OFF CACHE BOOL "Use Boost Wave as preprocessor")
-endif ()
 set (USE_PARTIO ON CACHE BOOL "Use Partio if found")
-set (USE_MCJIT OFF CACHE BOOL "Use LLVM MCJIT (if no, then use old JIT)")
+set (USE_FAST_MATH ON CACHE BOOL "Use fast math approximations (if no, then use system math library)")
+set (OSL_BUILD_CPP11 OFF CACHE BOOL "Compile in C++11 mode")
+set (OSL_BUILD_LIBCPLUSPLUS OFF CACHE BOOL "Compile with clang libc++")
+set (EXTRA_CPP_ARGS "" CACHE STRING "Extra C++ command line definitions")
+set (USE_SIMD "" CACHE STRING "Use SIMD directives (0, sse2, sse3, sse4.1, sse4.2)")
+set (OSL_NO_DEFAULT_TEXTURESYSTEM OFF CACHE BOOL "Do not use create a raw OIIO::TextureSystem")
 
 if (LLVM_NAMESPACE)
     add_definitions ("-DLLVM_NAMESPACE=${LLVM_NAMESPACE}")
@@ -170,21 +182,46 @@ if (USE_EXTERNAL_PUGIXML)
     add_definitions ("-DUSE_EXTERNAL_PUGIXML")
 endif ()
 
-if (EXTRA_CPP_DEFINITIONS)
-    add_definitions ("${EXTRA_CPP_DEFINITIONS}")
+if (USE_FAST_MATH)
+	add_definitions ("-DOSL_FAST_MATH=1")
+else ()
+	add_definitions ("-DOSL_FAST_MATH=0")
+endif ()
+
+if (OSL_NO_DEFAULT_TEXTURESYSTEM)
+    add_definitions ("-DOSL_NO_DEFAULT_TEXTURESYSTEM=1")
+endif ()
+
+if (EXTRA_CPP_ARGS)
+    message (STATUS "Extra C++ args: ${EXTRA_CPP_ARGS}")
+    add_definitions ("${EXTRA_CPP_ARGS}")
 endif()
 
-if (USE_BOOST_WAVE)
-    add_definitions ("-DUSE_BOOST_WAVE")
+if (OSL_BUILD_CPP11)
+    message (STATUS "Building for C++11")
+    add_definitions ("-std=c++11")
+    if (CMAKE_COMPILER_IS_CLANG)
+        # C++11 doesn't like 'register' keyword, which is in Qt headers
+        add_definitions ("-Wno-deprecated-register")
+    endif ()
 endif ()
 
-if (USE_MCJIT)
-    add_definitions ("-DUSE_MCJIT=1")
-endif ()
-
-if (CMAKE_COMPILER_IS_CLANG AND OSL_USE_LIBCPP)
+if (USE_LIBCPLUSPLUS AND CMAKE_COMPILER_IS_CLANG)
     message (STATUS "Using libc++")
     add_definitions ("-stdlib=libc++")
+endif ()
+
+if (NOT USE_SIMD STREQUAL "")
+    message (STATUS "Compiling with SIMD level ${USE_SIMD}")
+    if (USE_SIMD STREQUAL "0")
+        add_definitions ("-DOIIO_NO_SSE=1")
+    else ()
+        if (MSVC OR CMAKE_COMPILER_IS_INTEL)
+            add_definitions ("/arch:${USE_SIMD}")
+        else ()
+            add_definitions ("-m${USE_SIMD}")
+        endif ()
+    endif ()
 endif ()
 
 set (CMAKE_MODULE_PATH
@@ -202,6 +239,7 @@ include_directories (
       "${OPENIMAGEIO_INCLUDES}"
   )
 
+# Set the default namespace
 if (OSL_NAMESPACE)
     add_definitions ("-DOSL_NAMESPACE=${OSL_NAMESPACE}")
 endif ()
@@ -226,6 +264,10 @@ if (MSVC)
     add_definitions (-D_CRT_SECURE_NO_WARNINGS)
     add_definitions (-D_CRT_NONSTDC_NO_WARNINGS)
     add_definitions (-D_SCL_SECURE_NO_WARNINGS)
+    if(NOT LINKSTATIC)
+        add_definitions (-DBOOST_ALL_DYN_LINK)
+        add_definitions (-DOPENEXR_DLL)
+    endif ()
 endif (MSVC)
 
 
@@ -243,8 +285,11 @@ add_subdirectory (src/liboslexec)
 add_subdirectory (src/oslc)
 add_subdirectory (src/shaders)
 add_subdirectory (src/oslinfo)
-# add_subdirectory (src/testshade)
-# add_subdirectory (src/testrender)
+
+if (OSL_BUILD_TESTS)
+add_subdirectory (src/testshade)
+add_subdirectory (src/testrender)
+endif ()
 
 add_subdirectory (src/include)
 add_subdirectory (src/doc)
@@ -284,8 +329,10 @@ macro ( TESTSUITE )
             message (STATUS "TEST ${_testname}: ${CMAKE_BINARY_DIR}/testsuite/runtest.py ${_testdir} ${_extra_test_args}")
         endif ()
 
-        # Run the test unoptimized
-        if (NOT _testname MATCHES "^render")
+        # Run the test unoptimized, unless it's a "render_*" or "oslinfo_*"
+        # test, which we don't bother testing unoptimized.
+        if (NOT _testname MATCHES "^render" AND
+            NOT _testname MATCHES "^oslinfo")
           set (_env TESTSHADE_OPT=0 OPENIMAGEIOHOME=${OPENIMAGEIOHOME})
           add_test ( NAME ${_testname}
                      COMMAND env ${_env} ${_runtest} )
@@ -298,13 +345,15 @@ macro ( TESTSUITE )
     endforeach ()
 endmacro ()
 
+if (OSL_BUILD_TESTS)
 # List all the individual testsuite tests here, except those that need
 # special installed tests.
-TESTSUITE ( aastep arithmetic array array-derivs array-range
+TESTSUITE ( and-or-not-synonyms aastep arithmetic array array-derivs array-range
             blackbody blendmath breakcont
             bug-array-heapoffsets
             bug-locallifetime bug-outputinit bug-param-duplicate bug-peep
-            cellnoise closure color comparison
+            cellnoise closure closure-array color comparison
+            compile-buffer
             component-range const-array-params const-array-fill
             debugnan debug-uninit
             derivs derivs-muldiv-clobber error-dupes exit exponential
@@ -313,17 +362,20 @@ TESTSUITE ( aastep arithmetic array array-derivs array-range
             group-outputs groupstring
             hyperb ieee_fp if incdec initops intbits isconnected
             layers layers-Ciassign layers-lazy
-            logic loop matrix message metadata-braces miscmath missing-shader
+            layers-nonlazycopy layers-repeatedoutputs
+            logic loop matrix message mergeinstances-nouserdata
+            metadata-braces miscmath missing-shader
             noise noise-cell
             noise-gabor noise-gabor2d-filter noise-gabor3d-filter
             noise-perlin noise-uperlin noise-simplex noise-usimplex
             pnoise pnoise-cell pnoise-gabor pnoise-perlin pnoise-uperlin
-            oslc-D
+            oslc-comma oslc-D
             oslc-err-arrayindex oslc-err-closuremul
             oslc-err-format oslc-err-intoverflow
-            oslc-err-noreturn oslc-err-paramdefault
+            oslc-err-noreturn oslc-err-outputparamvararray oslc-err-paramdefault
             oslc-err-struct-array-init oslc-err-struct-dup
             oslc-variadic-macro
+            oslinfo-arrayparams oslinfo-metadata oslinfo-noparams
             pointcloud pointcloud-fold
             printf-whole-array
             raytype reparam
@@ -332,16 +384,20 @@ TESTSUITE ( aastep arithmetic array array-derivs array-range
             render-microfacet render-oren-nayar render-veachmis render-ward
             shortcircuit spline splineinverse string 
             struct struct-array struct-array-mixture
-            struct-err struct-layers struct-with-array 
+            struct-err struct-in-struct-init struct-layers struct-with-array 
             struct-within-struct ternary
-            texture-alpha texture-blur texture-field3d
+            texture-alpha texture-blur texture-derivs texture-field3d
             texture-firstchannel texture-interp 
             texture-missingcolor texture-simple
             texture-smallderivs texture-swirl
             texture-width texture-withderivs texture-wrap
-            transform transformc trig typecast
-            unknown-instruction vecctr vector
+            trailing-commas transform transformc trig typecast
+            unknown-instruction
+            vararray-connect vararray-default
+            vararray-deserialize vararray-param
+            vecctr vector
             wavelength_color xml )
+endif ()
 
 
 

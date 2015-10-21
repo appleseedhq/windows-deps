@@ -68,6 +68,7 @@ public:
         loop_statement_node, loopmod_statement_node, return_statement_node,
         binary_expression_node, unary_expression_node,
         assign_expression_node, ternary_expression_node,
+        comma_operator_node,
         typecast_expression_node, type_constructor_node,
         function_call_node,
         literal_node,
@@ -275,9 +276,9 @@ protected:
     bool check_arglist (const char *funcname, ref arg,
                         const char *formals, bool coerce=false);
 
-    /// Follow a list of nodes, generating code for each in turn.
-    ///
-    static void codegen_list (ref node);
+    /// Follow a list of nodes, generating code for each in turn, and return
+    /// the Symbol* for the last thing generated.
+    static Symbol * codegen_list (ref node, Symbol *dest = NULL);
 
     /// Generate code for all the children of this node.
     ///
@@ -301,6 +302,20 @@ protected:
     /// accounting for exotic types like structs, etc.
     /// N.B.: just conveniently wraps the compiler's identical method.
     const char *type_c_str (const TypeSpec &type) const;
+
+    /// Assign the struct variable named by srcsym to the struct
+    /// variable named by dstsym by assigning each field individually.
+    /// In the case of dstsym naming an array of structs, arrayindex
+    /// should be a symbol holding the index of the individual array
+    /// element that should be copied into.  If 'copywholearrays' is
+    /// true, we are (perhaps recursively) copying entire arrays, of
+    /// or within the struct, and intindex is the element number if we
+    /// know it -- these two items let us take some interesting shortcuts
+    /// with whole arrays (copyarray versus assigning elements).
+    void codegen_assign_struct (StructSpec *structspec,
+                                ustring dstsym, ustring srcsym,
+                                Symbol *arrayindex,
+                                bool copywholearrays, int intindex);
 
 protected:
     NodeType m_nodetype;          ///< Type of node this is
@@ -404,7 +419,8 @@ public:
     /// initialization of literal values and place it in 'out'.
     /// Return whether the full initialization is comprised only of
     /// literals (and no init ops are needed).
-    bool param_default_literals (const Symbol *sym, std::string &out);
+    bool param_default_literals (const Symbol *sym, std::string &out,
+                                 const std::string &separator=" ") const;
 
     // Special code generation for structure initializers
     Symbol *codegen_struct_initializers (ref init);
@@ -426,7 +442,7 @@ private:
     // init==NULL) and append it to 'out'.  Return whether the full
     // initialization is comprised only of literals (no init ops needed).
     bool param_one_default_literal (const Symbol *sym, ASTNode *init,
-                                    std::string &out);
+                      std::string &out, const std::string &separator=" ") const;
 
     ustring m_name;     ///< Name of the symbol (unmangled)
     Symbol *m_sym;      ///< Ptr to the symbol this declares
@@ -670,20 +686,6 @@ public:
 
     ref var () const { return child (0); }
     ref expr () const { return child (1); }
-private:
-    /// Assign the struct variable named by srcsym to the struct
-    /// variable named by dstsym by assigning each field individually.
-    /// In the case of dstsym naming an array of structs, arrayindex
-    /// should be a symbol holding the index of the individual array
-    /// element that should be copied into.  If 'copywholearrays' is
-    /// true, we are (perhaps recursively) copying entire arrays, of
-    /// or within the struct, and intindex is the element number if we
-    /// know it -- these two items let us take some interesting shortcuts
-    /// with whole arrays (copyarray versus assigning elements).
-    void codegen_assign_struct (StructSpec *structspec,
-                                ustring dstsym, ustring srcsym,
-                                Symbol *arrayindex,
-                                bool copywholearrays, int intindex);
 };
 
 
@@ -749,6 +751,24 @@ public:
     ref trueexpr () const { return child (1); }
     ref falseexpr () const { return child (2); }
 };
+
+
+
+class ASTcomma_operator : public ASTNode
+{
+public:
+    ASTcomma_operator (OSLCompilerImpl *comp, ASTNode *exprlist)
+        : ASTNode (comma_operator_node, comp, Nothing, exprlist)
+    { }
+
+    const char *nodetypename () const { return "comma_operator"; }
+    const char *childname (size_t i) const { return "expression_list"; }
+    TypeSpec typecheck (TypeSpec expected);
+    Symbol *codegen (Symbol *dest = NULL);
+
+    ref expr () const { return child (0); }
+};
+
 
 
 

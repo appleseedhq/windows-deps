@@ -49,17 +49,17 @@ TypeSpec::string () const
     std::string str;
     if (is_closure() || is_closure_array()) {
         str += "closure color";
-        if (arraylength() > 0)
-            str += Strutil::format ("[%d]", arraylength());
-        else if (arraylength() < 0)
+        if (is_unsized_array())
             str += "[]";
+        else if (arraylength() > 0)
+            str += Strutil::format ("[%d]", arraylength());
     }
     else if (structure() > 0) {
         str += Strutil::format ("struct %d", structure());
-        if (arraylength() > 0)
-            str += Strutil::format ("[%d]", arraylength());
-        else if (arraylength() < 0)
+        if (is_unsized_array())
             str += "[]";
+        else if (arraylength() > 0)
+            str += Strutil::format ("[%d]", arraylength());
     } else {
         str += simpletype().c_str();
     }
@@ -188,6 +188,8 @@ Symbol::print (std::ostream &out, int maxvals) const
             out << " down-connected";
         if (!connected() && !connected_down())
             out << " unconnected";
+        if (renderer_output())
+            out << " renderer-output";
         if (symtype() == SymTypeParam && ! lockgeom())
             out << " lockgeom=0";
     }
@@ -343,7 +345,7 @@ SymbolTable::print ()
                 std::cout << " (" << s->name()
                           << " in scope " << s->scope() << ")";
             std::cout << " :\n";
-            for (size_t i = 0;  i < s->numfields();  ++i) {
+            for (size_t i = 0;  i < (size_t)s->numfields();  ++i) {
                 const StructSpec::FieldSpec & f (s->field(i));
                 std::cout << "\t" << f.name << " : "
                           << f.type.string() << "\n";

@@ -114,7 +114,8 @@ static std::stack<TypeSpec> typespec_stack; // just for function_declaration
 %type <n> conditional_statement loop_statement loopmod_statement
 %type <n> return_statement
 %type <n> for_init_statement
-%type <n> expression_list expression_opt expression
+%type <n> expression compound_expression
+%type <n> expression_list expression_opt compound_expression_opt
 %type <n> id_or_field variable_lvalue variable_ref 
 %type <i> unary_op incdec_op incdec_op_opt
 %type <n> type_constructor function_call function_args_opt function_args
@@ -136,7 +137,7 @@ static std::stack<TypeSpec> typespec_stack; // just for function_declaration
 %left <i> SHL_OP SHR_OP
 %left <i> '+' '-'
 %left <i> '*' '/' '%'
-%right <i> UMINUS_PREC '!' '~'
+%right <i> UMINUS_PREC NOT_OP '~'
 %right <i> INCREMENT DECREMENT
 %left <i> '(' ')'
 %left <i> '[' ']'
@@ -195,6 +196,10 @@ shader_formal_params
                 {
                     $$ = concat ($1, $3);
                 }
+        | shader_formal_params ','
+                {
+                    $$ = $1;
+                }
         ;
 
 shader_formal_param
@@ -220,6 +225,11 @@ shader_formal_param
                     // Grab the current declaration type, modify it to be array
                     TypeSpec t = oslcompiler->current_typespec();
                     t.make_array ($4);
+                    if ($1 && t.is_unsized_array()) {
+                        oslcompiler->error (oslcompiler->filename(),
+                                            @3.first_line,
+                                            "shader output parameter '%s' can't be unsized array", $3);
+                    }
                     ASTvariable_declaration *var;
                     var = new ASTvariable_declaration (oslcompiler, t, 
                                                    ustring($3), $5, true,
@@ -254,6 +264,10 @@ metadata_block_opt
 metadata
         : metadatum
         | metadata ',' metadatum        { $$ = concat ($1, $3); }
+        | metadata ','                  
+                { 
+                    $$ = $1; 
+                }
         ;
 
 metadatum
@@ -318,6 +332,10 @@ function_formal_params
         | function_formal_params ',' function_formal_param
                 {
                     $$ = concat ($1, $3);
+                }
+        | function_formal_params ','
+                {
+                    $$ = $1;
                 }
         ;
 
@@ -447,7 +465,7 @@ def_expression
                     // Grab the current declaration type, modify it to be array
                     TypeSpec t = oslcompiler->current_typespec();
                     t.make_array ($2);
-                    if (t.arraylength() < 1)
+                    if ($2 < 1)
                         oslcompiler->error (oslcompiler->filename(),
                                             oslcompiler->lineno(),
                                             "Invalid array length for %s", $1);
@@ -517,8 +535,6 @@ shadertype
                         $$ = ShadTypeDisplacement;
                     else if (! strcmp ($1, "volume"))
                         $$ = ShadTypeVolume;
-                    // else if (! strcmp ($1, "light"))
-                    //    $$ = ShadTypeLight;
                     else {
                         oslcompiler->error (oslcompiler->filename(),
                                             oslcompiler->lineno(),
@@ -600,7 +616,7 @@ statement
         | loopmod_statement
         | return_statement
         | local_declaration
-        | expression ';'
+        | compound_expression ';'
         | ';'                           { $$ = 0; }
         ;
 
@@ -617,12 +633,12 @@ scoped_statements
         ;
 
 conditional_statement
-        : IF_TOKEN '(' expression ')' statement
+        : IF_TOKEN '(' compound_expression ')' statement
                 {
                     $$ = new ASTconditional_statement (oslcompiler, $3, $5);
                     $$->sourceline (@1.first_line);
                 }
-        | IF_TOKEN '(' expression ')' statement ELSE statement
+        | IF_TOKEN '(' compound_expression ')' statement ELSE statement
                 {
                     $$ = new ASTconditional_statement (oslcompiler, $3, $5, $7);
                     $$->sourceline (@1.first_line);
@@ -630,14 +646,14 @@ conditional_statement
         ;
 
 loop_statement
-        : WHILE '(' expression ')' statement
+        : WHILE '(' compound_expression ')' statement
                 {
                     $$ = new ASTloop_statement (oslcompiler,
                                                 ASTloop_statement::LoopWhile,
                                                 NULL, $3, NULL, $5);
                     $$->sourceline (@1.first_line);
                 }
-        | DO statement WHILE '(' expression ')' ';'
+        | DO statement WHILE '(' compound_expression ')' ';'
                 {
                     $$ = new ASTloop_statement (oslcompiler,
                                                 ASTloop_statement::LoopDo,
@@ -648,7 +664,7 @@ loop_statement
                 {
                     oslcompiler->symtab().push (); // new declaration scope
                 }
-          for_init_statement expression_opt ';' expression_opt ')' statement
+          for_init_statement compound_expression_opt ';' compound_expression_opt ')' statement
                 {
                     $$ = new ASTloop_statement (oslcompiler,
                                                 ASTloop_statement::LoopFor,
@@ -691,6 +707,18 @@ expression_opt
         | /* empty */                   { $$ = 0; }
         ;
 
+compound_expression_opt
+        : compound_expression
+        | /* empty */                   { $$ = 0; }
+        ;
+
+compound_expression
+        : expression
+        | expression ',' compound_expression
+                {
+                    $$ = new ASTcomma_operator (oslcompiler, concat ($1, $3));
+                }
+
 expression
         : INT_LITERAL           { $$ = new ASTliteral (oslcompiler, $1); }
         | FLOAT_LITERAL         { $$ = new ASTliteral (oslcompiler, $1); }
@@ -715,7 +743,7 @@ expression
                         $$ = new ASTunary_expression (oslcompiler, $1, $2);
                     }
                 }
-        | '(' expression ')'                    { $$ = $2; }
+        | '(' compound_expression ')'           { $$ = $2; }
         | function_call
         | assign_expression
         | ternary_expression
@@ -857,6 +885,7 @@ unary_op
         : '-'                           { $$ = ASTNode::Sub; }
         | '+'                           { $$ = ASTNode::Add; }
         | '!'                           { $$ = ASTNode::Not; }
+        | NOT_OP                        { $$ = ASTNode::Not; }
         | '~'                           { $$ = ASTNode::Compl; }
         ;
 
@@ -892,7 +921,7 @@ function_args_opt
 
 function_args
         : expression
-        | function_args ',' expression          { $$ = concat ($1, $3); }
+        | function_args ',' expression     { $$ = concat ($1, $3); }
         ;
 
 assign_expression

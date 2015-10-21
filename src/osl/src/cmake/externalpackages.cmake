@@ -52,7 +52,8 @@ endmacro ()
 message (STATUS "BOOST_ROOT ${BOOST_ROOT}")
 
 if (NOT DEFINED Boost_ADDITIONAL_VERSIONS)
-  set (Boost_ADDITIONAL_VERSIONS "1.55" "1.54" "1.53" "1.52" "1.51" "1.50"
+  set (Boost_ADDITIONAL_VERSIONS "1.57" "1.56"
+                                 "1.55" "1.54" "1.53" "1.52" "1.51" "1.50"
                                  "1.49" "1.48" "1.47" "1.46" "1.45" "1.44"
                                  "1.43" "1.43.0" "1.42" "1.42.0")
 endif ()
@@ -65,15 +66,10 @@ if (BOOST_CUSTOM)
     # N.B. For a custom version, the caller had better set up the variables
     # Boost_VERSION, Boost_INCLUDE_DIRS, Boost_LIBRARY_DIRS, Boost_LIBRARIES.
 else ()
-    set (Boost_COMPONENTS filesystem regex system thread)
-    if (USE_BOOST_WAVE)
-        list (APPEND Boost_COMPONENTS wave)
-    endif ()
-
+    set (Boost_COMPONENTS filesystem regex system thread wave)
     find_package (Boost 1.42 REQUIRED
                   COMPONENTS ${Boost_COMPONENTS}
                  )
-
 endif ()
 
 # On Linux, Boost 1.55 and higher seems to need to link against -lrt
@@ -176,19 +172,19 @@ if(NOT LLVM_DIRECTORY OR EXISTS ${LLVM_CONFIG})
        OUTPUT_STRIP_TRAILING_WHITESPACE)
 endif()
 
+if (LLVM_VERSION VERSION_GREATER 3.4.9 AND NOT OSL_BUILD_CPP11)
+    message (FATAL_ERROR "LLVM ${LLVM_VERSION} requires C++11. You must build with USE_CPP11=1.")
+endif ()
+
 find_library ( LLVM_LIBRARY
                NAMES LLVM-${LLVM_VERSION}
                PATHS ${LLVM_LIB_DIR})
 message (STATUS "LLVM version  = ${LLVM_VERSION}")
 message (STATUS "LLVM dir      = ${LLVM_DIRECTORY}")
 
-if (USE_MCJIT)
-    find_library ( LLVM_MCJIT_LIBRARY
+find_library ( LLVM_MCJIT_LIBRARY
                    NAMES LLVMMCJIT
                    PATHS ${LLVM_LIB_DIR})
-else ()
-    set (LLVM_MCJIT_LIBRARY "")
-endif ()
 
 if (VERBOSE)
     message (STATUS "LLVM includes = ${LLVM_INCLUDES}")
@@ -220,7 +216,6 @@ if ((LLVM_LIBRARY OR LLVM_STATIC) AND LLVM_INCLUDES AND LLVM_DIRECTORY AND LLVM_
       message (STATUS "LLVM OSL_LLVM_VERSION = ${OSL_LLVM_VERSION}")
       message (STATUS "LLVM library  = ${LLVM_LIBRARY}")
   endif ()
-
 
   if (NOT LLVM_LIBRARY)
     message (FATAL_ERROR "LLVM library not found.")

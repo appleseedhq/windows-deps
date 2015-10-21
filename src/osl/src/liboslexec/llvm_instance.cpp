@@ -139,6 +139,7 @@ typedef boost::unordered_map<std::string,HelperFuncRecord> HelperFuncMap;
 HelperFuncMap llvm_helper_function_map;
 atomic_int llvm_helper_function_map_initialized (0);
 spin_mutex llvm_helper_function_map_mutex;
+std::vector<std::string> external_function_names;
 
 
 
@@ -151,7 +152,8 @@ initialize_llvm_helper_function_map ()
     if (llvm_helper_function_map_initialized())
         return;
 #define DECL(name,signature) \
-    llvm_helper_function_map[#name] = HelperFuncRecord(signature,name);
+    llvm_helper_function_map[#name] = HelperFuncRecord(signature,name); \
+    external_function_names.push_back (#name);
 #include "builtindecl.h"
 #undef DECL
 
@@ -292,10 +294,9 @@ BackendLLVM::llvm_type_groupdata ()
             TypeSpec ts = sym.typespec();
             if (ts.is_structure())  // skip the struct symbol itself
                 continue;
-            int arraylen = std::max (1, sym.typespec().arraylength());
-            int deriv_mult = sym.has_derivs() ? 3 : 1;
-            int n = arraylen * deriv_mult;
-            ts.make_array (n);
+            const int arraylen = std::max (1, sym.typespec().arraylength());
+            const int derivSize = (sym.has_derivs() ? 3 : 1);
+            ts.make_array (arraylen * derivSize);
             fields.push_back (llvm_type (ts));
 
             // Alignment
@@ -307,9 +308,10 @@ BackendLLVM::llvm_type_groupdata ()
                 std::cout << "  " << inst->layername() 
                           << " (" << inst->id() << ") " << sym.mangled()
                           << " " << ts.c_str() << ", field " << order 
+                          << ", size " << derivSize * int(sym.size())
                           << ", offset " << offset << std::endl;
             sym.dataoffset ((int)offset);
-            offset += int(sym.size()) * deriv_mult;
+            offset += derivSize* int(sym.size());
 
             m_param_order_map[&sym] = order;
             ++order;
@@ -458,7 +460,7 @@ BackendLLVM::llvm_assign_initial_value (const Symbol& sym)
     // retrieved de novo or copied from a previous retrieval), or 0 if no
     // such userdata was available.
     llvm::BasicBlock *after_userdata_block = NULL;
-    if (! sym.lockgeom() && ! sym.typespec().is_closure()) {
+    if (! sym.lockgeom() && ! sym.typespec().is_closure() && ! (sym.symtype() == SymTypeOutputParam)) {
         int userdata_index = -1;
         ustring symname = sym.name();
         TypeDesc type = sym.typespec().simpletype();
@@ -484,6 +486,18 @@ BackendLLVM::llvm_assign_initial_value (const Symbol& sym)
         llvm::Value *got_userdata =
             ll.call_function ("osl_bind_interpolated_param",
                               &args[0], args.size());
+        if (shadingsys().debug_nan() && type.basetype == TypeDesc::FLOAT) {
+            // check for NaN/Inf for float-based types
+            int ncomps = type.numelements() * type.aggregate;
+            llvm::Value *args[] = { ll.constant(ncomps), llvm_void_ptr(sym),
+                 ll.constant((int)sym.has_derivs()), sg_void_ptr(),
+                 ll.constant(ustring(inst()->shadername())),
+                 ll.constant(0), ll.constant(sym.name()),
+                 ll.constant(0), ll.constant(ncomps),
+                 ll.constant("<get_userdata>")
+            };
+            ll.call_function ("osl_naninf_check", args, 10);
+        }
         // We will enclose the subsequent initialization of default values
         // or init ops in an "if" so that the extra copies or code don't
         // happen if the userdata was retrieved.
@@ -697,8 +711,8 @@ BackendLLVM::build_llvm_instance (bool groupentry)
     if (llvm_debug() && groupentry)
         llvm_gen_debug_printf (Strutil::format("\n\n\n\nGROUP! %s",group().name()));
     if (llvm_debug())
-        llvm_gen_debug_printf (Strutil::format("enter layer %s %s",
-                                  inst()->layername(), inst()->shadername()));
+        llvm_gen_debug_printf (Strutil::format("enter layer %d %s %s",
+                               this->layer(), inst()->layername(), inst()->shadername()));
 #endif
     if (shadingsys().countlayerexecs())
         ll.call_function ("osl_incr_layers_executed", sg_void_ptr());
@@ -720,7 +734,7 @@ BackendLLVM::build_llvm_instance (bool groupentry)
         // that are closures (to avoid weird order of layer eval problems).
         for (int i = 0;  i < group().nlayers();  ++i) {
             ShaderInstance *gi = group()[i];
-            if (gi->unused())
+            if (gi->unused() || gi->empty_instance())
                 continue;
             FOREACH_PARAM (Symbol &sym, gi) {
                if (sym.typespec().is_closure_based()) {
@@ -732,14 +746,12 @@ BackendLLVM::build_llvm_instance (bool groupentry)
                     }
                 }
             }
-            // Unconditionally execute earlier layers that are not lazy
-            if (! gi->run_lazily() && i < group().nlayers()-1)
-                llvm_call_layer (i, true /* unconditionally run */);
         }
     }
 
     // Setup the symbols
     m_named_values.clear ();
+    m_layers_already_run.clear ();
     BOOST_FOREACH (Symbol &s, inst()->symbols()) {
         // Skip constants -- we always inline scalar constants, and for
         // array constants we will just use the pointers to the copy of
@@ -786,7 +798,14 @@ BackendLLVM::build_llvm_instance (bool groupentry)
             continue;
         // Skip if it's never read and isn't connected
         if (! s.everread() && ! s.connected_down() && ! s.connected()
-              && ! shadingsys().is_renderer_output(s.name(), &group()))
+              && ! s.renderer_output())
+            continue;
+        // Skip if it's an interpolated (userdata) parameter and we're
+        // initializing them lazily.
+        if (s.symtype() == SymTypeParam
+                && ! s.lockgeom() && ! s.typespec().is_closure()
+                && ! s.connected() && ! s.connected_down()
+                && shadingsys().lazy_userdata())
             continue;
         // Set initial value for params (may contain init ops)
         llvm_assign_initial_value (s);
@@ -794,11 +813,21 @@ BackendLLVM::build_llvm_instance (bool groupentry)
 
     // All the symbols are stack allocated now.
 
+    if (groupentry) {
+        // Group entries also need to run any earlier layers that must be
+        // run unconditionally. It's important that we do this AFTER all the
+        // parameter initialization for this layer.
+        for (int i = 0;  i < group().nlayers()-1;  ++i) {
+            ShaderInstance *gi = group()[i];
+            if (!gi->unused() && !gi->empty_instance() && !gi->run_lazily())
+                llvm_call_layer (i, true /* unconditionally run */);
+        }
+    }
+
     // Mark all the basic blocks, including allocating llvm::BasicBlock
     // records for each.
     find_basic_blocks ();
     find_conditionals ();
-    m_layers_already_run.clear ();
 
     build_llvm_code (inst()->maincodebegin(), inst()->maincodeend());
 
@@ -829,8 +858,8 @@ BackendLLVM::build_llvm_instance (bool groupentry)
     // All done
 #if 0 /* helpful for debugging */
     if (llvm_debug())
-        llvm_gen_debug_printf (Strutil::format("exit layer %s %s",
-                                   inst()->layername(), inst()->shadername()));
+        llvm_gen_debug_printf (Strutil::format("exit layer %d %s %s",
+                               this->layer(), inst()->layername(), inst()->shadername()));
 #endif
     ll.op_return();
 
@@ -943,14 +972,21 @@ BackendLLVM::run ()
     int nlayers = group().nlayers();
     m_layer_remap.resize (nlayers);
     m_num_used_layers = 0;
-    for (int layer = 0;  layer < group().nlayers();  ++layer) {
+    if (shadingsys().debug() >= 1)
+        std::cout << "\nLayers used:\n";
+    for (int layer = 0;  layer < nlayers;  ++layer) {
         bool lastlayer = (layer == (nlayers-1));
-        if (! group()[layer]->unused() || lastlayer)
+        if (lastlayer ||
+            (! group()[layer]->unused() && !group()[layer]->empty_instance()))
+        {
+            if (shadingsys().debug() >= 1)
+                std::cout << "  " << layer << "\n";
             m_layer_remap[layer] = m_num_used_layers++;
+        }
         else
             m_layer_remap[layer] = -1;
     }
-    shadingsys().m_stat_empty_instances += group().nlayers()-m_num_used_layers;
+    shadingsys().m_stat_empty_instances += nlayers - m_num_used_layers;
 
     initialize_llvm_group ();
 
@@ -972,6 +1008,18 @@ BackendLLVM::run ()
         shadingcontext()->error ("Shader group \"%s\" needs too much local storage: %d KB",
                                  group().name(), m_llvm_local_mem/1024);
     }
+
+    // The module contains tons of "library" functions that our generated
+    // IR might call. But probably not. We don't want to incur the overhead
+    // of fully compiling those, so we tell LLVM_Util to turn them into
+    // non-externally-visible symbols (allowing them to be discarded if not
+    // used internal to the module). We need to make exceptions for our
+    // entry points, as well as for all the external functions that are
+    // just declarations (not definitions) in the module (which we have
+    // conveniently stashed in external_function_names).
+    std::vector<std::string> entry_functions;
+    entry_functions.push_back (ll.func_name(entry_func));
+    ll.internalize_module_functions ("osl_", external_function_names, entry_functions);
 
     // Optimize the LLVM IR unless it's just a ret void group (1 layer,
     // 1 BB, 1 inst == retvoid)

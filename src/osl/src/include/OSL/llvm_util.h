@@ -91,6 +91,10 @@ public:
     void debug (int d) { m_debug = d; }
     int debug () const { return m_debug; }
 
+    /// Use MCJIT?
+    void mcjit (int on) { m_mcjit = on; }
+    int mcjit () const { return m_mcjit; }
+
     /// Return a reference to the current context.
     llvm::LLVMContext &context () const { return *m_llvm_context; }
 
@@ -175,17 +179,29 @@ public:
     /// current one).
     void execengine (llvm::ExecutionEngine *exec);
 
-    /// Retrieve a callable pointer to the JITed version of a function.
-    void *getPointerToFunction (llvm::Function *func);
-
-    /// Wrap ExecutionEngine::InstallLazyFunctionCreator.
-    void InstallLazyFunctionCreator (void* (*P)(const std::string &));
+    /// Change symbols in the module that are marked as having external
+    /// linkage to an alternate linkage that allows them to be discarded if
+    /// not used within the module. Only do this for functions that start
+    /// with prefix, and that DON'T match anything in the two exceptions
+    /// lists.
+    void internalize_module_functions (const std::string &prefix,
+                                       const std::vector<std::string> &exceptions,
+                                       const std::vector<std::string> &moreexceptions);
 
     /// Setup LLVM optimization passes.
     void setup_optimization_passes (int optlevel);
 
     /// Run the optimization passes.
     void do_optimize ();
+
+    /// Retrieve a callable pointer to the JITed version of a function.
+    /// This will JIT the function if it hasn't already done so. Be sure
+    /// you have already called do_optimize() if you want optimization.
+    void *getPointerToFunction (llvm::Function *func);
+
+    /// Wrap ExecutionEngine::InstallLazyFunctionCreator.
+    void InstallLazyFunctionCreator (void* (*P)(const std::string &));
+
 
     /// Create a new LLVM basic block (for the current function) and return
     /// its handle.
@@ -292,17 +308,15 @@ public:
     /// Change the name so it doesn't get mixed up with int.
     llvm::Value *constant_bool (bool b);
 
-    /// Return a constant void pointer to the given address
-    llvm::Value *constant_ptr (void *p, llvm::PointerType *type);
+    /// Return a constant void pointer to the given constant address.
+    /// If the type specified is NULL, it will make a 'void *'.
+    llvm::Value *constant_ptr (void *p, llvm::PointerType *type=NULL);
 
     /// Return an llvm::Value holding the given string constant.
     llvm::Value *constant (OIIO::ustring s);
     llvm::Value *constant (const char *s) {
         return constant(OIIO::ustring(s));
     }
-
-    /// Return an llvm::Value holding the given pointer constant.
-    llvm::Value *constant_ptr (void *p);
 
     /// Return an llvm::Value for a long long that is a packed
     /// representation of a TypeDesc.
@@ -492,6 +506,8 @@ public:
     /// Is the function empty, except for simply a ret statement?
     bool func_is_empty (llvm::Function *func);
 
+    std::string func_name (llvm::Function *f);
+
     static size_t total_jit_memory_held ();
 
 private:
@@ -504,6 +520,7 @@ private:
 
 
     int m_debug;
+    int m_mcjit;
     PerThreadInfo *m_thread;
     llvm::LLVMContext *m_llvm_context;
     llvm::Module *m_llvm_module;

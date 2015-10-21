@@ -47,6 +47,7 @@ typedef ShaderGroupRef ShadingAttribStateRef; // DEPRECATED name
 struct ClosureParam;
 struct PerThreadInfo;
 class ShadingContext;
+class ShaderSymbol;
 
 
 
@@ -116,6 +117,7 @@ public:
     ///                              outputs are first needed (1)
     ///    int lazyglobals        Run layers lazily even if they write to
     ///                              globals (0)
+    ///    int lazy_userdata      Retrieve userdata lazily (0).
     ///    int greedyjit          Optimize and compile all shaders up front,
     ///                              versus only as needed (0).
     ///    int lockgeom           Default 'lockgeom' value for shader params
@@ -137,9 +139,11 @@ public:
     ///         opt_simplify_param, opt_constant_fold, opt_stale_assign,
     ///         opt_elide_useless_ops, opt_elide_unconnected_outputs,
     ///         opt_peephole, opt_coalesce_temps, opt_assign, opt_mix
-    ///         opt_merge_instances, opt_fold_getattribute
+    ///         opt_merge_instances, opt_merge_instance_with_userdata,
+    ///         opt_fold_getattribute, opt_middleman, opt_texture_handle
     ///    int llvm_optimize      Which of several LLVM optimize strategies (0)
     ///    int llvm_debug         Set LLVM extra debug level (0)
+    ///    int llvm_mcjit         Use LLVM MCJIT if available (0).
     ///    int max_local_mem_KB   Error if shader group needs more than this
     ///                              much local storage to execute (1024K)
     ///    string debug_groupname Name of shader group -- debug only this one
@@ -259,6 +263,22 @@ public:
     ///   ptr userdata_offsets       Retrieves a pointer to the array of
     ///                                 int describing the userdata offsets
     ///                                 within the heap.
+    ///   int num_attributes_needed  The number of attribute/scope pairs that
+    ///                                are known to be queried by the group (the
+    ///                                length of the attributes_needed and
+    ///                                attribute_scopes arrays).
+    ///   ptr attributes_needed      Retrieves a pointer to the ustring array
+    ///                                containing the names of the needed attributes.
+    ///	                               Note that if the same attribute
+    ///                                is requested in multiple scopes, it will
+    ///                                appear in the array multiple times - once for
+    ///                                each scope in which is is queried.
+    ///   ptr attribute_scopes       Retrieves a pointer to a ustring array containing
+    ///                                the scopes associated with each attribute query
+    ///                                in the attributes_needed array.
+    ///   int unknown_attributes_needed  Nonzero if additonal attributes may be
+    ///                                  needed, whose names will not be known
+    ///                                  until the shader actually runs.
     ///   string pickle              Retrieves a serialized representation
     ///                                 of the shader group declaration.
     /// Note: the attributes referred to as "string" are actually on the app
@@ -398,7 +418,8 @@ public:
     /// lookup automatically (and at some additional cost).  The context
     /// can be used to shade many points; a typical usage is to allocate
     /// just one context per thread and use it for the whole run.
-    ShadingContext *get_context (PerThreadInfo *threadinfo=NULL);
+    ShadingContext *get_context (PerThreadInfo *threadinfo=NULL,
+                                 TextureSystem::Perthread *texture_threadinfo=NULL);
 
     /// Return a ShadingContext to the pool.
     ///
@@ -410,9 +431,13 @@ public:
     /// 'run' is false, do all the usual preparation, but don't actually
     /// run the shader.  Return true if the shader executed (or could
     /// have executed, if 'run' had been true), false the shader turned
-    /// out to be empty.
-    bool execute (ShadingContext &ctx, ShaderGroup &sas,
+    /// out to be empty. If ctx is NULL, then execute will request one
+    /// (based on the running thread) on its own and then return it when
+    /// it's done.
+    bool execute (ShadingContext *ctx, ShaderGroup &sas,
                   ShaderGlobals &ssg, bool run=true);
+    bool execute (ShadingContext &ctx, ShaderGroup &sas,
+                  ShaderGlobals &ssg, bool run=true); // DEPRECATED (1.6)
 
     /// Get a raw pointer to a named symbol (such as you'd need to pull
     /// out the value of an output parameter).  ctx is the shading
@@ -420,15 +445,56 @@ public:
     /// symbol.  If found, get_symbol will return the pointer to the
     /// symbol's data, and type will get the symbol's type.  If the
     /// symbol is not found, get_symbol will return NULL.
-    const void* get_symbol (ShadingContext &ctx, ustring name,
-                            TypeDesc &type);
+    /// If you give just a symbol name, it will search for the symbol in all
+    /// layers, last-to-first. If a specific layer is named, it will search
+    /// only that layer. You can specify a layer either by naming it
+    /// separately, or by concatenating "layername.symbolname", but note
+    /// that the latter will involve string manipulation inside get_symbol
+    /// and is much more expensive than specifying them separately.
+    ///
+    /// These are considered somewhat deprecated, in favor of using
+    /// find_symbol(), symbol_typedesc(), and symbol_address().
+    const void* get_symbol (const ShadingContext &ctx, ustring layername,
+                            ustring symbolname, TypeDesc &type) const;
+    const void* get_symbol (const ShadingContext &ctx, ustring symbolname,
+                            TypeDesc &type) const;
+
+    /// Search for an output symbol by name (and optionally, layer) within
+    /// the optimized shader group. If the symbol is found, return an opaque
+    /// identifying pointer to it, otherwise return NULL. This is somewhat
+    /// expensive because of the name-based search, but once done, you can
+    /// reuse the pointer to the symbol for the lifetime of the group.
+    ///
+    /// If you give just a symbol name, it will search for the symbol in all
+    /// layers, last-to-first. If a specific layer is named, it will search
+    /// only that layer. You can specify a layer either by naming it
+    /// separately, or by concatenating "layername.symbolname", but note
+    /// that the latter will involve string manipulation inside find_symbol
+    /// and is much more expensive than specifying them separately.
+    const ShaderSymbol* find_symbol (const ShaderGroup &group,
+                             ustring layername, ustring symbolname) const;
+    const ShaderSymbol* find_symbol (const ShaderGroup &group,
+                                     ustring symbolname) const;
+
+    /// Given an opaque ShaderSymbol*, return the TypeDesc describing it.
+    /// Note that a closure will end up with a TypeDesc::UNKNOWN value.
+    TypeDesc symbol_typedesc (const ShaderSymbol *sym) const;
+
+    /// Given a context (that has executed a shader) and an opaque
+    /// ShserSymbol*, return the actual memory address where the value of
+    /// the symbol resides within the heap memory of the context. This
+    /// is only valid for the shader execution that had happened immediately
+    /// prior for this context, but it is a very inexpensive operation.
+    const void* symbol_address (const ShadingContext &ctx,
+                                const ShaderSymbol *sym) const;
 
     /// Return the statistics output as a huge string.
     ///
     std::string getstats (int level=1) const;
 
     void register_closure (string_view name, int id, const ClosureParam *params,
-                           PrepareClosureFunc prepare, SetupClosureFunc setup);
+                           PrepareClosureFunc prepare, SetupClosureFunc setup,
+                           int alignment = 1);
     /// Query either by name or id an existing closure. If name is non
     /// NULL it will use it for the search, otherwise id would be used
     /// and the name will be placed in name if successful. Also return

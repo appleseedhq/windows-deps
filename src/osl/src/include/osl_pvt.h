@@ -203,9 +203,26 @@ public:
     ///
     bool is_array () const { return m_simple.arraylen != 0; }
 
+    /// Is this a variable length array, without a definite size?
+    bool is_unsized_array () const { return m_simple.arraylen < 0; }
+
+    /// Does this TypeSpec describe an array, whose length is specified?
+    bool is_sized_array () const { return m_simple.arraylen > 0; }
+
     /// Returns the length of the array, or 0 if not an array.
+    int arraylength () const {
+        DASSERT_MSG (m_simple.arraylen >= 0, "Called arraylength() on "
+                     "TypeSpec of array with unspecified length (%d)", m_simple.arraylen);
+        return m_simple.arraylen;
+    }
+
+    /// Number of elements
     ///
-    int arraylength () const { return m_simple.arraylen; }
+    int numelements() const {
+        DASSERT_MSG (m_simple.arraylen >= 0, "Called numelements() on "
+                     "TypeSpec of array with unspecified length (%d)", m_simple.arraylen);
+        return std::max (1, m_simple.arraylen);
+    }
 
     /// Alter this typespec to make it into an array of the given length
     /// (including 0 -> make it not be an array).  The basic type (not
@@ -443,13 +460,14 @@ class Symbol {
 public:
     Symbol (ustring name, const TypeSpec &datatype, SymType symtype,
             ASTNode *declaration_node=NULL) 
-        : m_data(NULL), m_size((int)datatype.simpletype().size()),
+        : m_data(NULL),
+          m_size(datatype.is_unsized_array() ? 0 : (int)datatype.simpletype().size()),
           m_name(name), m_typespec(datatype), m_symtype(symtype),
           m_has_derivs(false), m_const_initializer(false),
           m_connected_down(false),
-          m_initialized(false), m_lockgeom(false),
+          m_initialized(false), m_lockgeom(false), m_renderer_output(false),
           m_valuesource(DefaultVal), m_free_data(false), m_fieldid(-1),
-          m_scope(0), m_dataoffset(-1),
+          m_scope(0), m_dataoffset(-1), m_initializers(0),
           m_node(declaration_node), m_alias(NULL),
           m_initbegin(0), m_initend(0),
           m_firstread(std::numeric_limits<int>::max()), m_lastread(-1),
@@ -548,6 +566,9 @@ public:
     void dataoffset (int d) { m_dataoffset = d; }
     int dataoffset () const { return m_dataoffset; }
 
+    void initializers (int d) { m_initializers = d; }
+    int initializers () const { return m_initializers; }
+
     bool has_derivs () const { return m_has_derivs; }
     void has_derivs (bool new_derivs) {
         m_has_derivs = new_derivs;
@@ -617,6 +638,14 @@ public:
     bool everread () const  { return lastread() >= 0; }
     bool everwritten () const { return lastwrite() >= 0; }
     bool everused () const  { return everread() || everwritten(); }
+    // everused_in_group is an even more stringent test -- not only must
+    // the symbol not be used within the shader but it also must not be
+    // used elsewhere in the group, by being connected to something downstream
+    // or used as a renderer output.
+    bool everused_in_group () const {
+        return everused() || connected_down() || renderer_output();
+    }
+
     void set_read (int first, int last) {
         m_firstread = first;  m_lastread = last;
     }
@@ -629,6 +658,15 @@ public:
 
     bool lockgeom () const { return m_lockgeom; }
     void lockgeom (bool lock) { m_lockgeom = lock; }
+
+    int  arraylen () const { return m_typespec.arraylength(); }
+    void arraylen (int len) {
+        m_typespec.make_array(len);
+        m_size = m_typespec.simpletype().size();
+    }
+
+    bool renderer_output () const { return m_renderer_output; }
+    void renderer_output (bool v) { m_renderer_output = v; }
 
     bool is_constant () const { return symtype() == SymTypeConst; }
 
@@ -647,11 +685,13 @@ protected:
     unsigned m_connected_down:1;///< Connected to a later/downtream layer
     unsigned m_initialized:1;   ///< If a param, has it been initialized?
     unsigned m_lockgeom:1;      ///< Is the param not overridden by geom?
+    unsigned m_renderer_output:1; ///< Is this sym a renderer output?
     char m_valuesource;         ///< Where did the value come from?
     bool m_free_data;           ///< Free m_data upon destruction?
     short m_fieldid;            ///< Struct field of this var (or -1)
     int m_scope;                ///< Scope where this symbol was declared
     int m_dataoffset;           ///< Offset of the data (-1 for unknown)
+    int m_initializers;         ///< Number of default initializers
     ASTNode *m_node;            ///< Ptr to the declaration of this symbol
     Symbol *m_alias;            ///< Another symbol that this is an alias for
     int m_initbegin, m_initend; ///< Range of init ops (for params)
@@ -812,6 +852,9 @@ public:
     /// Return the entire argtakesderivs at once with a full bitfield.
     ///
     unsigned int argtakesderivs_all () const { return m_argtakesderivs; }
+
+    /// Replace the m_argtakesderivs entirely. Use with caution!
+    void argtakesderivs_all (unsigned int newval) { m_argtakesderivs = newval; }
 
     /// Are two opcodes identical enough to merge their instances?  Note
     /// that this isn't a true 'equal', we don't compare fields that

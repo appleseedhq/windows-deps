@@ -31,6 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 #include <map>
 
+#include <boost/version.hpp>
+#if BOOST_VERSION >= 104900
+# include <boost/container/flat_map.hpp>
+# define USE_FLAT_MAP 1
+#endif
+
 #include "oslexec_pvt.h"
 using namespace OSL;
 using namespace OSL::pvt;
@@ -39,6 +45,12 @@ using namespace OSL::pvt;
 OSL_NAMESPACE_ENTER
 
 namespace pvt {   // OSL::pvt
+
+#if USE_FLAT_MAP
+typedef boost::container::flat_map<int,int> FastIntMap;
+#else
+typedef std::map<int,int> FastIntMap;
+#endif
 
 
 
@@ -59,6 +71,10 @@ public:
     /// Optimize one layer of a group, given what we know about its
     /// instance variables and connections.
     void optimize_instance ();
+
+    /// One optimization pass over a range of instructions [begin, end).
+    /// Return the number of changes made.
+    int optimize_ops (int beginop, int endop);
 
     /// Post-optimization cleanup of a layer: add 'useparam' instructions,
     /// track variable lifetimes, coalesce temporaries.
@@ -90,33 +106,33 @@ public:
     /// Turn the op into a simple assignment of the new symbol index to the
     /// previous first argument of the op.  That is, changes "OP arg0 arg1..."
     /// into "assign arg0 newarg".
-    void turn_into_assign (Opcode &op, int newarg, const char *why=NULL);
+    void turn_into_assign (Opcode &op, int newarg, string_view why=NULL);
 
     /// Turn the op into a simple assignment of zero to the previous
     /// first argument of the op.  That is, changes "OP arg0 arg1 ..."
     /// into "assign arg0 zero".
-    void turn_into_assign_zero (Opcode &op, const char *why=NULL);
+    void turn_into_assign_zero (Opcode &op, string_view why=NULL);
 
     /// Turn the op into a simple assignment of one to the previous
     /// first argument of the op.  That is, changes "OP arg0 arg1 ..."
     /// into "assign arg0 one".
-    void turn_into_assign_one (Opcode &op, const char *why=NULL);
+    void turn_into_assign_one (Opcode &op, string_view why=NULL);
 
     /// Turn the op into a new simple unary or binary op with arguments
-    /// newarg1 and newarg2.  If newarg2 < 0, then it's a unary op,
-    /// otherwise a binary op.  Argument 0 (the result) remains the same
-    /// as always.  The original arg list must have at least as many
-    /// operands as the new one, since no new arg space is allocated.
-    void turn_into_new_op (Opcode &op, ustring newop, int newarg1,
-                           int newarg2, const char *why=NULL);
+    /// newarg0 (the result, newarg1, and newarg2.  If newarg2 < 0, then
+    /// it's a unary op, otherwise a binary op.  The original arg list must
+    /// have at least as many operands as the new one, since no new arg
+    /// space is allocated.
+    void turn_into_new_op (Opcode &op, ustring newop, int newarg0,
+                           int newarg1, int newarg2, string_view why=NULL);
 
     /// Turn the op into a no-op.  Return 1 if it changed, 0 if it was
     /// already a nop.
-    int turn_into_nop (Opcode &op, const char *why=NULL);
+    int turn_into_nop (Opcode &op, string_view why=NULL);
 
     /// Turn the whole range [begin,end) into no-ops.  Return the number
     /// of instructions that were altered.
-    int turn_into_nop (int begin, int end, const char *why=NULL);
+    int turn_into_nop (int begin, int end, string_view why=NULL);
 
     void simplify_params ();
 
@@ -124,7 +140,7 @@ public:
 
     bool coerce_assigned_constant (Opcode &op);
 
-    void make_param_use_instanceval (Symbol *R, const char *why=NULL);
+    void make_param_use_instanceval (Symbol *R, string_view why=NULL);
 
     /// Return the index of the symbol ultimately de-aliases to (it may be
     /// itself, if it doesn't alias to anything else).  Local block aliases
@@ -133,7 +149,10 @@ public:
 
     /// Return the index of the symbol that 'symindex' aliases to, locally,
     /// or -1 if it has no block-local alias.
-    int block_alias (int symindex) const { return m_block_aliases[symindex]; }
+    int block_alias (int symindex) const {
+        FastIntMap::const_iterator i = m_block_aliases.find (symindex);
+        return (i == m_block_aliases.end()) ? -1 : i->second;
+    }
 
     /// Set the new block-local alias of 'symindex' to 'alias'.
     ///
@@ -144,7 +163,9 @@ public:
     /// Reset the block-local alias of 'symindex' so it doesn't alias to
     /// anything.
     void block_unalias (int symindex) {
-        m_block_aliases[symindex] = -1;
+        FastIntMap::iterator i = m_block_aliases.find (symindex);
+        if (i != m_block_aliases.end())
+            i->second = -1;
     }
 
     /// Clear local block aliases for any args that are written by this op.
@@ -158,7 +179,6 @@ public:
     /// block).
     void clear_block_aliases () {
         m_block_aliases.clear ();
-        m_block_aliases.resize (inst()->symbols().size(), -1);
     }
 
     /// Set the new global alias of 'symindex' to 'alias'.
@@ -211,29 +231,35 @@ public:
 
     void make_symbol_room (int howmany=1);
 
-    /// Insert instruction 'opname' with arguments 'args_to_add' into the 
-    /// code at instruction 'opnum'.  The existing code and concatenated 
-    /// argument lists can be found in code and opargs, respectively, and
-    /// allsyms contains pointers to all symbols.  mainstart is a reference
-    /// to the address where the 'main' shader begins, and may be modified
-    /// if the new instruction is inserted before that point.
-    /// If recompute_rw_ranges is true, also adjust all symbols' read/write
-    /// ranges to take the new instruction into consideration.
-    /// Relation indicates its relation to surrounding instructions:
-    /// 0 means none, -1 means it should have the same method, sourcefile,
-    /// and sourceline as the preceeding instruction, 1 means it should
-    /// have the same method, sourcefile, and sourceline as the subsequent
-    /// instruction.
+    enum RecomputeRWRangesOption { DontRecomputeRWRanges, RecomputeRWRanges };
+    enum InsertRelation { NoRelation=0, GroupWithPrevious=-1, GroupWithNext=1 };
+    /// Insert instruction 'opname' with arguments 'args_to_add' into
+    /// the code at instruction 'opnum'.  The existing code and
+    /// concatenated argument lists can be found in code and opargs,
+    /// respectively, and allsyms contains pointers to all symbols.
+    /// mainstart is a reference to the address where the 'main' shader
+    /// begins, and may be modified if the new instruction is inserted
+    /// before that point.  The recompute_rw_ranges parameter determines
+    /// whether all symbols' read/write ranges should be adjusted to
+    /// take the new instruction into consideration.  Relation indicates
+    /// its relation to surrounding instructions: GroupWithPrevious
+    /// means it should have the same method, sourcefile, and sourceline
+    /// as the preceeding instruction; GroupWithNext means it should
+    /// have the same method, sourcefile, and sourceline as the
+    /// subsequent instruction; NoRelation means we have no information,
+    /// so don't copy that info from anywhere.
     void insert_code (int opnum, ustring opname,
                       const std::vector<int> &args_to_add,
-                      bool recompute_rw_ranges=false, int relation=0);
+                      RecomputeRWRangesOption recompute_rw_ranges,
+                      InsertRelation relation=GroupWithNext);
     /// insert_code with begin/end arg array pointers.
     void insert_code (int opnum, ustring opname,
                       const int *argsbegin, const int *argsend,
-                      bool recompute_rw_ranges=false, int relation=0);
+                      RecomputeRWRangesOption recompute_rw_ranges,
+                      InsertRelation relation=GroupWithNext);
     /// insert_code with explicit arguments (up to 4, a value of -1 means
     /// the arg isn't used).  Presume recompute_rw_ranges is true.
-    void insert_code (int opnum, ustring opname, int relation,
+    void insert_code (int opnum, ustring opname, InsertRelation relation,
                       int arg0=-1, int arg1=-1, int arg2=-1, int arg3=-1);
 
     void insert_useparam (size_t opnum, const std::vector<int> &params_to_use);
@@ -320,6 +346,15 @@ public:
     // function is able to add.
     static const int max_new_consts_per_fold = 10;
 
+    void stop_optimizing () { m_stop_optimizing = true; }
+
+    std::string op_string (const Opcode &op) {
+        std::string s = op.opname().string();
+        for (int a = 0;  a < op.nargs();  ++a)
+            s = s + ' ' + opargsym(op,a)->name().string();
+        return s;
+    }
+
 private:
     int m_optimize;                   ///< Current optimization level
     bool m_opt_simplify_param;            ///< Turn instance params into const?
@@ -344,20 +379,23 @@ private:
     std::vector<int> m_all_consts;    ///< All const symbol indices for inst
     int m_next_newconst;              ///< Unique ID for next new const we add
     int m_next_newtemp;               ///< Unique ID for next new temp we add
-    std::map<int,int> m_symbol_aliases; ///< Global symbol aliases
-    std::vector<int> m_block_aliases;   ///< Local block aliases
-    std::map<int,int> m_param_aliases;  ///< Params aliasing to params/globals
-    std::map<int,int> m_stale_syms;     ///< Stale symbols for this block
+    FastIntMap m_symbol_aliases;      ///< Global symbol aliases
+    FastIntMap m_block_aliases;         ///< Local block aliases
+    FastIntMap m_param_aliases;         ///< Params aliasing to params/globals
+    FastIntMap m_stale_syms;            ///< Stale symbols for this block
     int m_local_unknown_message_sent;   ///< Non-const setmessage in this inst
     std::vector<ustring> m_local_messages_sent; ///< Messages set in this inst
     std::set<ustring> m_textures_needed;
     std::set<ustring> m_closures_needed;
     std::set<ustring> m_globals_needed;
+    std::set<AttributeNeeded> m_attributes_needed;
     bool m_unknown_textures_needed;
     bool m_unknown_closures_needed;
+    bool m_unknown_attributes_needed;
     std::set<UserDataNeeded> m_userdata_needed;
     double m_stat_opt_locking_time;       ///<   locking time
     double m_stat_specialization_time;    ///<   specialization time
+    bool m_stop_optimizing;           ///< for debugging
 
     // Persistant data shared between layers
     bool m_unknown_message_sent;      ///< Somebody did a non-const setmessage

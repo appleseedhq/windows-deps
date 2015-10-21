@@ -1,4 +1,4 @@
-#!/usr/bin/python 
+#!/usr/bin/env python
 
 import os
 import glob
@@ -47,7 +47,9 @@ command = ""
 outputs = [ "out.txt" ]    # default
 failureok = 0
 failthresh = 0.004
-failpercent = 0.02
+failpercent = 0.03
+
+compile_osl_files = True
 
 #print ("srcdir = " + srcdir)
 #print ("tmpdir = " + tmpdir)
@@ -117,6 +119,13 @@ def oslinfo (args) :
 # to the file "out.txt".
 def oiiotool (args) :
     return (os.path.join (os.environ['OPENIMAGEIOHOME'], "bin", "oiiotool") +
+            " " + args + " >> out.txt 2>&1 ;\n")
+
+
+# Construct a command that runs maketx, appending console output
+# to the file "out.txt".
+def maketx (args) :
+    return (os.path.join (os.environ['OPENIMAGEIOHOME'], "bin", "maketx") +
             " " + args + " >> out.txt 2>&1 ;\n")
 
 
@@ -227,12 +236,13 @@ if os.path.exists("run.py") :
 
 # Force any local shaders to compile automatically, prepending the
 # compilation onto whatever else the individual run.py file requested.
-compiles = ""
-oslfiles = glob.glob ("*.osl")
-oslfiles.sort() ## sort the shaders to compile so that they always compile in the same order
-for testfile in oslfiles :
-    compiles += oslc (testfile)
-command = compiles + command
+if compile_osl_files :
+    compiles = ""
+    oslfiles = glob.glob ("*.osl")
+    oslfiles.sort() ## sort the shaders to compile so that they always compile in the same order
+    for testfile in oslfiles :
+        compiles += oslc (testfile)
+    command = compiles + command
 
 # If either out.exr or out.tif is in the reference directory but somehow
 # is not in the outputs list, put it there anyway!

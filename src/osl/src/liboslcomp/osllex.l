@@ -157,6 +157,9 @@ void preprocess (const char *yytext);
 "vector"		{  SETLINE;  return (yylval.i=VECTORTYPE); }
 "void"			{  SETLINE;  return (yylval.i=VOIDTYPE); }
 "while"			{  SETLINE;  return (yylval.i=WHILE); }
+"or"			{  SETLINE;  return (yylval.i=OR_OP); }
+"and"			{  SETLINE;  return (yylval.i=AND_OP); }
+"not"			{  SETLINE;  return (yylval.i=NOT_OP); }
 
  /* reserved words */
 "bool"|"case"|"char"|"class"|"const"|"default"|"double" |    \
@@ -247,6 +250,7 @@ void preprocess (const char *yytext);
 {WHITE} 		{  }
 
  /* catch-all rule for any other single characters */
+!			{  SETLINE;  return (yylval.i = NOT_OP); }
 .			{  SETLINE;  return (yylval.i = *YYText()); }
 
 %%
@@ -295,7 +299,6 @@ preprocess (const char *yytext)
                         filename.erase (0, 1);
                 }
 	        oslcompiler->filename (ustring (filename));
-#ifdef USE_BOOST_WAVE
                 // Spooky workaround for Boost Wave bug: force_include
                 // is broken and doesn't give us the right lines/files, so
                 // instead we forcefully insert a '#include "stdosl.h"' into
@@ -304,7 +307,6 @@ preprocess (const char *yytext)
                 // So we fix it here, ugh.
                 if (filename == oslcompiler->main_filename())
                     --line;
-#endif
             }
             oslcompiler->lineno (line);
 	} else {

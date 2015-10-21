@@ -97,6 +97,9 @@ BackendLLVM::BackendLLVM (ShadingSystemImpl &shadingsys,
     // getcwd inside LLVM. Oy.
     check_cwd (shadingsys);
 #endif
+    int mcjit = 0;
+    if (shadingsys.getattribute ("llvm_mcjit", TypeDesc::INT, &mcjit))
+        ll.mcjit (mcjit);
 }
 
 
@@ -174,7 +177,7 @@ BackendLLVM::llvm_assign_zero (const Symbol &sym)
     // This even works for closures.
     int len;
     if (sym.typespec().is_closure_based())
-        len = sizeof(void *) * std::max(1,sym.typespec().arraylength());
+        len = sizeof(void *) * sym.typespec().numelements();
     else
         len = sym.derivsize();
     // N.B. derivsize() includes derivs, if there are any
@@ -218,26 +221,28 @@ BackendLLVM::llvm_zero_derivs (const Symbol &sym, llvm::Value *count)
     }
 }
 
-
-
-int
-BackendLLVM::ShaderGlobalNameToIndex (ustring name)
+namespace
 {
     // N.B. The order of names in this table MUST exactly match the
     // ShaderGlobals struct in oslexec.h, as well as the llvm 'sg' type
     // defined in llvm_type_sg().
     static ustring fields[] = {
-        Strings::P, ustring("_dPdz"), Strings::I, Strings::N, Strings::Ng,
-        Strings::u, Strings::v, Strings::dPdu, Strings::dPdv,
-        Strings::time, Strings::dtime, Strings::dPdtime, Strings::Ps,
+        ustring("P"), ustring("_dPdz"), ustring("I"),
+        ustring("N"), ustring("Ng"),
+        ustring("u"), ustring("v"), ustring("dPdu"), ustring("dPdv"),
+        ustring("time"), ustring("dtime"), ustring("dPdtime"), ustring("Ps"),
         ustring("renderstate"), ustring("tracedata"), ustring("objdata"),
         ustring("shadingcontext"), ustring("renderer"),
         ustring("object2common"), ustring("shader2common"),
-        Strings::Ci,
+        ustring("Ci"),
         ustring("surfacearea"), ustring("raytype"),
         ustring("flipHandedness"), ustring("backfacing")
     };
+}
 
+int
+BackendLLVM::ShaderGlobalNameToIndex (ustring name)
+{
     for (int i = 0;  i < int(sizeof(fields)/sizeof(fields[0]));  ++i)
         if (name == fields[i])
             return i;
@@ -775,8 +780,8 @@ BackendLLVM::llvm_assign_impl (Symbol &Result, Symbol &Src,
 
     llvm::Value *arrind = arrayindex >= 0 ? ll.constant (arrayindex) : NULL;
 
-    if (Result.typespec().is_closure_based() || Src.typespec().is_closure_based()) {
-        if (Src.typespec().is_closure_based()) {
+    if (Result.typespec().is_closure() || Src.typespec().is_closure()) {
+        if (Src.typespec().is_closure()) {
             llvm::Value *srcval = llvm_load_value (Src, 0, arrind, 0);
             llvm_store_value (srcval, Result, 0, arrind, 0);
         } else {

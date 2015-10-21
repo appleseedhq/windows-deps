@@ -134,7 +134,7 @@ ASTvariable_declaration::typecheck_initlist (ref init, TypeSpec type,
     // Loop over a list of initializers (it's just 1 if not an array)...
     for (int i = 0;  init;  init = init->next(), ++i) {
         // Check for too many initializers for an array
-        if (type.is_array() && (i+1) > type.arraylength()) {
+        if (type.is_array() && !type.is_unsized_array() && i >= type.arraylength()) {
             error ("Too many initializers for a '%s'", type_c_str(type));
             break;
         }
@@ -690,6 +690,16 @@ ASTternary_expression::typecheck (TypeSpec expected)
 
 
 TypeSpec
+ASTcomma_operator::typecheck (TypeSpec expected)
+{
+    return m_typespec = typecheck_list (expr(), expected);
+    // N.B. typecheck_list already returns the type of the LAST node in
+    // the list, just like the comma operator is supposed to do.
+}
+
+
+
+TypeSpec
 ASTtypecast_expression::typecheck (TypeSpec expected)
 {
     // FIXME - closures
@@ -807,7 +817,7 @@ ASTNode::check_arglist (const char *funcname, ASTNode::ref arg,
             continue;
         // Allow a fixed-length array match to a formal array with
         // unspecified length, if the element types are the same.
-        if (formaltype.arraylength() < 0 && argtype.arraylength() &&
+        if (formaltype.is_unsized_array() && argtype.is_sized_array() &&
               formaltype.elementtype() == argtype.elementtype())
             continue;
 
@@ -1430,11 +1440,10 @@ OSLCompilerImpl::code_from_type (TypeSpec type) const
     }
 
     if (type.is_array()) {
-        int len = type.arraylength ();
-        if (len > 0)
-            out += Strutil::format ("[%d]", len);
-        else
+        if (type.is_unsized_array())
             out += "[]";
+        else
+            out += Strutil::format ("[%d]", type.arraylength());
     }
 
     return out;

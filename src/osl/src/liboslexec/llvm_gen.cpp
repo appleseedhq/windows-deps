@@ -61,6 +61,7 @@ static ustring op_ge("ge");
 static ustring op_gt("gt");
 static ustring op_if("if");
 static ustring op_le("le");
+static ustring op_logb("logb");
 static ustring op_lt("lt");
 static ustring op_min("min");
 static ustring op_neq("neq");
@@ -80,6 +81,7 @@ static ustring op_xor("xor");
 
 static ustring u_distance ("distance");
 static ustring u_index ("index");
+static ustring u__empty;  // empty/default ustring
 
 
 
@@ -165,6 +167,9 @@ BackendLLVM::llvm_run_connected_layers (Symbol &sym, int symindex,
         const Connection &con (inst()->connection (c));
         // If the connection gives a value to this param
         if (con.dst.param == symindex) {
+            // already_run is a set of layers run for this particular op.
+            // Just so we don't stupidly do several consecutive checks on
+            // whether we ran this same layer. It's JUST for this op.
             if (already_run) {
                 if (already_run->count (con.srclayer))
                     continue;  // already ran that one on this op
@@ -172,16 +177,22 @@ BackendLLVM::llvm_run_connected_layers (Symbol &sym, int symindex,
                     already_run->insert (con.srclayer);  // mark it
             }
 
-            if (m_layers_already_run.count (con.srclayer)) {
-                if (debug() > 1)
-                    std::cout << "At op " << opnum << ", skip running layer "
-                              << con.srclayer << ", it already ran" << std::endl;
-                continue;  // already unconditionally ran the layer
-            }
-
-            if (inmain && ! m_in_conditional[opnum]) {
-                // Unconditionally running -- mark so we don't do it again
-                m_layers_already_run.insert (con.srclayer);
+            if (inmain) {
+                // There is an instance-wide m_layers_already_run that tries
+                // to remember which earlier layers have unconditionally
+                // been run at any point in the execution of this layer. But
+                // only honor (and modify) that when in the main code
+                // section, not when in init ops, which are inherently
+                // conditional.
+                if (m_layers_already_run.count (con.srclayer)) {
+                    continue;  // already unconditionally ran the layer
+                }
+                if (! m_in_conditional[opnum]) {
+                    // Unconditionally running -- mark so we don't do it
+                    // again. If we're inside a conditional, don't mark
+                    // because it may not execute the conditional body.
+                    m_layers_already_run.insert (con.srclayer);
+                }
             }
 
             // If the earlier layer it comes from has not yet been
@@ -207,6 +218,14 @@ LLVMGEN (llvm_gen_useparam)
         Symbol& sym = *rop.opargsym (op, i);
         int symindex = rop.inst()->arg (op.firstarg()+i);
         rop.llvm_run_connected_layers (sym, symindex, opnum, &already_run);
+        // If it's an interpolated (userdata) parameter and we're
+        // initializing them lazily, now we have to do it.
+        if (sym.symtype() == SymTypeParam
+                && ! sym.lockgeom() && ! sym.typespec().is_closure()
+                && ! sym.connected() && ! sym.connected_down()
+                && rop.shadingsys().lazy_userdata()) {
+            rop.llvm_assign_initial_value (sym);
+        }
     }
     return true;
 }
@@ -1123,7 +1142,8 @@ LLVMGEN (llvm_gen_arraylength)
     Symbol& A = *rop.opargsym (op, 1);
     DASSERT (Result.typespec().is_int() && A.typespec().is_array());
 
-    int len = A.typespec().arraylength();
+    int len = A.typespec().is_unsized_array() ? A.initializers()
+                                              : A.typespec().arraylength();
     rop.llvm_store_value (rop.ll.constant(len), Result);
     return true;
 }
@@ -1691,7 +1711,8 @@ LLVMGEN (llvm_gen_generic)
 
     // Special cases: functions that have no derivs -- suppress them
     if (any_deriv_args)
-        if (op.opname() == op_floor || op.opname() == op_ceil ||
+        if (op.opname() == op_logb  ||
+            op.opname() == op_floor || op.opname() == op_ceil ||
             op.opname() == op_round || op.opname() == op_step ||
             op.opname() == op_trunc || 
             op.opname() == op_sign)
@@ -1911,11 +1932,8 @@ llvm_gen_texture_options (BackendLLVM &rop, int opnum,
                           llvm::Value* &alpha, llvm::Value* &dalphadx,
                           llvm::Value* &dalphady)
 {
-    // Reserve space for the TextureOpt, with alignment
-    int tosize = OIIO::round_to_multiple ((int)sizeof(TextureOpt), (int)sizeof(char*));
-    llvm::Value* opt = rop.ll.op_alloca (rop.ll.type_void_ptr(), tosize);
-    opt = rop.ll.void_ptr (opt);
-    rop.ll.call_function ("osl_texture_clear", opt);
+    llvm::Value* opt = rop.ll.call_function ("osl_get_texture_options",
+                                             rop.sg_void_ptr());
     llvm::Value* missingcolor = NULL;
     TextureOpt optdefaults;  // So we can check the defaults
     bool swidth_set = false, twidth_set = false, rwidth_set = false;
@@ -2141,7 +2159,16 @@ LLVMGEN (llvm_gen_texture)
     // explicit args like texture coordinates.
     std::vector<llvm::Value *> args;
     args.push_back (rop.sg_void_ptr());
+    RendererServices::TextureHandle *texture_handle = NULL;
+#if OIIO_VERSION >= 10602
+    if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
+        texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
+        if (! rop.renderer()->good (texture_handle))
+            texture_handle = NULL;
+    }
+#endif
     args.push_back (rop.llvm_load_value (Filename));
+    args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (opt);
     args.push_back (rop.llvm_load_value (S));
     args.push_back (rop.llvm_load_value (T));
@@ -2161,14 +2188,10 @@ LLVMGEN (llvm_gen_texture)
     args.push_back (rop.ll.void_ptr (rop.llvm_get_pointer (Result, 0)));
     args.push_back (rop.ll.void_ptr (rop.llvm_get_pointer (Result, 1)));
     args.push_back (rop.ll.void_ptr (rop.llvm_get_pointer (Result, 2)));
-    if (alpha) {
-        args.push_back (rop.ll.void_ptr (alpha));
-        args.push_back (rop.ll.void_ptr (dalphadx ? dalphadx : rop.ll.void_ptr_null()));
-        args.push_back (rop.ll.void_ptr (dalphady ? dalphady : rop.ll.void_ptr_null()));
-        rop.ll.call_function ("osl_texture_alpha", &args[0], (int)args.size());
-    } else {
-        rop.ll.call_function ("osl_texture", &args[0], (int)args.size());
-    }
+    args.push_back (rop.ll.void_ptr (alpha    ? alpha    : rop.ll.void_ptr_null()));
+    args.push_back (rop.ll.void_ptr (dalphadx ? dalphadx : rop.ll.void_ptr_null()));
+    args.push_back (rop.ll.void_ptr (dalphady ? dalphady : rop.ll.void_ptr_null()));
+    rop.ll.call_function ("osl_texture", &args[0], (int)args.size());
     return true;
 }
 
@@ -2201,7 +2224,14 @@ LLVMGEN (llvm_gen_texture3d)
     // explicit args like texture coordinates.
     std::vector<llvm::Value *> args;
     args.push_back (rop.sg_void_ptr());
+    RendererServices::TextureHandle *texture_handle = NULL;
+    if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
+        texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
+        if (! rop.renderer()->good (texture_handle))
+            texture_handle = NULL;
+    }
     args.push_back (rop.llvm_load_value (Filename));
+    args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (opt);
     args.push_back (rop.llvm_void_ptr (P));
     if (user_derivs) {
@@ -2229,15 +2259,11 @@ LLVMGEN (llvm_gen_texture3d)
     args.push_back (rop.ll.void_ptr (rop.llvm_void_ptr (Result, 1)));
     args.push_back (rop.ll.void_ptr (rop.llvm_void_ptr (Result, 2)));
     args.push_back (rop.ll.void_ptr_null());  // no dresultdz for now
-    if (alpha) {
-        args.push_back (rop.ll.void_ptr (alpha));
-        args.push_back (dalphadx ? rop.ll.void_ptr (dalphadx) : rop.ll.void_ptr_null());
-        args.push_back (dalphady ? rop.ll.void_ptr (dalphady) : rop.ll.void_ptr_null());
-        args.push_back (rop.ll.void_ptr_null());  // No dalphadz for now
-        rop.ll.call_function ("osl_texture3d_alpha", &args[0], (int)args.size());
-    } else {
-        rop.ll.call_function ("osl_texture3d", &args[0], (int)args.size());
-    }
+    args.push_back (rop.ll.void_ptr (alpha    ? alpha    : rop.ll.void_ptr_null()));
+    args.push_back (rop.ll.void_ptr (dalphadx ? dalphadx : rop.ll.void_ptr_null()));
+    args.push_back (rop.ll.void_ptr (dalphady ? dalphady : rop.ll.void_ptr_null()));
+    args.push_back (rop.ll.void_ptr_null());  // No dalphadz for now
+    rop.ll.call_function ("osl_texture3d", &args[0], (int)args.size());
     return true;
 }
 
@@ -2269,7 +2295,14 @@ LLVMGEN (llvm_gen_environment)
     // explicit args like texture coordinates.
     std::vector<llvm::Value *> args;
     args.push_back (rop.sg_void_ptr());
+    RendererServices::TextureHandle *texture_handle = NULL;
+    if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
+        texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
+        if (! rop.renderer()->good (texture_handle))
+            texture_handle = NULL;
+    }
     args.push_back (rop.llvm_load_value (Filename));
+    args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (opt);
     args.push_back (rop.llvm_void_ptr (R));
     if (user_derivs) {
@@ -2303,12 +2336,8 @@ static llvm::Value *
 llvm_gen_trace_options (BackendLLVM &rop, int opnum,
                         int first_optional_arg)
 {
-    // Reserve space for the TraceOpt, with alignment
-    int tosize = OIIO::round_to_multiple ((int)sizeof(RendererServices::TraceOpt), (int)sizeof(char*));
-    llvm::Value* opt = rop.ll.op_alloca (rop.ll.type_void_ptr(), tosize);
-    opt = rop.ll.void_ptr (opt);
-    rop.ll.call_function ("osl_trace_clear", opt);
-
+    llvm::Value* opt = rop.ll.call_function ("osl_get_trace_options",
+                                             rop.sg_void_ptr());
     Opcode &op (rop.inst()->ops()[opnum]);
     for (int a = first_optional_arg;  a < op.nargs();  ++a) {
         Symbol &Name (*rop.opargsym(op,a));
@@ -2402,12 +2431,8 @@ static llvm::Value *
 llvm_gen_noise_options (BackendLLVM &rop, int opnum,
                         int first_optional_arg)
 {
-    // Reserve space for the NoiseParams, with alignment
-    int optsize = OIIO::round_to_multiple ((int)sizeof(NoiseParams), (int)sizeof(char*));
-    llvm::Value* opt = rop.ll.op_alloca (rop.ll.type_void_ptr(), optsize);
-    opt = rop.ll.void_ptr (opt);
-    rop.ll.call_function ("osl_noiseparams_clear", opt);
-
+    llvm::Value* opt = rop.ll.call_function ("osl_get_noise_options",
+                                             rop.sg_void_ptr());
     Opcode &op (rop.inst()->ops()[opnum]);
     for (int a = first_optional_arg;  a < op.nargs();  ++a) {
         Symbol &Name (*rop.opargsym(op,a));
@@ -2693,7 +2718,14 @@ LLVMGEN (llvm_gen_gettextureinfo)
     std::vector<llvm::Value *> args;
 
     args.push_back (rop.sg_void_ptr());
+    RendererServices::TextureHandle *texture_handle = NULL;
+    if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
+        texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
+        if (! rop.renderer()->good (texture_handle))
+            texture_handle = NULL;
+    }
     args.push_back (rop.llvm_load_value (Filename));
+    args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (rop.llvm_load_value (Dataname));
     // this is passes a TypeDesc to an LLVM op-code
     args.push_back (rop.ll.constant((int) Data.typespec().simpletype().basetype));
@@ -2702,8 +2734,12 @@ LLVMGEN (llvm_gen_gettextureinfo)
     // destination
     args.push_back (rop.llvm_void_ptr (Data));
 
-    llvm::Value *r = rop.ll.call_function ("osl_get_textureinfo", &args[0], args.size());
+    llvm::Value *r = rop.ll.call_function ("osl_get_textureinfo",
+                                           &args[0], args.size());
     rop.llvm_store_value (r, Result);
+    /* Do not leave derivs uninitialized */
+    if (Data.has_derivs())
+        rop.llvm_zero_derivs (Data);
 
     return true;
 }
@@ -2948,22 +2984,28 @@ llvm_gen_keyword_fill(BackendLLVM &rop, Opcode &op, const ClosureRegistry::Closu
             const ClosureParam &param = clentry->params[clentry->nformal + t];
             // strcmp might be too much, we could precompute the ustring for the param,
             // but in this part of the code is not a big deal
-            if (param.type == ValueType && !strcmp(key->c_str(), param.key))
+            if (equivalent(param.type,ValueType) && !strcmp(key->c_str(), param.key))
                 legal = true;
         }
         if (!legal) {
             rop.shadingcontext()->warning("Unsupported closure keyword arg \"%s\" for %s (%s:%d)", key->c_str(), clname.c_str(), op.sourcefile().c_str(), op.sourceline());
-            continue;
         }
 
-        llvm::Value *key_to     = rop.ll.GEP (attr_p, attr_i, 0);
-        llvm::Value *key_const  = rop.ll.constant_ptr(*((void **)key), rop.ll.type_string());
-        llvm::Value *value_to   = rop.ll.GEP (attr_p, attr_i, 1);
-        llvm::Value *value_from = rop.llvm_void_ptr (Value);
-        value_to = rop.ll.ptr_cast (value_to, rop.ll.type_void_ptr());
-
-        rop.ll.op_store (key_const, key_to);
-        rop.ll.op_memcpy (value_to, value_from, (int)ValueType.size(), 4);
+        // Store the keyword and copy the parameter value (or if there
+        // was no matching keyword, copy the empty string and zero out
+        // the value).
+        llvm::Value *key_to   = rop.ll.GEP (attr_p, attr_i, 0);
+        llvm::Value *value_to = rop.ll.void_ptr (rop.ll.GEP (attr_p, attr_i, 1));
+        if (legal) {
+            llvm::Value *key_const = rop.ll.constant_ptr(*((void **)key), rop.ll.type_string());
+            rop.ll.op_store (key_const, key_to);
+            llvm::Value *value_from = rop.llvm_void_ptr (Value);
+            rop.ll.op_memcpy (value_to, value_from, (int)ValueType.size(), 4);
+        } else {
+            llvm::Value *key_const = rop.ll.constant_ptr(*((void **)&u__empty), rop.ll.type_string());
+            rop.ll.op_store (key_const, key_to);
+            rop.ll.op_memset (value_to, 0, (int)ValueType.size(), 4);
+        }
     }
 }
 
@@ -3043,16 +3085,17 @@ LLVMGEN (llvm_gen_closure)
         ASSERT(p.offset < clentry->struct_size);
         Symbol &sym = *rop.opargsym (op, carg + 2 + weighted);
         TypeDesc t = sym.typespec().simpletype();
-        if (t.vecsemantics == TypeDesc::NORMAL || t.vecsemantics == TypeDesc::POINT)
-            t.vecsemantics = TypeDesc::VECTOR;
-        if (!sym.typespec().is_closure_array() && !sym.typespec().is_structure() && t == p.type) {
+        if (!sym.typespec().is_closure_array() && !sym.typespec().is_structure()
+            && equivalent(t,p.type)) {
             llvm::Value* dst = rop.ll.offset_ptr (mem_void_ptr, p.offset);
             llvm::Value* src = rop.llvm_void_ptr (sym);
             rop.ll.op_memcpy (dst, src, (int)p.type.size(),
                              4 /* use 4 byte alignment for now */);
         } else {
-            rop.shadingcontext()->error ("Incompatible formal argument %d to '%s' closure. Prototypes don't match renderer registry.",
-                                    carg + 1, closure_name.c_str());
+            rop.shadingcontext()->error ("Incompatible formal argument %d to '%s' closure (%s %s, expected %s). Prototypes don't match renderer registry (%s:%d).",
+                                         carg + 1, closure_name,
+                                         sym.typespec().c_str(), sym.name(), p.type,
+                                         op.sourcefile(), op.sourceline());
         }
     }
 

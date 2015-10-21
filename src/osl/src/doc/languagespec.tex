@@ -55,14 +55,14 @@ Language Specification
 %\\ \large (CONFIDENTIAL --- draft in progress) 
 } \bigskip }
 \author{
-\copyright\ Copyright 2009-2014 Sony Pictures Imageworks Inc., et al. All rights reserved.
+\copyright\ Copyright 2009-2015 Sony Pictures Imageworks Inc., et al. All rights reserved.
  \bigskip \\
 \vspace{1in} \\
 Editor: Larry Gritz \\
 \emph{lg@imageworks.com}
 }
-\date{{\large Date: 14 Jul, 2014 \\
-%~ (with corrections, 23 Mar 2014)
+\date{{\large Date: 6 May, 2015 \\
+%~ (with corrections, 2 Oct 2014)
 }
 \bigskip
 \bigskip
@@ -130,7 +130,7 @@ documentation are:
 
 \vspace*{0.2in}
 
-Copyright (c) 2009-2014 Sony Pictures Imageworks Inc., et al.
+Copyright (c) 2009-2015 Sony Pictures Imageworks Inc., et al.
 All Rights Reserved.
 
 \vspace{0.5in}
@@ -424,13 +424,13 @@ This chapter attempts to lay out the major concepts of \langname,
 define key nomenclature, and sketch out how individual shaders fit 
 together in the context of a renderer as a whole.
 
-\begin{annotate}
-Other than the background material of this chapter, the rest of this
-specification deals strictly with the language itself.  In the future, 
-there will be separate (shorter) documents explaining in detail the use
-of the language compiler, the renderer-side issues, the library and APIs
-for how a renderer actually causes shaders to be evaluated, and so on.
-\end{annotate}
+% \begin{annotate}
+% Other than the background material of this chapter, the rest of this
+% specification deals strictly with the language itself.  In the future,
+% there will be separate (shorter) documents explaining in detail the use
+% of the language compiler, the renderer-side issues, the library and APIs
+% for how a renderer actually causes shaders to be evaluated, and so on.
+% \end{annotate}
 
 \subsection*{A shader is code that performs a discrete task}
 
@@ -516,6 +516,26 @@ it might be done.}:
     ConnectShaders ("gam2", "Cout", "wood1", "grain")
     ShaderGroupEnd ()
 \end{code}
+
+\noindent Or, expressed as serialized text (as detailed in
+Appendix~\ref{chap:serialize}):
+
+\begin{code}
+    param string name "rings.tx" ;
+    shader "texturemap" "tex1" ;
+    param string name "grain.tx" ;
+    shader "texturemap" "tex2" ;
+    param float gam 2.2 ;
+    shader "gamma" "gam1" ;
+    param float gam 1.0 ;
+    shader "gamma" "gam2" ;
+    shader "wood" "wood1" ;
+    connect tex1.Cout gam1.Cin ;
+    connect tex2.Cout gam2.Cin ;
+    connect gam1.Cout wood1.rings ;
+    connect gam2.Cout wood1.grain ;
+\end{code}
+
 
 
 \subsection*{Geometric primitives}
@@ -638,16 +658,16 @@ interesting things that a mere number cannot:
   closure (such as texture lookups, noise functions, etc.).
 \end{itemize}
 
-\begin{annotate}
-At present, we are assuming that the primitive closure functions (such
-as {\cf diffuse}, {\cf ward}, {\cf cooktorrance}, etc.) are all built
-into the renderer, or implemented as renderer plugins.  At a later time,
-possibly in a later draft or maybe not until a truly later version of
-the spec, we will fully spec it out so that closure primitive functions
-may be written in \langname.  But I fear that if we do it too soon,
-we'll screw it up.  But, yes, the eventual goal is for you to be able to
-write these primitive functions in the language itself.
-\end{annotate}
+% \begin{annotate}
+% At present, we are assuming that the primitive closure functions (such
+% as {\cf diffuse}, {\cf ward}, {\cf cooktorrance}, etc.) are all built
+% into the renderer, or implemented as renderer plugins.  At a later time,
+% possibly in a later draft or maybe not until a truly later version of
+% the spec, we will fully spec it out so that closure primitive functions
+% may be written in \langname.  But I fear that if we do it too soon,
+% we'll screw it up.  But, yes, the eventual goal is for you to be able to
+% write these primitive functions in the language itself.
+% \end{annotate}
 
 \subsection*{Integrators}
 
@@ -662,12 +682,12 @@ information, to yield the amount of light visible to the camera.
 
 \medskip
 
-\begin{annotate}
-At present, this document is written as if the integrators are built
-into the renderer itself (or implemented as renderer plug-ins).  At a
-later time, we intend to make it possible for integrators themselves
-to be written in \langname.
-\end{annotate}
+% \begin{annotate}
+% At present, this document is written as if the integrators are built
+% into the renderer itself (or implemented as renderer plug-ins).  At a
+% later time, we intend to make it possible for integrators themselves
+% to be written in \langname.
+% \end{annotate}
 
 \subsection*{Units}
 
@@ -787,8 +807,8 @@ The following are \emph{keywords} that have special meaning in
 
 \begin{quote} {\cf
 
-break closure color continue do else emit float for if illuminance
-illuminate int matrix normal output point public return string struct
+and break closure color continue do else emit float for if illuminance
+illuminate int matrix normal not or output point public return string struct
 vector void while
 
 }
@@ -1108,8 +1128,9 @@ have an on/off checkbox, is intended to be a filename, etc.
 Metadata is specified inside double brackets {\cf [[} and {\cf ]]}
 enclosing a comma-separated list of metadata items.  Each metadatum
 looks like a parameter declaration --- having a data type, name, and
-initializer.  However, metadata may only be simple types (not arrays,
-structs, or closures) and their value initializers must be numeric or
+initializer.  However, metadata may only be simple types or arrays
+of simple types (not structs or closures)
+and their value initializers must be numeric or
 string constants (not computed expressions).
 
 Metadata about the shader as a whole is placed between the shader name
@@ -1372,19 +1393,21 @@ optional-parameters {\rm \cf )} \\
 \end{quote}
 
 
-\begin{annotate}
-A given renderer will publish a list of public methods (names, arguments
-expected, and return value) that has particular meaning for that
-renderer.  For example, a renderer may honor a public method
-\begin{code}
-    public float maxdisplacement ()
-\end{code}
-\noindent that computes and returns the maximum distance 
-that a displacement shader will move any surface points.
+% \begin{annotate}
+% A given renderer will publish a list of public methods (names, arguments
+% expected, and return value) that has particular meaning for that
+% renderer.  For example, a renderer may honor a public method
+% \begin{code}
+%     public float maxdisplacement ()
+% \end{code}
+% \noindent that computes and returns the maximum distance
+% that a displacement shader will move any surface points.
 
-At some later point, this spec will recommend several ``standard''
-public methods that should be honored by most renderers.
-\end{annotate}
+% At some later point, this spec will recommend several ``standard''
+% public methods that should be honored by most renderers.
+% \end{annotate}
+
+
 
 \chapter{Data types}
 \label{chap:types}
@@ -1490,6 +1513,11 @@ nonzero, otherwise 0) \\[0.5ex]
 nonzero, otherwise 0) \\[0.5ex]
 \hline
 \end{tabular}
+
+\medskip
+
+\noindent Note that the {\cf not}, {\cf and}, and {\cf or} keywords are
+synonyms for {\cf !}, {\cf \&\&}, and {\cf ||}, respectively.
 
 
 
@@ -2385,6 +2413,9 @@ are implemented as \inttype values, 0 if false and 1 if true.
 
 \hspace{0.5in}    \emph{expr1} {\cf ||} \emph{expr2}
 
+\noindent Note that the {\cf not}, {\cf and}, and {\cf or} keywords are
+synonyms for {\cf !}, {\cf \&\&}, and {\cf ||}, respectively.
+
 For the logical operators, numeric expressions (\inttype or \float) are
 considered \emph{true} if nonzero, \emph{false} if zero.
 Multi-component types (such as \color) are considered \emph{true} any
@@ -2614,7 +2645,7 @@ displacement shader, changing this variable displaces the surface. \\
 \normal\ {\ce Ng} & The true surface normal at {\cf P}.  This can differ
   from {\cf N}; {\cf N} can be overridden in various ways including bump
   mapping and user-provided vertex normals, but {\cf Ng} is always the
-  true surface normal of the facet you are shading.True geometric normal
+  true surface geometric normal
   of the surface at \P. \\
 \hline
 \float\ {\ce u}, {\ce v} & The 2D parametric coordinates of \P (on the 
@@ -3180,9 +3211,9 @@ implemented per the ITU-R standard as $0.2126 R + 0.7152 G + 0.0722 B$.
 
 The {\cf blackbody()} function returns the blackbody emission (the
 incandescent glow of warm bodies) expected from a material of the given
-temperature in Kelvin, in units of $W/m^2$.  These are the appropriate
-units to multiply by {\cf emission()} to have a physically-correct
-result.
+temperature in Kelvin, in units of $W/m^2$. Note that {\cf emission()} has units
+of radiance, so will require a scaling factor of $1/\pi$ on surfaces, and
+$1/4\pi$ on volumes to convert to $W/m^2/sr$.
 \apiend
 
 \apiitem{color {\ce wavelength_color} (float wavelength_nm)}
@@ -3342,14 +3373,12 @@ $[0,1]$.
 
 \apiitem{"simplex"}
 \vspace{12pt}
-\NEW % 1.4
 A signed simplex noise with an output range of $[-1,1]$,
 approximate average value of $0$.
 \apiend
 
 \apiitem{"usimplex"}
 \vspace{12pt}
-\NEW % 1.4
 An unsigned simplex noise with an output range of $[0,1]$,
 approximate average value of $0.5$.
 \apiend
@@ -3900,7 +3929,6 @@ but not present in the texture file (default: 0).
 \apiend
 \vspace{-16pt}
 
-\NEW
 \apiitem{"missingcolor", <color>, "missingalpha", <float>}
 \vspace{12pt}
 If present, supplies a missing color (and alpha value) that will
@@ -4003,7 +4031,6 @@ but not present in the texture file (default: 0).
 \apiend
 \vspace{-16pt}
 
-\NEW
 \apiitem{"missingcolor", <color>, "missingalpha", <float>}
 \vspace{12pt}
 If present, supplies a missing color (and alpha value) that will
@@ -4085,7 +4112,6 @@ not present in the texture file (default: 0).
 \apiend
 \vspace{-16pt}
 
-\NEW
 \apiitem{"missingcolor", <color>, "missingalpha", <float>}
 \vspace{12pt}
 If present, supplies a missing color (and alpha value) that will
@@ -4123,9 +4149,15 @@ parameters recognized are listed below:
 
 \smallskip
 
-\begin{tabular}{p{1.2in} p{0.5in} p{3.2in}} 
+\begin{tabular}{p{1.2in} p{0.5in} p{3.3in}}
 {\bf Name} & {\bf Type} & {\bf Description} \\
 \hline
+
+\qkw{exists} & {\cf int} & Result is 1 if the file exists
+and is an texture format that \product can read, or 0 if the file
+does not exist, or could not be properly read as a texture. Note that unlike
+all other queries, this query will ``succeed'' (return {\cf 1}) if the
+file does not exist. \\[0.75ex]
 
 \qkw{resolution} & {\cf int[2]} & The resolution ($x$ and $y$) of the
 highest MIPmap level stored in the texture map. \\[0.75ex]
@@ -4141,6 +4173,9 @@ map. \\[0.75ex]
 \qkw{type} & {\cf string} & Returns the semantic type of the texture,
 one of: \qkw{Plain Texture}, \qkw{Shadow}, \qkw{Environment},
 \qkw{Volume Texture}. \\[0.75ex]
+
+\qkw{subimages} & {\cf int} & Returns the number of subimages in the
+texture file. \\[0.75ex]
 
 \qkw{textureformat} & {\cf string} & Returns the texture format, one of:
 \qkw{Plain Texture}, \qkw{Shadow}, \qkw{CubeFace Shadow}, \qkw{Volume
@@ -4163,13 +4198,25 @@ xmax, ymax) or (xmin, ymin, zmin, xmax, ymax, zmax), respectively.
 (N.B. the $z$ values may be useful for 3D/volumetric images; for 2D images
 they will be 0). \\[0.75ex]
 
-%\qkw{viewingmatrix} & \matrix & (Shadow maps only) The matrix that
-%transforms points from \commonspace to the \cameraspace from which the
-%texture was created. \\[0.75ex]
-%
-%{\small \qkw{projectionmatrix}} & \matrix & (Shadow maps only) The
-%matrix that transforms points from \commonspace to a 2D coordinate
-%system where $x$ and $y$ range from -1 to 1.  \\[0.75ex]
+\noindent ...continued...
+\end{tabular}
+
+\begin{tabular}{p{1.2in} p{0.5in} p{3.3in}}
+{\bf Name} & {\bf Type} & {\bf Description} \\
+\hline
+\qkw{worldtocamera} & \matrix & If the texture is a rendered image,
+retrieves the world-to-camera 3D transformation matrix that was used when it
+was created.\\[0.75ex]
+
+\qkw{worldtoscreen} & \matrix & If the texture is a rendered image,
+retrieves the matrix that projected points from world space into a 2D screen
+coordinate system where $x$ and $y$ range from $-1$ to $+1$. \\[0.75ex]
+
+\qkw{averagecolor} & {\cf color} &
+Retrieves the average color (first three channels) of the texture. \\[0.75ex]
+
+\qkw{averagealpha} & {\cf float} &
+Retrieves the average alpha (the channel with \qkw{A} name) of the texture. \\[0.75ex]
 
 \emph{anything else} & \emph{any} & Searches for matching name and
 type in the metadata or other header information of the texture file.
@@ -4414,7 +4461,7 @@ implemented as follows:
 
 
 \apiitem{\colorclosure\ {\ce microfacet} (string distribution, normal N, vector
-U, float xalpha, float yalpha, float eta, int refract)}
+U, \\ \bigspc\bigspc float xalpha, float yalpha, float eta, int refract)}
 \indexapi{microfacet()}
 
 Returns a \colorclosure that represents scattering on the
@@ -4440,7 +4487,7 @@ expected that the alias "default" must work as a distribution in any renderer.
 
 
 \apiitem{\colorclosure\ {\ce microfacet} (string distribution, normal N,
-float alpha, float eta, int refract)}
+\\ \bigspc\bigspc float alpha, float eta, int refract)}
 \indexapi{microfacet()}
 
 Returns a \colorclosure that represents scattering on the
@@ -4527,10 +4574,10 @@ as follows:
 Returns a \colorclosure that represents the amount of \emph{subsurface
 scattering} exhibited by the surface.
 
-\begin{annotate}
-We'll determine later what the arguments to {\cf subsurface} need to be.
-FIXME
-\end{annotate}
+% \begin{annotate}
+% We'll determine later what the arguments to {\cf subsurface} need to be.
+% FIXME
+% \end{annotate}
 \apiend
 \end{comment}
 
@@ -4577,16 +4624,14 @@ normal. When called in the context of a volume shader group, it implies
 that light is emitted evenly in all directions around the point being
 shaded.
 
-The emission closure returns a radiance value (e.g.,
-$\mathrm{W}\cdot\mathrm{sr}^{-1}\cdot\mathrm{m}^{-2}$) that, integrated
-over all angles, yields a power density of 1.0 (e.g.,
-$\mathrm{W}\cdot\mathrm{m}^{-2}$). This may be multiplied by a scalar to
-adjust the desired power density of your light.
+The weight of the emission closure has units of radiance (e.g.,
+$\mathrm{W}\cdot\mathrm{sr}^{-1}\cdot\mathrm{m}^{-2}$). This means that a surface
+directly seen by the camera will directly reproduce the closure weight in the
+final pixel, regardless of being a surface or a volume.
 
 For surface emission, If you divide {\cf emission()} by 
-{\cf surfacearea()}, then you can easily specify the total emissive
-power of the light (e.g., $\mathrm{W}$), regardless of its physical
-size.
+{\cf surfacearea() * M_PI}, then you can easily specify the total emissive
+power of the light (e.g., $\mathrm{W}$), regardless of its physical size.
 \apiend
 
 
@@ -4792,7 +4837,7 @@ by the shader (via {\cf setmessage()}).
 
 \apiend
 
-\apiitem{int {\ce surfacearea} ()}
+\apiitem{float {\ce surfacearea} ()}
 \indexapi{surfacearea()}
 Returns the surface area of the area light geometry being shaded.  This
 is meant to be used in conjunction with {\cf emission()} in order to 
@@ -5020,9 +5065,7 @@ nothing (empty, no token).
     <shadertype> <identifier> <metadata-block-opt> 
     "(" <shader-formal-params-opt> ")" "{" <statement-list> "}"
 
-<shadertype> ::= "displacement" | "imager" | "integrator" | 
-    "shader" | "surface" | "volume"
-% "light"
+<shadertype> ::= "displacement" |  "shader" | "surface" | "volume"
 
 <shader-formal-params> ::= <shader-formal-param> \{ "," <shader-formal-param> \}
 
@@ -5106,7 +5149,7 @@ nothing (empty, no token).
 <statement-list> ::= <statement> \{ <statement> \}
 
 <statement> ::= 
-<expression-opt> ";"
+<compound-expression-opt> ";"
 \alt <scoped-statements>
 \alt <local-declaration>
 \alt <conditional-statement>
@@ -5117,12 +5160,13 @@ nothing (empty, no token).
 
 <scoped-statements> ::= "{" <statement-list-opt> "}"
 
-<conditional-statement> ::= \spc \\ "if" "(" <expression> ")" <statement>
-\alt "if" "(" <expression> ")" <statement> "else" <statement>
+<conditional-statement> ::= \spc \\ "if" "(" <compound-expression> ")" <statement>
+\alt "if" "(" <compound-expression> ")" <statement> "else" <statement>
 
-<loop-statement> ::= \spc \\ "while" "(" <expression> ")" <statement>
-\alt "do" <statement> "while" "(" <expression> ")" ";"
-\alt "for" "(" <for-init-statement-opt>  <expression-opt> ";" <expression-opt> ")" <statement>
+<loop-statement> ::= \spc \\ "while" "(" <compound-expression> ")" <statement>
+\alt "do" <statement> "while" "(" <compound-expression> ")" ";"
+\alt "for" "(" <for-init-statement-opt>  <compound-expression-opt> ";" 
+                <compound-expression-opt> ")" <statement>
 
 <for-init-statement> ::= \spc \\ <expression-opt> ";"
 \alt <variable-declaration>
@@ -5150,12 +5194,14 @@ nothing (empty, no token).
 \alt <incdec-op> <variable-ref>
 \alt <expression> <binary-op> <expression>
 \alt <unary-op> <expression>
-\alt "(" <expression> ")"
+\alt "(" <compound-expression> ")"
 \alt <function-call>
 \alt <assign-expression>
 \alt <ternary-expression>
 \alt <typecast-expression>
 \alt <variable-ref>
+
+<compound-expression> ::= <expression> \{ "," <expression> \}
 
 <variable-lvalue> ::= <identifier> <array-deref-opt> <component-deref-opt>
 \alt <variable_lvalue> "[" <expression> "]"
@@ -5171,10 +5217,10 @@ nothing (empty, no token).
 \alt "&"
 \alt "^"
 \alt "|"
-\alt "&&" 
-\alt "||" 
+\alt "&&" | "and"
+\alt "||" | "or"
 
-<unary-op> ::= "-" | "!" | "~"
+<unary-op> ::= "-" | "~" | "!" | "not"
 
 <incdec-op> ::= "++" | "--"
 
@@ -5196,14 +5242,116 @@ nothing (empty, no token).
 \end{grammar}
 
 
+\chapter{Describing shader groups}
+\label{chap:describingshadergroups}
+\label{sec:serialize}
+
+Below, we propose a simple grammar giving a standard way to serialize (i.e.,
+express as text) a full shader group, including instance values and
+connectivity of the shader layers. There are only three
+statements/operations: set an instance value, make a shader instance, and
+connect two instances.
+
+\apiitem{{\ce param} {\rm \emph{type} \emph{paramname} \emph{value...}} {\ce ;} \\
+{\ce param} {\rm \emph{type} \emph{paramname} \emph{value...}} {\ce [[}{\rm\emph{metadata...}}{\ce ]] ;} }
+
+Declare an instance value of a shader parameter to be applied to the next
+{\cf shader} statement. We refer to the parameter values set, which have
+not yet had their shader declared, as \emph{pending parameters}.
+
+The \emph{paramname} is the name of the parameter whose instance values are
+being specified.
+
+The \emph{type} is one of the basic numeric or
+string data types described in Chapter~\ref{chap:types} ({\cf int}, {\cf
+float}, {\cf color}, {\cf point}, {\cf vector}, {\cf normal}, {\cf matrix},
+or {\cf string}), or an array thereof (indicated by the usual notation of
+{\cf [{\rm\emph{size}}]}). The \emph{type} must match the declared type
+of the parameter in the shader.
+
+The actual values are listed individually, with multiple values (in the
+case of an array or an aggregate such as a \color) simply separated by
+whitespace. If fewer values are supplied than the total number of array
+elements or aggregate components, the remainder will be understood to be
+filled with 0 values. String values must be enclosed in double quotes
+({\cf "like this"}).
+
+The {\cf param} statement is terminated by a semicolon ({\cf ;}).
+
+Optionally, metadata hints may be supplied enclosed by double brackets,
+immediately before the semicolon.
+\apiend
+
+
+\apiitem{{\ce shader} {\rm \emph{shadername} \emph{layername}} {\ce ;}}
+Declares a shader instance, which will receive any pending parameters that
+were declared since the previous {\cf shader} statement (and in the process,
+clear the list of pending parameters).
+
+The {\cf shadername} is an identifier that specifies the name of the shader
+to use as the master for this instance. The {\cf layername} is an identifier
+that names the layer (e.g., to subsequently specify it as a source or
+destination for connections).
+
+The {\cf shader} statement is terminated by a semicolon ({\cf ;}).
+\apiend
+
+
+\apiitem{{\ce connect} {\rm \emph{source_layername}{\ce .}\emph{paramname} ~
+                        \emph{destination_layername}{\ce .}\emph{paramname}} {\ce ;}}
+
+Establish a connection between an output parameter of a source layer and an
+input parameter of a destination layer, both of which have been previously
+declared within this group. The source layer must have preceded the
+destination layer when they were declared, and the parameters must exist and
+be of a compatible type so that it is meaningful to establish a connection
+(for example, you may connect a \color to a \color, but you may not connect
+a \color to a \matrix).
+
+If the named parameters are structures, the two structures must have
+identical data layout, and establishing the connection will connect each
+corresponding data member.  It is also possible to make a connection of just
+a single member of a structure by using the usual ``dot'' syntax, for
+example, for layers {\cf A} and {\cf B}, \qkw{connect A.c.x B.y} might
+connect A's parameter {\cf c}, member {\cf x}, to B's parameter {\cf y} (the
+types of {\cf c.x} in A and {\cf y} in B must match).
+
+The {\cf connect} statement is terminated by a semicolon ({\cf ;}).
+\apiend
+
+\subsection*{Example}
+
+\begin{tabular}{p{3.25in} p{2.5in}}
+    {\cf param string name "rings.tx" ; } &  \emph{set pending `name'} \\
+    {\cf param float scale 3.5 ; } &  \emph{set pending `scale'} \\
+    {\cf shader "texturemap" "tex1" ; } & \emph{tex1 layer, picks up `name', `scale'} \\
+    {\cf param string name "grain.tx" ; } & \\
+    {\cf shader "texturemap" "tex2" ; } & \emph{} \\
+    {\cf param float gam 2.2 ; } & \emph{} \\
+    {\cf shader "gamma" "gam1" ; } & \emph{} \\
+    {\cf param float gam 1.0 ; } & \emph{} \\
+    {\cf shader "gamma" "gam2" ; } & \emph{} \\
+    {\cf param color woodcolor 0.42 0.38 0.22 ; } & \emph{example of a color param} \\
+    {\cf shader "wood" "wood1" ; } & \emph{} \\
+    {\cf connect tex1.Cout gam1.Cin ; } & \emph{connect tex1's Cout to gam1's Cin} \\
+    {\cf connect tex2.Cout gam2.Cin ; } & \emph{} \\
+    {\cf connect gam1.Cout wood1.rings ; } & \emph{} \\
+    {\cf connect gam2.Cout wood1.grain ; } & \emph{} \\
+\end{tabular}
+
+
+\begin{comment}
+
 \chapter{Example Shaders}
 \label{chap:exampleshaders}
 
-\begin{annotate}
-Sorry, I haven't done this yet.  Eventually, this chapter will have
-several simple (but useful and fully functional) shaders to illustrate
-how all these concepts fit together.
-\end{annotate}
+% \begin{annotate}
+% Sorry, I haven't done this yet.  Eventually, this chapter will have
+% several simple (but useful and fully functional) shaders to illustrate
+% how all these concepts fit together.
+% \end{annotate}
+
+\end{comment}
 
 
 \begin{comment}

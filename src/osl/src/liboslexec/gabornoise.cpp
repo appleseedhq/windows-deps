@@ -114,7 +114,11 @@ struct GaborParams {
         bandwidth(Imath::clamp(opt.bandwidth,0.01f,100.0f)),
         periodic(false)
     {
-        float TWO_to_bandwidth = powf (2.0f, bandwidth);
+#if OSL_FAST_MATH
+        float TWO_to_bandwidth = OIIO::fast_exp2(bandwidth);
+#else
+        float TWO_to_bandwidth = exp2f(bandwidth);
+#endif
         static const float SQRT_PI_OVER_LN2 = sqrtf (M_PI / M_LN2);
         a = Gabor_Frequency * ((TWO_to_bandwidth - 1.0) / (TWO_to_bandwidth + 1.0)) * SQRT_PI_OVER_LN2;
         // Calculate the maximum radius from which we consider the kernel
@@ -209,17 +213,25 @@ gabor_sample (GaborParams &gp, const Vec3 &x_c, fast_rng &rng,
     } else if (gp.anisotropic == 0 /* isotropic */) {
         float omega_t = float (M_TWO_PI) * rng();
         // float omega_p = acosf(lerp(-1.0f, 1.0f, rng()));
-        float cos_omega_p = lerp(-1.0f, 1.0f, rng());
+        float cos_omega_p = OIIO::lerp(-1.0f, 1.0f, rng());
         float sin_omega_p = sqrtf (std::max (0.0f, 1.0f - cos_omega_p*cos_omega_p));
         float sin_omega_t, cos_omega_t;
+#if OSL_FAST_MATH
+        OIIO::fast_sincos (omega_t, &sin_omega_t, &cos_omega_t);
+#else
         OIIO::sincos (omega_t, &sin_omega_t, &cos_omega_t);
+#endif
         omega = Vec3 (cos_omega_t*sin_omega_p, sin_omega_t*sin_omega_p, cos_omega_p).normalized();
     } else {
         // otherwise hybrid
         float omega_r = gp.omega.length();
         float omega_t =  float(M_TWO_PI) * rng();
         float sin_omega_t, cos_omega_t;
+#if OSL_FAST_MATH
+        OIIO::fast_sincos (omega_t, &sin_omega_t, &cos_omega_t);
+#else
         OIIO::sincos (omega_t, &sin_omega_t, &cos_omega_t);
+#endif
         omega = omega_r * Vec3(cos_omega_t, sin_omega_t, 0.0f);
     }
     phi = float(M_TWO_PI) * rng();
@@ -306,7 +318,7 @@ gabor_cell (GaborParams &gp, const Vec3 &c_i, const Dual2<Vec3> &x_c_i,
                 multMatrix (gp.local, x_k_i, xkit);
                 Dual2<Vec2> x_k_i_t = make_Vec2 (comp(xkit,0), comp(xkit,1));
                 Dual2<float> gk = gabor_kernel (w_i_t_s_f, omega_i_t_s_f, phi_i_t_s_f, a_i_t_s_f, x_k_i_t); // 2D
-                if (! isfinite(gk.val())) {
+                if (! OIIO::isfinite(gk.val())) {
                     // Numeric failure of the filtered version.  Fall
                     // back on the unfiltered.
                     gk = gabor_kernel (gp.weight, omega_i, phi_i, gp.a, x_k_i);  // 3D

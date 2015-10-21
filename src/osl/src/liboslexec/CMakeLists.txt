@@ -3,10 +3,9 @@ SET ( liboslexec_srcs
           dictionary.cpp
           context.cpp instance.cpp 
           loadshader.cpp master.cpp 
-          opcolor.cpp 
-          opmessage.cpp
+          opcolor.cpp opmatrix.cpp opmessage.cpp
           opnoise.cpp simplexnoise.cpp gabornoise.cpp
-          opspline.cpp opstring.cpp
+          opspline.cpp opstring.cpp optexture.cpp
           oslexec.cpp osoreader.cpp
           pointcloud.cpp rendservices.cpp 
           constfold.cpp runtimeoptimize.cpp typespec.cpp
@@ -27,11 +26,20 @@ if (NOT BUILDSTATIC)
         )
 endif ()
 
+# oslquery symbols used in oslexec
+if (NOT BUILDSTATIC)
+    LIST(APPEND liboslexec_srcs
+        ../liboslquery/oslquery.cpp
+        )
+endif ()
+
 include_directories ( "${CMAKE_SOURCE_DIR}/src/liboslcomp" )
 
 FILE ( GLOB exec_headers "*.h" )
+FILE ( GLOB compiler_headers "../liboslcomp/*.h" )
 
 FLEX_BISON ( osolex.l osogram.y oso liboslexec_srcs exec_headers )
+FLEX_BISON ( ../liboslcomp/osllex.l ../liboslcomp/oslgram.y osl liboslexec_srcs compiler_headers )
 
 SET ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS" )
 
@@ -60,6 +68,9 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     foreach (def ${CURRENT_DEFINITIONS})
         set (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} "-D${def}")
     endforeach()
+    if (USE_SIMD)
+    	set (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} "-m${USE_SIMD}")
+    endif ()
 
     # Figure out what program we will use to make the bitcode.
     if (NOT LLVM_BC_GENERATOR)
@@ -104,7 +115,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
           "-I${ILMBASE_INCLUDE_DIR}"
           "-I${Boost_INCLUDE_DIRS}"
           -DOSL_COMPILING_TO_BITCODE=1
-          -O3 -S -emit-llvm -o ${llvm_asm} ${llvm_src}
+          -O3 -fno-math-errno -S -emit-llvm -o ${llvm_asm} ${llvm_src}
       COMMAND "${LLVM_DIRECTORY}/bin/llvm-as" -f -o ${llvm_bc} ${llvm_asm}
       COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash" ${llvm_bc} ${llvm_bc_cpp}
       MAIN_DEPENDENCY ${llvm_src}
@@ -137,11 +148,7 @@ TARGET_LINK_LIBRARIES ( oslexec
 ADD_DEPENDENCIES (oslexec "${CMAKE_CURRENT_SOURCE_DIR}/liboslexec.map")
 LINK_ILMBASE ( oslexec )
 
-if (BUILDSTATIC)
-    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
-else ()
-    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
-endif ()
+INSTALL ( TARGETS oslexec RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib )
 
 # Unit tests
 add_executable (accum_test accum_test.cpp)

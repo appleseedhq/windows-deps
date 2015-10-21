@@ -29,7 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <map>
-#include <OpenImageIO/hash.h>
+#include <boost/unordered_map.hpp>
+#include <OpenImageIO/ustring.h>
 #include "OSL/oslexec.h"
 
 OSL_NAMESPACE_ENTER
@@ -46,6 +47,7 @@ public:
     SimpleRenderer ();
     ~SimpleRenderer () { }
 
+    virtual int supports (string_view feature) const;
     virtual bool get_matrix (ShaderGlobals *sg, Matrix44 &result,
                              TransformationPtr xform,
                              float time);

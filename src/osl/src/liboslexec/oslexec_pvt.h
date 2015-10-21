@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <OpenImageIO/paramlist.h>
 #include <OpenImageIO/refcnt.h>
 
+#include "OSL/genclosure.h"
 #include "OSL/oslexec.h"
 #include "OSL/oslclosure.h"
 #include "osl_pvt.h"
@@ -78,6 +79,36 @@ struct PerThreadInfo
 
     std::stack<ShadingContext *> context_pool;
 };
+
+
+
+namespace Strings {
+    extern ustring camera, common, object, shader, screen, NDC;
+    extern ustring rgb, RGB, hsv, hsl, YIQ, XYZ, xyz, xyY;
+    extern ustring null, default_;
+    extern ustring label;
+    extern ustring sidedness, front, back, both;
+    extern ustring P, I, N, Ng, dPdu, dPdv, u, v, time, dtime, dPdtime, Ps;
+    extern ustring Ci;
+    extern ustring width, swidth, twidth, rwidth;
+    extern ustring blur, sblur, tblur, rblur;
+    extern ustring wrap, swrap, twrap, rwrap;
+    extern ustring black, clamp, periodic, mirror;
+    extern ustring firstchannel, fill, alpha;
+    extern ustring interp, closest, linear, cubic, smartcubic;
+    extern ustring perlin, uperlin, noise, snoise, pnoise, psnoise;
+    extern ustring cell, cellnoise, pcellnoise;
+    extern ustring genericnoise, genericpnoise, gabor, gabornoise, gaborpnoise;
+    extern ustring simplex, usimplex, simplexnoise, usimplexnoise;
+    extern ustring anisotropic, direction, do_filter, bandwidth, impulses;
+    extern ustring op_dowhile, op_for, op_while, op_exit;
+    extern ustring subimage, subimagename;
+    extern ustring missingcolor, missingalpha;
+    extern ustring end;
+    extern ustring uninitialized_string;
+}; // namespace Strings
+
+
 
 namespace pvt {
 
@@ -119,6 +150,16 @@ struct OpDescriptor {
 
 
 
+// Helper function to expand vec by 'size' elements, initializing them to 0.
+template<class T>
+inline void
+expand (std::vector<T> &vec, size_t size)
+{
+    vec.resize (vec.size() + size, T(0));
+}
+
+
+
 // Struct to hold records about what user data a group needs
 struct UserDataNeeded {
     ustring name;
@@ -144,11 +185,36 @@ struct UserDataNeeded {
     }
 };
 
+// Struct defining an attribute needed by a shader group
+struct AttributeNeeded {
+    ustring name;
+    ustring scope;
 
+    AttributeNeeded (ustring name, ustring scope = ustring())
+        : name(name), scope(scope) {}
 
+    friend bool operator< (const AttributeNeeded &a, const AttributeNeeded &b) {
+        if (a.name != b.name)
+            return a.name < b.name;
+        if (a.scope != b.scope)
+            return a.scope < b.scope;
+        return false;  // they are equal
+    }
+};
 
 // Prefix for OSL shade up declarations, so LLVM can find them
 #define OSL_SHADEOP extern "C" OSL_LLVM_EXPORT
+
+
+// Handy re-casting macros
+#define USTR(cstr) (*((ustring *)&cstr))
+#define MAT(m) (*(Matrix44 *)m)
+#define VEC(v) (*(Vec3 *)v)
+#define DFLOAT(x) (*(Dual2<Float> *)x)
+#define DVEC(x) (*(Dual2<Vec3> *)x)
+#define COL(x) (*(Color3 *)x)
+#define DCOL(x) (*(Dual2<Color3> *)x)
+#define TYPEDESC(x) (*(TypeDesc *)&x)
 
 
 
@@ -354,6 +420,10 @@ struct ConnectedParam {
         return param == p.param && arrayindex == p.arrayindex &&
             channel == p.channel && type == p.type;
     }
+    bool operator!= (const ConnectedParam &p) const {
+        return param != p.param || arrayindex != p.arrayindex ||
+            channel != p.channel || type != p.type;
+    }
 
     // Is it a complete connection, not partial?
     bool is_complete () const {
@@ -376,6 +446,9 @@ struct Connection {
     { }
     bool operator== (const Connection &c) const {
         return srclayer == c.srclayer && src == c.src && dst == c.dst;
+    }
+    bool operator!= (const Connection &c) const {
+        return srclayer != c.srclayer || src != c.src || dst != c.dst;
     }
 };
 
@@ -477,13 +550,21 @@ public:
     int id () const { return m_id; }
 
     /// Does this instance potentially write to any global vars?
-    ///
     bool writes_globals () const { return m_writes_globals; }
+    void writes_globals (bool val) { m_writes_globals = val; }
+
+    /// Does this instance potentially read userdata to initialize any of
+    /// its parameters?
+    bool userdata_params () const { return m_userdata_params; }
+    void userdata_params (bool val) { m_userdata_params = val; }
 
     /// Should this instance only be run lazily (i.e., not
     /// unconditionally)?
     bool run_lazily () const { return m_run_lazily; }
     void run_lazily (bool lazy) { m_run_lazily = lazy; }
+
+    /// Figure out whether the instance runs lazily, set m_run_lazily.
+    void compute_run_lazily ();
 
     /// Does this instance have any outgoing connections?
     ///
@@ -491,6 +572,11 @@ public:
     /// Set whether this instance has outgoing connections.
     ///
     void outgoing_connections (bool out) { m_outgoing_connections = out; }
+
+    /// Does this instance have any renderer outputs?
+    bool renderer_outputs () const { return m_renderer_outputs; }
+    /// Set whether this instance has renderer outputs
+    void renderer_outputs (bool out) { m_renderer_outputs = out; }
 
     int maincodebegin () const { return m_maincodebegin; }
     int maincodeend () const { return m_maincodeend; }
@@ -528,7 +614,7 @@ public:
             return std::pair<const Symbol*,const Symbol*> ((const Symbol*)NULL, (const Symbol*)NULL);
         else
             return std::pair<const Symbol*,const Symbol*> (&i->m_instsymbols[0],
-                                                           &i->m_instsymbols[0] + i->m_instsymbols.size());
+                                               &i->m_instsymbols[0] + i->m_instsymbols.size());
     }
 
     int Psym () const { return m_Psym; }
@@ -542,7 +628,7 @@ public:
     const OpcodeVec & ops () const { return m_instops; }
     OpcodeVec & ops () { return m_instops; }
 
-    std::string print ();  // Debugging
+    std::string print (const ShaderGroup &group);  // Debugging
 
     SymbolVec &symbols () { return m_instsymbols; }
     const SymbolVec &symbols () const { return m_instsymbols; }
@@ -553,31 +639,52 @@ public:
 
     /// Does it appear that the layer is completely unused?
     ///
-    bool unused () const { return run_lazily() && ! outgoing_connections(); }
+    bool unused () const { return run_lazily() && ! outgoing_connections()
+                                               && ! renderer_outputs(); }
+
+    /// Is the instance reduced to nothing but an 'end' instruction and no
+    /// symbols?
+    bool empty_instance () const {
+        return (symbols().size() == 0 &&
+                (ops().size() == 0 ||
+                 (ops().size() == 1 && ops()[0].opname() == Strings::end)));
+    }
 
     /// Make our own version of the code and args from the master.
-    ///
-    void copy_code_from_master ();
+    void copy_code_from_master (ShaderGroup &group);
+
+    /// Check the params to re-assess writes_globals and userdata_params.
+    /// Sorry, can't think of a short name that isn't too cryptic.
+    void evaluate_writes_globals_and_userdata_params ();
 
     /// Small data structure to hold just the symbol info that the
     /// instance overrides from the master copy.
     struct SymOverrideInfo {
-        char m_valuesource;
-        bool m_connected_down;
-        bool m_lockgeom;
+        // Using bit fields to keep the data in 8 bytes in total.
+        unsigned char m_valuesource: 3;
+        bool m_connected_down: 1;
+        bool m_lockgeom:       1;
+        int  m_arraylen:      27;
+        int  m_data_offset;
 
         SymOverrideInfo () : m_valuesource(Symbol::DefaultVal),
-                             m_connected_down(false), m_lockgeom(true) { }
+                             m_connected_down(false), m_lockgeom(true), m_arraylen(0), m_data_offset(0) { }
         void valuesource (Symbol::ValueSource v) { m_valuesource = v; }
         Symbol::ValueSource valuesource () const { return (Symbol::ValueSource) m_valuesource; }
         const char *valuesourcename () const { return Symbol::valuesourcename(valuesource()); }
         bool connected_down () const { return m_connected_down; }
         void connected_down (bool c) { m_connected_down = c; }
+        bool connected () const { return valuesource() == Symbol::ConnectedVal; }
         bool lockgeom () const { return m_lockgeom; }
         void lockgeom (bool l) { m_lockgeom = l; }
+        int  arraylen () const { return m_arraylen; }
+        void arraylen (int s) { m_arraylen = s; }
+        int  dataoffset () const { return m_data_offset; }
+        void dataoffset (int o) { m_data_offset = o; }
         friend bool equivalent (const SymOverrideInfo &a, const SymOverrideInfo &b) {
             return a.valuesource() == b.valuesource() &&
-                   a.lockgeom() == b.lockgeom();
+                   a.lockgeom()    == b.lockgeom()    &&
+                   a.arraylen()    == b.arraylen();
         }
     };
     typedef std::vector<SymOverrideInfo> SymOverrideInfoVec;
@@ -601,8 +708,10 @@ private:
     std::vector<ustring> m_sparams;     ///< string param values
     int m_id;                           ///< Unique ID for the instance
     bool m_writes_globals;              ///< Do I have side effects?
+    bool m_userdata_params;             ///< Might I read userdata for params?
     bool m_run_lazily;                  ///< OK to run this layer lazily?
     bool m_outgoing_connections;        ///< Any outgoing connections?
+    bool m_renderer_outputs;            ///< Any outputs params render outputs?
     ConnectionVec m_connections;        ///< Connected input params
     int m_firstparam, m_lastparam;      ///< Subset of symbols that are params
     int m_maincodebegin, m_maincodeend; ///< Main shader code range
@@ -645,13 +754,16 @@ public:
         std::vector<ClosureParam> params;
         // the needed size for the structure
         int                       struct_size;
+        // the needed alignment of the structure
+        int                       alignment;
         // Creation callbacks
         PrepareClosureFunc        prepare;
         SetupClosureFunc          setup;
     };
 
     void register_closure (string_view name, int id, const ClosureParam *params,
-                           PrepareClosureFunc prepare, SetupClosureFunc setup);
+                           PrepareClosureFunc prepare, SetupClosureFunc setup,
+                           int alignment = 1);
 
     const ClosureEntry *get_entry (ustring name) const;
     const ClosureEntry *get_entry (int id) const {
@@ -745,15 +857,16 @@ public:
 
     void destroy_thread_info (PerThreadInfo *threadinfo);
 
-    ShadingContext *get_context (PerThreadInfo *threadinfo = NULL);
+    ShadingContext *get_context (PerThreadInfo *threadinfo = NULL,
+                                 TextureSystem::Perthread *texture_threadinfo=NULL);
 
     void release_context (ShadingContext *ctx);
 
-    bool execute (ShadingContext &ctx, ShaderGroup &group,
+    bool execute (ShadingContext *ctx, ShaderGroup &group,
                   ShaderGlobals &ssg, bool run=true);
 
-    const void* get_symbol (ShadingContext &ctx, ustring name,
-                            TypeDesc &type);
+    const void* get_symbol (ShadingContext &ctx, ustring layername,
+                            ustring symbolname, TypeDesc &type);
 
 //    void operator delete (void *todel) { ::delete ((char *)todel); }
 
@@ -778,9 +891,11 @@ public:
     int optimize () const { return m_optimize; }
     int llvm_optimize () const { return m_llvm_optimize; }
     int llvm_debug () const { return m_llvm_debug; }
-    bool fold_getattribute () { return m_opt_fold_getattribute; }
+    bool fold_getattribute () const { return m_opt_fold_getattribute; }
+    bool opt_texture_handle () const { return m_opt_texture_handle; }
     int max_warnings_per_thread() const { return m_max_warnings_per_thread; }
     bool countlayerexecs() const { return m_countlayerexecs; }
+    bool lazy_userdata () const { return m_lazy_userdata; }
 
     ustring commonspace_synonym () const { return m_commonspace_synonym; }
 
@@ -807,7 +922,8 @@ public:
     ustring *alloc_string_constants (size_t n) { return m_string_pool.alloc (n); }
 
     void register_closure (string_view name, int id, const ClosureParam *params,
-                           PrepareClosureFunc prepare, SetupClosureFunc setup);
+                           PrepareClosureFunc prepare, SetupClosureFunc setup,
+                           int alignment = 1);
     bool query_closure (const char **name, int *id,
                         const ClosureParam **params);
     const ClosureRegistry::ClosureEntry *find_closure(ustring name) const {
@@ -840,7 +956,7 @@ public:
 
     int raytype_bit (ustring name);
 
-    void optimize_all_groups (int nthreads=0);
+    void optimize_all_groups (int nthreads=0, int mythread=0, int totalthreads=1);
 
     typedef boost::unordered_map<ustring,OpDescriptor,ustringHash> OpDescriptorMap;
 
@@ -857,7 +973,8 @@ public:
     void pointcloud_stats (int search, int get, int results, int writes=0);
 
     /// Is the named symbol among the renderer outputs?
-    bool is_renderer_output (ustring name, ShaderGroup *group) const;
+    bool is_renderer_output (ustring layername, ustring paramname,
+                             ShaderGroup *group) const;
 
     /// Serialize/pickle a group description into text.
     std::string serialize_group (ShaderGroup *group);
@@ -920,6 +1037,7 @@ private:
     int m_statslevel;                     ///< Statistics level
     bool m_lazylayers;                    ///< Evaluate layers on demand?
     bool m_lazyglobals;                   ///< Run lazily even if globals write?
+    bool m_lazy_userdata;                 ///< Retrieve userdata lazily?
     bool m_clearmemory;                   ///< Zero mem before running shader?
     bool m_debugnan;                      ///< Root out NaN's?
     bool m_debug_uninit;                  ///< Find use of uninitialized vars?
@@ -928,8 +1046,10 @@ private:
     bool m_range_checking;                ///< Range check arrays & components?
     bool m_unknown_coordsys_error;        ///< Error to use unknown xform name?
     bool m_greedyjit;                     ///< JIT as much as we can?
+    bool m_llvm_mcjit;                    ///< Use MCJIT if available?
     bool m_countlayerexecs;               ///< Count number of layer execs?
     int m_max_warnings_per_thread;        ///< How many warnings to display per thread before giving up?
+    int m_profile;                        ///< Level of profiling of shader execution
     int m_optimize;                       ///< Runtime optimization level
     bool m_opt_simplify_param;            ///< Turn instance params into const?
     bool m_opt_constant_fold;             ///< Allow constant folding?
@@ -940,9 +1060,11 @@ private:
     bool m_opt_coalesce_temps;            ///< Coalesce temporary variables?
     bool m_opt_assign;                    ///< Do various assign optimizations?
     bool m_opt_mix;                       ///< Special 'mix' optimizations
-    bool m_opt_merge_instances;           ///< Merge identical instances?
+    char m_opt_merge_instances;           ///< Merge identical instances?
+    bool m_opt_merge_instances_with_userdata; ///< Merge identical instances if they have userdata?
     bool m_opt_fold_getattribute;         ///< Constant-fold getattribute()?
     bool m_opt_middleman;                 ///< Middle-man optimization?
+    bool m_opt_texture_handle;            ///< Use texture handles?
     bool m_optimize_nondebug;             ///< Fully optimize non-debug!
     int m_llvm_optimize;                  ///< OSL optimization strategy
     int m_debug;                          ///< Debugging output
@@ -1000,6 +1122,7 @@ private:
     atomic_int m_stat_middlemen_eliminated; ///< Stat: middlemen eliminated
     atomic_int m_stat_const_connections;  ///< Stat: const connections elim'd
     atomic_int m_stat_global_connections; ///< Stat: global connections elim'd
+    double m_stat_master_load_time;       ///< Stat: time loading masters
     double m_stat_optimization_time;      ///< Stat: time spent optimizing
     double m_stat_opt_locking_time;       ///<   locking time
     double m_stat_specialization_time;    ///<   runtime specialization time
@@ -1012,6 +1135,7 @@ private:
     double m_stat_getattribute_time;      ///< Stat: time spent in getattribute
     double m_stat_getattribute_fail_time; ///< Stat: time spent in getattribute
     atomic_ll m_stat_getattribute_calls;  ///< Stat: Number of getattribute
+    atomic_ll m_stat_get_userdata_calls;  ///< Stat: # of get_userdata calls
     long long m_stat_pointcloud_searches;
     long long m_stat_pointcloud_searches_total_results;
     int m_stat_pointcloud_max_results;
@@ -1019,6 +1143,7 @@ private:
     long long m_stat_pointcloud_gets;
     long long m_stat_pointcloud_writes;
     atomic_ll m_stat_layers_executed;     ///< Total layers executed
+    atomic_ll m_stat_total_shading_time_ticks; ///< Total shading time (ticks)
 
     int m_stat_max_llvm_local_mem;        ///< Stat: max LLVM local mem
     PeakCounter<off_t> m_stat_memory;     ///< Stat: all shading system memory
@@ -1034,12 +1159,14 @@ private:
     PeakCounter<off_t> m_stat_mem_inst_paramvals;
     PeakCounter<off_t> m_stat_mem_inst_connections;
 
-    spin_mutex m_stat_mutex;              ///< Mutex for non-atomic stats
+    mutable spin_mutex m_stat_mutex;     ///< Mutex for non-atomic stats
     ClosureRegistry m_closure_registry;
-    std::vector<ShaderGroupRef> m_groups_to_compile;
+    std::vector<weak_ptr<ShaderGroup> > m_all_shader_groups;
+    mutable spin_mutex m_all_shader_groups_mutex;
     atomic_int m_groups_to_compile_count;
     atomic_int m_threads_currently_compiling;
-    spin_mutex m_groups_to_compile_mutex;
+    mutable std::map<ustring,long long> m_group_profile_times;
+    // N.B. group_profile_times is protected by m_stat_mutex.
 
     friend class OSL::ShadingContext;
     friend class ShaderMaster;
@@ -1067,19 +1194,24 @@ public:
     char * alloc(size_t size, size_t alignment=1) {
         // Alignment must be power of two
         DASSERT ((alignment & (alignment - 1)) == 0);
-        // Fail if beyond allocation limits or senseless alignment
-        if (size > BlockSize || (size & (alignment - 1)) != 0)
+        // Fail if beyond allocation limits (we make sure there's enough space
+        // for alignment padding here as well).
+        if (size + alignment - 1 > BlockSize)
             return NULL;
-        m_block_offset -= (m_block_offset & (alignment - 1)); // Fix up alignment
-        if (size <= m_block_offset) {
+        // Fix up alignment
+        size_t alignment_offset = alignment_offset_calc(alignment);
+        if (size + alignment_offset <= m_block_offset) {
             // Enough space in current block
-            m_block_offset -= size;
+            m_block_offset -= size + alignment_offset;
         } else {
             // Need to allocate a new block
             m_current_block++;
             m_block_offset = BlockSize - size;
             if (m_blocks.size() == m_current_block)
                 m_blocks.push_back(new char[BlockSize]);
+            alignment_offset = alignment_offset_calc(alignment);
+            DASSERT (m_block_offset >= alignment_offset);
+            m_block_offset -= alignment_offset;
         }
         return m_blocks[m_current_block] + m_block_offset;
     }
@@ -1087,6 +1219,10 @@ public:
     void clear () { m_current_block = 0; m_block_offset = BlockSize; }
 
 private:
+    inline size_t alignment_offset_calc(size_t alignment) {
+        return (((uintptr_t)m_blocks[m_current_block] + m_block_offset) & (alignment - 1));
+    }
+
     std::vector<char *> m_blocks;
     size_t              m_current_block;
     size_t              m_block_offset;
@@ -1211,6 +1347,10 @@ public:
     void lock () const { m_mutex.lock(); }
     void unlock () const { m_mutex.unlock(); }
 
+    // Retrieve the Symbol* by layer and symbol name. If the layer name is
+    // empty, go back-to-front.
+    const Symbol* find_symbol (ustring layername, ustring symbolname) const;
+
 private:
     // Put all the things that are read-only (after optimization) and
     // needed on every shade execution at the front of the struct, as much
@@ -1229,12 +1369,18 @@ private:
     std::vector<TypeDesc> m_userdata_types;
     std::vector<int> m_userdata_offsets;
     std::vector<char> m_userdata_derivs;
+    std::vector<ustring> m_attributes_needed;
+    std::vector<ustring> m_attribute_scopes;
     std::vector<ustring> m_renderer_outputs; ///< Names of renderer outputs
     bool m_unknown_textures_needed;
     bool m_unknown_closures_needed;
+    bool m_unknown_attributes_needed;
     atomic_ll m_executions;          ///< Number of times the group executed
+    atomic_ll m_stat_total_shading_time_ticks; ///< Total shading time (ticks)
+
     friend class OSL::pvt::ShadingSystemImpl;
     friend class OSL::pvt::BackendLLVM;
+    friend class ShadingContext;
 };
 
 
@@ -1243,7 +1389,7 @@ private:
 ///
 class OSLEXECPUBLIC ShadingContext {
 public:
-    ShadingContext (ShadingSystemImpl &shadingsys, PerThreadInfo *threadinfo);
+    ShadingContext (ShadingSystemImpl &shadingsys, PerThreadInfo *threadinfo=NULL);
     ~ShadingContext ();
 
     /// Return a reference to the shading system for this context.
@@ -1264,7 +1410,9 @@ public:
     ClosureComponent * closure_component_allot(int id, size_t prim_size, int nattrs) {
         size_t needed = sizeof(ClosureComponent) + (prim_size >= 4 ? prim_size - 4 : 0)
                                                  + sizeof(ClosureComponent::Attr) * nattrs;
-        ClosureComponent *comp = (ClosureComponent *) m_closure_pool.alloc(needed);
+        int alignment = m_shadingsys.find_closure(id)->alignment;
+        size_t alignment_offset = closure_alignment_offset_calc(alignment);
+        ClosureComponent *comp = (ClosureComponent *) (m_closure_pool.alloc(needed + alignment_offset, alignment) + alignment_offset);
         comp->type = ClosureColor::COMPONENT;
         comp->id = id;
         comp->size = prim_size;
@@ -1279,7 +1427,9 @@ public:
         // Allocate the component and the mul back to back
         size_t needed = sizeof(ClosureComponent) + (prim_size >= 4 ? prim_size - 4 : 0)
                                                  + sizeof(ClosureComponent::Attr) * nattrs;
-        ClosureComponent *comp = (ClosureComponent *) m_closure_pool.alloc(needed);
+        int alignment = m_shadingsys.find_closure(id)->alignment;
+        size_t alignment_offset = closure_alignment_offset_calc(alignment);
+        ClosureComponent *comp = (ClosureComponent *) (m_closure_pool.alloc(needed + alignment_offset, alignment) + alignment_offset);
         comp->type = ClosureColor::COMPONENT;
         comp->id = id;
         comp->size = prim_size;
@@ -1313,14 +1463,18 @@ public:
     }
 
 
-    /// Find the named symbol in the (already-executed!) stack of
-    /// shaders of the given use, with priority given to
-    /// later laters over earlier layers (if they name the same symbol).
-    /// Return NULL if no such symbol is found.
-    Symbol * symbol (ustring name);
+    /// Find the named symbol in the (already-executed!) stack of shaders of
+    /// the given use. If a layer is given, search just that layer. If no
+    /// layer is specified, priority is given to later laters over earlier
+    /// layers (if they name the same symbol). Return NULL if no such symbol
+    /// is found.
+    const Symbol * symbol (ustring layername, ustring symbolname) const;
+    const Symbol * symbol (ustring symbolname) const {
+        return symbol (ustring(), symbolname);
+    }
 
     /// Return a pointer to where the symbol's data lives.
-    void *symbol_data (Symbol &sym);
+    const void *symbol_data (const Symbol &sym) const;
 
     /// Return a reference to a compiled regular expression for the
     /// given string, being careful to cache already-created ones so we
@@ -1330,6 +1484,7 @@ public:
     /// Return a pointer to the shading attribs for this context.
     ///
     ShaderGroup *attribs () { return m_attribs; }
+    const ShaderGroup *attribs () const { return m_attribs; }
 
     /// Return a reference to the MessageList containing messages.
     ///
@@ -1358,13 +1513,44 @@ public:
                             int array_lookup, int index,
                             TypeDesc attr_type, void *attr_dest);
 
-    PerThreadInfo *thread_info () { return m_threadinfo; }
+    PerThreadInfo *thread_info () const { return m_threadinfo; }
+
+    TextureSystem::Perthread *texture_thread_info () const {
+        if (! m_texture_thread_info)
+            m_texture_thread_info = shadingsys().texturesys()->get_perthread_info ();
+        return m_texture_thread_info;
+    }
+
+    void texture_thread_info (TextureSystem::Perthread *t) {
+        m_texture_thread_info = t;
+    }
+
+    TextureOpt *texture_options_ptr () { return &m_textureopt; }
+
+    RendererServices::NoiseOpt *noise_options_ptr () { return &m_noiseopt; }
+
+    RendererServices::TraceOpt *trace_options_ptr () { return &m_traceopt; }
 
     void * alloc_scratch (size_t size, size_t align=1) {
         return m_scratch_pool.alloc (size, align);
     }
 
-    void incr_layers_executed () { shadingsys().m_stat_layers_executed += 1; }
+    void incr_layers_executed () { ++m_stat_layers_executed; }
+
+    void incr_get_userdata_calls () { ++m_stat_get_userdata_calls; }
+
+    // Clear the stats we record per-execution in this context (unlocked)
+    void clear_runtime_stats () {
+        m_stat_get_userdata_calls = 0;
+        m_stat_layers_executed = 0;
+    }
+
+    // Transfer the per-execution stats from this context to the shading
+    // system.
+    void record_runtime_stats () {
+        shadingsys().m_stat_get_userdata_calls += m_stat_get_userdata_calls;
+        shadingsys().m_stat_layers_executed += m_stat_layers_executed;
+    }
 
     bool allow_warnings() {
         if (m_max_warnings > 0) {
@@ -1402,12 +1588,19 @@ private:
     ShadingSystemImpl &m_shadingsys;    ///< Backpointer to shadingsys
     RendererServices *m_renderer;       ///< Ptr to renderer services
     PerThreadInfo *m_threadinfo;        ///< Ptr to our thread's info
+    mutable TextureSystem::Perthread *m_texture_thread_info; ///< Ptr to texture thread info
     ShaderGroup *m_attribs;             ///< Ptr to shading attrib state
     std::vector<char> m_heap;           ///< Heap memory
     typedef boost::unordered_map<ustring, boost::regex*, ustringHash> RegexMap;
     RegexMap m_regex_map;               ///< Compiled regex's
     MessageList m_messages;             ///< Message blackboard
     int m_max_warnings;                 ///< To avoid processing too many warnings
+    int m_stat_get_userdata_calls;      ///< Number of calls to get_userdata
+    int m_stat_layers_executed;         ///< Number of layers executed
+
+    TextureOpt m_textureopt;            ///< texture call options
+    RendererServices::NoiseOpt m_noiseopt; ///< noise call options
+    RendererServices::TraceOpt m_traceopt; ///< trace call options
 
     SimplePool<20 * 1024> m_closure_pool;
     SimplePool<64*1024> m_scratch_pool;
@@ -1430,36 +1623,16 @@ private:
     // Buffering of error messages and printfs
     typedef std::pair<ErrorHandler::ErrCode, std::string> ErrorItem;
     mutable std::vector<ErrorItem> m_buffered_errors;
+
+    // Calculate offset needed to align ClosureComponent's mem to a given alignment.
+    inline size_t closure_alignment_offset_calc(size_t alignment) {
+        return alignment == 1
+            ? 0
+            : alignment - (reckless_offsetof(ClosureComponent, mem) & (alignment - 1));
+    }
+
 };
 
-
-
-
-
-namespace Strings {
-    extern ustring camera, common, object, shader, screen, NDC;
-    extern ustring rgb, RGB, hsv, hsl, YIQ, XYZ, xyz, xyY;
-    extern ustring null, default_;
-    extern ustring label;
-    extern ustring sidedness, front, back, both;
-    extern ustring P, I, N, Ng, dPdu, dPdv, u, v, time, dtime, dPdtime, Ps;
-    extern ustring Ci;
-    extern ustring width, swidth, twidth, rwidth;
-    extern ustring blur, sblur, tblur, rblur;
-    extern ustring wrap, swrap, twrap, rwrap;
-    extern ustring black, clamp, periodic, mirror;
-    extern ustring firstchannel, fill, alpha;
-    extern ustring interp, closest, linear, cubic, smartcubic;
-    extern ustring perlin, uperlin, noise, snoise, pnoise, psnoise;
-    extern ustring cell, cellnoise, pcellnoise;
-    extern ustring genericnoise, genericpnoise, gabor, gabornoise, gaborpnoise;
-    extern ustring simplex, usimplex, simplexnoise, usimplexnoise;
-    extern ustring anisotropic, direction, do_filter, bandwidth, impulses;
-    extern ustring op_dowhile, op_for, op_while, op_exit;
-    extern ustring subimage, subimagename;
-    extern ustring missingcolor, missingalpha;
-    extern ustring uninitialized_string;
-}; // namespace Strings
 
 
 
@@ -1570,6 +1743,9 @@ public:
 
     /// Is the symbol a constant whose value is 1?
     static bool is_one (const Symbol &A);
+
+    /// For debugging, express A's constant value as a string.
+    static std::string const_value_as_string (const Symbol &A);
 
     /// Set up m_in_conditional[] to be true for all ops that are inside of
     /// conditionals, false for all unconditionally-executed ops,

@@ -53,6 +53,7 @@ ShadingContext::ShadingContext (ShadingSystemImpl &shadingsys,
 {
     m_shadingsys.m_stat_contexts += 1;
     m_threadinfo = threadinfo ? threadinfo : shadingsys.get_perthread_info ();
+    m_texture_thread_info = NULL;
 }
 
 
@@ -91,6 +92,9 @@ ShadingContext::execute (ShaderGroup &sgroup, ShaderGlobals &ssg, bool run)
        return false;
     }
 
+    int profile = shadingsys().m_profile;
+    OIIO::Timer timer (profile);
+
     // Allocate enough space on the heap
     size_t heap_size_needed = sgroup.llvm_groupdata_size();
     if (heap_size_needed > m_heap.size()) {
@@ -112,6 +116,9 @@ ShadingContext::execute (ShaderGroup &sgroup, ShaderGlobals &ssg, bool run)
     // Clear miscellaneous scratch space
     m_scratch_pool.clear ();
 
+    // Zero out stats for this execution
+    clear_runtime_stats ();
+
     if (run) {
         ssg.context = this;
         ssg.renderer = renderer();
@@ -124,6 +131,13 @@ ShadingContext::execute (ShaderGroup &sgroup, ShaderGlobals &ssg, bool run)
 
     // Process any queued up error messages, warnings, printfs from shaders
     process_errors ();
+
+    if (profile) {
+        record_runtime_stats ();   // Transfer runtime stats to the shadingsys
+        long long ticks = timer.ticks();
+        shadingsys().m_stat_total_shading_time_ticks += ticks;
+        sgroup.m_stat_total_shading_time_ticks += ticks;
+    }
 
     return true;
 }
@@ -179,29 +193,20 @@ ShadingContext::process_errors () const
 
 
 
-Symbol *
-ShadingContext::symbol (ustring name)
+const Symbol *
+ShadingContext::symbol (ustring layername, ustring symbolname) const
 {
-    ShaderGroup &sgroup (*attribs());
-    int nlayers = sgroup.nlayers ();
-    if (sgroup.llvm_compiled_version()) {
-        for (int layer = nlayers-1;  layer >= 0;  --layer) {
-            int symidx = sgroup[layer]->findsymbol (name);
-            if (symidx >= 0)
-                return sgroup[layer]->symbol (symidx);
-        }
-    }
-    return NULL;
+    return attribs()->find_symbol (layername, symbolname);
 }
 
 
 
-void *
-ShadingContext::symbol_data (Symbol &sym)
+const void *
+ShadingContext::symbol_data (const Symbol &sym) const
 {
-    ShaderGroup &sgroup (*attribs());
-    if (! sgroup.llvm_compiled_version())
-        return NULL;   // can't retrieve symbol if we didn't JIT and runit
+    const ShaderGroup &sgroup (*attribs());
+    if (! sgroup.optimized())
+        return NULL;   // can't retrieve symbol if we didn't optimize it
 
     if (sym.dataoffset() >= 0 && (int)m_heap.size() > sym.dataoffset()) {
         // lives on the heap

@@ -32,8 +32,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OSL/oslconfig.h"
 #include "OSL/llvm_util.h"
 
+#if OSL_LLVM_VERSION >= 35 && ! OSL_BUILD_CPP11
+#error "LLVM >= 3.5 requires USE_CPP11=1"
+#endif
+
 #ifndef USE_MCJIT
-#define USE_MCJIT 0
+  // MCJIT first appeared with LLVM 3.3
+# define USE_MCJIT (OSL_LLVM_VERSION>=33)
+#endif
+
+// MCJIT is mandatory for LLVM 3.6 and beyond, no more old JIT
+#define MCJIT_REQUIRED (USE_MCJIT >= 2 || OSL_LLVM_VERSION >= 36)
+
+#if MCJIT_REQUIRED
+# undef USE_MCJIT
+# define USE_MCJIT 2
 #endif
 
 #if OSL_LLVM_VERSION >= 33
@@ -46,8 +59,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # include <llvm/IR/LLVMContext.h>
 # include <llvm/IR/IRBuilder.h>
 # include <llvm/IR/DataLayout.h>
-# include <llvm/Linker.h>
+# if OSL_LLVM_VERSION >= 35
+#   include <llvm/Linker/Linker.h>
+#   include <llvm/Support/FileSystem.h>
+# else
+#   include <llvm/Linker.h>
+# endif
 # if OSL_LLVM_VERSION >= 34
+#   include <llvm/Support/ErrorOr.h>
 #   include <llvm/IR/LegacyPassManager.h>
 # else
 #   include <llvm/PassManager.h>
@@ -80,15 +99,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <llvm/ExecutionEngine/GenericValue.h>
 #if USE_MCJIT
 # include <llvm/ExecutionEngine/MCJIT.h>
-# include <llvm/ExecutionEngine/JIT.h>
-#else
-# include <llvm/ExecutionEngine/JIT.h>
 #endif
+#include <llvm/ExecutionEngine/JIT.h>
 #include <llvm/ExecutionEngine/JITMemoryManager.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/PrettyStackTrace.h>
+#if OSL_LLVM_VERSION >= 35
+#include <llvm/IR/Verifier.h>
+#else
 #include <llvm/Analysis/Verifier.h>
+#endif
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/IPO.h>
@@ -290,7 +311,7 @@ public:
 
 
 LLVM_Util::LLVM_Util (int debuglevel)
-    : m_debug(debuglevel), m_thread(NULL),
+    : m_debug(debuglevel), m_mcjit(MCJIT_REQUIRED), m_thread(NULL),
       m_llvm_context(NULL), m_llvm_module(NULL),
       m_builder(NULL), m_llvm_jitmm(NULL),
       m_current_function(NULL),
@@ -372,7 +393,12 @@ LLVM_Util::SetupLLVM ()
     // than opt-out, and the following variable was removed.
     llvm::DisablePrettyStackTrace = true;
 #endif
-    llvm::llvm_start_multithreaded ();  // enable it to be thread-safe
+
+#if OSL_LLVM_VERSION < 35
+    // enable it to be thread-safe
+    llvm::llvm_start_multithreaded ();
+#endif
+// new versions (>=3.5)don't need this anymore
 
 #if USE_MCJIT
     llvm::InitializeAllTargets();
@@ -386,12 +412,14 @@ LLVM_Util::SetupLLVM ()
 #endif
 
     if (debug()) {
+#if OSL_LLVM_VERSION >= 33
         for (llvm::TargetRegistry::iterator t = llvm::TargetRegistry::begin();
              t != llvm::TargetRegistry::end();  ++t) {
             std::cout << "Target: '" << t->getName() << "' "
                       << t->getShortDescription() << "\n";
         }
         std::cout << "\n";
+#endif
     }
 
     setup_done = true;
@@ -413,23 +441,51 @@ LLVM_Util::module_from_bitcode (const char *bitcode, size_t size,
 {
     if (err)
         err->clear();
+
+#if OSL_LLVM_VERSION >= 36
+    llvm::MemoryBufferRef buf =
+        llvm::MemoryBufferRef(llvm::StringRef(bitcode, size), name));
+#else /* LLVM 3.5 or earlier */
     llvm::MemoryBuffer* buf =
         llvm::MemoryBuffer::getMemBuffer (llvm::StringRef(bitcode, size), name);
+#endif
 
     // Load the LLVM bitcode and parse it into a Module
+    llvm::Module *m = NULL;
+
 #if USE_MCJIT /* Parse the whole thing now */
-    // FIXME!! Using MCJIT should not require unconditionally parsing the
-    // bitcode. But for now, when using getLazyBitcodeModule to lazily
-    // deserialize the bitcode, MCJIT is unable to find the called functions
-    // due to disagreement about whether a leading "_" is part of the symbol
-    // name.
-    llvm::Module *m = llvm::ParseBitcodeFile (buf, context(), err);
-    delete buf;
-#else
-    // Create a lazily deserialized IR module
-    llvm::Module *m = llvm::getLazyBitcodeModule (buf, context(), err);
-    // don't delete buf, the module has taken ownership of it
+    if (mcjit() || MCJIT_REQUIRED) {
+        // FIXME!! Using MCJIT should not require unconditionally parsing
+        // the bitcode. But for now, when using getLazyBitcodeModule to
+        // lazily deserialize the bitcode, MCJIT is unable to find the
+        // called functions due to disagreement about whether a leading "_"
+        // is part of the symbol name.
+  #if OSL_LLVM_VERSION >= 35
+        llvm::ErrorOr<llvm::Module *> ModuleOrErr = llvm::parseBitcodeFile (buf, context());
+        if (std::error_code EC = ModuleOrErr.getError())
+            if (err)
+              *err = EC.message();
+        m = ModuleOrErr.get();
+  #else
+        m = llvm::ParseBitcodeFile (buf, context(), err);
+  #endif
+  #if OSL_LLVM_VERSION < 36
+        delete buf;
+  #endif
+    }
+    else
 #endif
+    {
+        // Create a lazily deserialized IR module
+        // This can only be done for old JIT
+# if OSL_LLVM_VERSION >= 35
+        m = llvm::getLazyBitcodeModule (buf, context()).get();
+# else
+        m = llvm::getLazyBitcodeModule (buf, context(), err);
+# endif
+        // don't delete buf, the module has taken ownership of it
+    }
+
     // Debugging: print all functions in the module
     // for (llvm::Module::iterator i = m->begin(); i != m->end(); ++i)
     //     std::cout << "  found " << i->getName().data() << "\n";
@@ -470,7 +526,7 @@ LLVM_Util::make_jit_execengine (std::string *err)
                             .setErrorStr(err)
                             .setJITMemoryManager(jitmm())
                             .setOptLevel(llvm::CodeGenOpt::Default)
-                            .setUseMCJIT(USE_MCJIT)
+                            .setUseMCJIT(mcjit() || MCJIT_REQUIRED)
                             .create();
 #else
     m_llvm_exec = llvm::ExecutionEngine::createJIT (module(), err,
@@ -536,7 +592,11 @@ LLVM_Util::setup_optimization_passes (int optlevel)
 #if OSL_LLVM_VERSION >= 34
     m_llvm_func_passes = new llvm::legacy::FunctionPassManager(module());
     llvm::legacy::FunctionPassManager &fpm (*m_llvm_func_passes);
+# if OSL_LLVM_VERSION >= 35
+    fpm.add (new llvm::DataLayoutPass(module()));
+# else
     fpm.add (new llvm::DataLayout(module()));
+# endif
 #else
     m_llvm_func_passes = new llvm::FunctionPassManager(module());
     llvm::FunctionPassManager &fpm (*m_llvm_func_passes);
@@ -552,7 +612,11 @@ LLVM_Util::setup_optimization_passes (int optlevel)
 #if OSL_LLVM_VERSION >= 34
     m_llvm_module_passes = new llvm::legacy::PassManager;
     llvm::legacy::PassManager &mpm (*m_llvm_module_passes);
+# if OSL_LLVM_VERSION >= 35
+    mpm.add (new llvm::DataLayoutPass(module()));
+# else
     mpm.add (new llvm::DataLayout(module()));
+# endif
 #else
     m_llvm_module_passes = new llvm::PassManager;
     llvm::PassManager &mpm (*m_llvm_module_passes);
@@ -618,6 +682,73 @@ LLVM_Util::do_optimize ()
     m_llvm_module_passes->run (*module());
 #else
     m_llvm_module_passes->run (*module());
+#endif
+}
+
+
+
+void
+LLVM_Util::internalize_module_functions (const std::string &prefix,
+                                         const std::vector<std::string> &exceptions,
+                                         const std::vector<std::string> &moreexceptions)
+{
+    for (llvm::Module::iterator iter = module()->begin(); iter != module()->end(); iter++) {
+        llvm::Function *sym = (llvm::Function *)(iter);
+        std::string symname = sym->getName();
+        if (prefix.size() && ! OIIO::Strutil::starts_with(symname, prefix))
+            continue;
+        bool needed = false;
+        for (size_t i = 0, e = exceptions.size(); i < e; ++i)
+            if (sym->getName() == exceptions[i]) {
+                needed = true;
+                // std::cout << "    necessary LLVM module function "
+                //           << sym->getName().str() << "\n";
+                break;
+            }
+        for (size_t i = 0, e = moreexceptions.size(); i < e; ++i)
+            if (sym->getName() == moreexceptions[i]) {
+                needed = true;
+                // std::cout << "    necessary LLVM module function "
+                //           << sym->getName().str() << "\n";
+                break;
+            }
+        if (!needed) {
+            llvm::GlobalValue::LinkageTypes linkage = sym->getLinkage();
+            // std::cout << "    unnecessary LLVM module function "
+            //           << sym->getName().str() << " linkage " << int(linkage) << "\n";
+            if (linkage == llvm::GlobalValue::ExternalLinkage)
+                sym->setLinkage (llvm::GlobalValue::LinkOnceODRLinkage);
+            // ExternalLinkage means it's potentially externally callable,
+            // and so will definitely have code generated.
+            // LinkOnceODRLinkage keeps one copy so it can be inlined or
+            // called internally to the module, but allows it to be
+            // discarded otherwise.
+        }
+    }
+#if 0
+    // I don't think we need to worry about linkage of global symbols, but
+    // here is an example of how to iterate over the globals anyway.
+    for (llvm::Module::global_iterator iter = module()->global_begin(); iter != module()->global_end(); iter++) {
+        llvm::GlobalValue *sym = llvm::dyn_cast<llvm::GlobalValue>(iter);
+        if (!sym)
+            continue;
+        std::string symname = sym->getName();
+        if (prefix.size() && ! OIIO::Strutil::starts_with(symname, prefix))
+            continue;
+        bool needed = false;
+        for (size_t i = 0, e = exceptions.size(); i < e; ++i)
+            if (sym->getName() == exceptions[i]) {
+                needed = true;
+                break;
+            }
+        if (! needed) {
+            llvm::GlobalValue::LinkageTypes linkage = sym->getLinkage();
+            // std::cout << "    unnecessary LLVM global " << sym->getName().str()
+            //           << " linkage " << int(linkage) << "\n";
+            if (linkage == llvm::GlobalValue::ExternalLinkage)
+                f->setLinkage (llvm::GlobalValue::LinkOnceODRLinkage);
+        }
+    }
 #endif
 }
 
@@ -893,6 +1024,8 @@ LLVM_Util::constant_bool (bool i)
 llvm::Value *
 LLVM_Util::constant_ptr (void *p, llvm::PointerType *type)
 {
+    if (! type)
+        type = type_void_ptr();
     return builder().CreateIntToPtr (constant (size_t (p)), type, "const pointer");
 }
 
@@ -907,19 +1040,6 @@ LLVM_Util::constant (ustring s)
                                llvm::APInt(bits,size_t(s.c_str()), true));
     // Then cast the int to a char*.
     return builder().CreateIntToPtr (str, type_string(), "ustring constant");
-}
-
-
-
-llvm::Value *
-LLVM_Util::constant_ptr (void *p)
-{
-    // Create a const size_t with the address
-    size_t bits = sizeof(size_t)*8;
-    llvm::Value *str = llvm::ConstantInt::get (context(),
-                               llvm::APInt(bits,size_t(p), true));
-    // Then cast the size_t to a char*.
-    return builder().CreateIntToPtr (str, type_void_ptr());
 }
 
 
@@ -1471,7 +1591,11 @@ void
 LLVM_Util::write_bitcode_file (const char *filename, std::string *err)
 {
     std::string local_error;
+#if OSL_LLVM_VERSION >= 35
+    llvm::raw_fd_ostream out (filename, err ? *err : local_error, llvm::sys::fs::F_None);
+#else
     llvm::raw_fd_ostream out (filename, err ? *err : local_error);
+#endif
     llvm::WriteBitcodeToFile (module(), out);
 }
 
@@ -1502,6 +1626,13 @@ LLVM_Util::func_is_empty (llvm::Function *func)
     return func->size() == 1 // func has just one basic block
         && func->front().size() == 1;  // the block has one instruction,
                                        ///   presumably the ret
+}
+
+
+std::string
+LLVM_Util::func_name (llvm::Function *func)
+{
+    return func->getName().str();
 }
 
 
