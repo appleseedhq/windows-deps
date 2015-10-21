@@ -237,22 +237,29 @@ compare_value (ImageBuf::ConstIterator<BUFT,float> &a, int chan,
                float &maxval, double &batcherror, double &batch_sqrerror,
                bool &failed, bool &warned, float failthresh, float warnthresh)
 {
+    if (!isfinite(aval) || !isfinite(bval)) {
+        if (isnan(aval) == isnan(bval) && isinf(aval) == isinf(bval))
+            return; // NaN may match NaN, Inf may match Inf
+    }
     maxval = std::max (maxval, std::max (aval, bval));
     double f = fabs (aval - bval);
     batcherror += f;
     batch_sqrerror += f*f;
-    if (f > result.maxerror) {
+    // We use the awkward '!(a<=threshold)' construct so that we have
+    // failures when f is a NaN (since all comparisons involving NaN will
+    // return false).
+    if (!(f <= result.maxerror)) {
         result.maxerror = f;
         result.maxx = a.x();
         result.maxy = a.y();
         result.maxz = a.z();
         result.maxc = chan;
     }
-    if (! warned && f > warnthresh) {
+    if (! warned && !(f <= warnthresh)) {
         ++result.nwarn;
         warned = true;
     }
-    if (! failed && f > failthresh) {
+    if (! failed && !(f <= failthresh)) {
         ++result.nfail;
         failed = true;
     }
@@ -682,7 +689,7 @@ namespace {
 
 std::string
 simplePixelHashSHA1 (const ImageBuf &src,
-                     const std::string & extrainfo, ROI roi)
+                     string_view extrainfo, ROI roi)
 {
     if (! roi.defined())
         roi = get_roi (src.spec());
@@ -719,7 +726,7 @@ simplePixelHashSHA1 (const ImageBuf &src,
     
     // If extra info is specified, also include it in the sha computation
     if (!extrainfo.empty())
-        SHA1_Update (&sha, extrainfo.c_str(), extrainfo.size());
+        SHA1_Update (&sha, extrainfo.data(), extrainfo.size());
 
     unsigned char md[SHA_DIGEST_LENGTH];
     char hash_digest[2*SHA_DIGEST_LENGTH+1];
@@ -750,7 +757,7 @@ simplePixelHashSHA1 (const ImageBuf &src,
     
     // If extra info is specified, also include it in the sha computation
     if (!extrainfo.empty()) {
-        sha.Update ((const unsigned char*) extrainfo.c_str(), extrainfo.size());
+        sha.Update ((const unsigned char*) extrainfo.data(), extrainfo.size());
     }
     
     sha.Final ();
@@ -784,7 +791,7 @@ sha1_hasher (const ImageBuf *src, ROI roi, int blocksize,
 
 std::string
 ImageBufAlgo::computePixelHashSHA1 (const ImageBuf &src,
-                                    const std::string & extrainfo,
+                                    string_view extrainfo,
                                     ROI roi, int blocksize, int nthreads)
 {
     if (! roi.defined())

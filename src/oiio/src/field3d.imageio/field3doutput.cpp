@@ -71,7 +71,6 @@ private:
     int m_subimage;       ///< What subimage/field are we writing now
     int m_nsubimages;     ///< How many subimages will be in the file?
     bool m_writepending;  ///< Is there an unwritten current layer?
-    std::vector<layerrecord> Xm_layers;
     std::vector<ImageSpec> m_specs;
     std::vector<unsigned char> m_scratch; ///< Scratch space for us to use
     FieldRes::Ptr m_field;
@@ -82,7 +81,6 @@ private:
         m_output = NULL;
         m_subimage = -1;
         m_nsubimages = 0;
-        // m_layers.clear ();
         m_specs.clear ();
         m_writepending = false;
     }
@@ -153,17 +151,15 @@ Field3DOutput::~Field3DOutput ()
 bool
 Field3DOutput::supports (const std::string &feature) const
 {
-    if (feature == "tiles")
-        return true;
-    if (feature == "multiimage")
-        return true;
-    if (feature == "random_access")
-        return true;
+    return (feature == "tiles"
+         || feature == "multiimage"
+         || feature == "random_access"
+         || feature == "arbitrary_metadata"
+         || feature == "exif"   // Because of arbitrary_metadata
+         || feature == "iptc"); // Because of arbitrary_metadata
 
     // FIXME: we could support "empty"
-
-    // Everything else, we either don't support or don't know about
-    return false;
+    // FIXME: newer releases of Field3D support mipmap
 }
 
 

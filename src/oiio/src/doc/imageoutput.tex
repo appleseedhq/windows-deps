@@ -66,6 +66,42 @@ to a file:
   \end{code}
 \end{itemize}
 
+\subsection*{What happens when the file format doesn't support the spec?}
+
+The {\cf open()} call will fail (return {\cf false} and set an appropriate
+error message) if the output format cannot accommodate what is requested by
+the \ImageSpec. This includes:
+\begin{itemize}
+\item Dimensions (width, height, or number of channels) exceeding the limits
+  supported by the file format.\footnote{One exception to the rule about
+  number of channels is that a file format that supports only RGB, but not
+  alpha, is permitted to silently drop the alpha channel without considering
+  that to be an error.}
+\item Volumetric (depth $> 1$) if the format does not support volumetric
+  data.
+\item Tile size $>1$ if the format does not support tiles.
+\item Multiple subimages or MIP levels if not supported by the format.
+\end{itemize}
+
+
+However, several other mismatches between requested \ImageSpec and file
+format capabilities will be silently ignored, allowing {\cf open()} to
+succeed:
+
+\begin{itemize}
+\item If the pixel data format is not supported (for example, a request for
+  {\cf half} pixels when writing a JPEG/JFIF file), the format writer
+  may substitute another data format (generally, whichever commonly-used
+  data format supported by the file type will result in the least reduction
+  of precision or range).
+\item If the \ImageSpec requests different per-channel data formats, but
+  the format supports only a single format for all channels, it may just
+  choose the most precise format requested and use it for all channels.
+\item If the file format does not support arbitrarily-named channels, the
+  channel names may be lost when saving the file.
+\item Any other metadata in the \ImageSpec may be summarily dropped if not
+  supported by the file format.
+\end{itemize}
 
 
 \section{Advanced Image Output}
@@ -1332,6 +1368,9 @@ by this query:
   image/subimage (MIP-map levels)?
 \item[\rm \qkw{volumes}] Does this format support ``3D'' pixel arrays
   (a.k.a.\ volume images)?
+\item[\rm \qkw{alpha}] Does this format support an alpha channel?
+\item[\rm \qkw{nchannels}] Does this format support an arbitrary number
+  of channels (beyond RGBA)?
 \item[\rm \qkw{rewrite}] Does this plugin allow the same scanline or
   tile to be sent more than once?  Generally this is true for plugins
   that implement some sort of interactive display, rather than a saved
@@ -1358,6 +1397,14 @@ by this query:
 \item[\rm \qkw{deepdata}] Does the image format allow ``deep'' data
   consisting of multiple values per pixel (and potentially a differing
   number of values from pixel to pixel)?
+\item[\rm \qkw{arbitrary_metadata}] Does the image file format allow
+  metadata with arbitrary names (and either arbitrary, or a reasonable set
+  of, data types)? (Versus the file format supporting only a fixed list of
+  specific metadata names/values?
+\item[\rm \qkw{exif}] Does the image file format support Exif camera data
+  (either specifically, or via arbitrary named metadata)?
+\item[\rm \qkw{iptc}] Does the image file format support IPTC data
+  (either specifically, or via arbitrary named metadata)?
 \end{description}
 
 \noindent This list of queries may be extended in future releases.
@@ -1470,10 +1517,10 @@ Write the tile with $(x,y,z)$ as the upper left corner.  For 2D
 non-volume images, $z$ is ignored.  The three stride values give the
 distance (in bytes) between successive pixels, scanlines, and volumetric
 slices, respectively.  Strides set to the special value {\kw AutoStride}
-imply contiguous data, i.e., \\
-\spc {\kw xstride} $=$ {\kw spec.nchannels*format.size()} \\
-\spc {\kw ystride} $=$ {\kw xstride*spec.tile_width} \\
-\spc {\kw zstride} $=$ {\kw ystride*spec.tile_height} \\
+imply contiguous data in the shape of a full tile, i.e., \\
+\spc {\kw xstride} $=$ {\kw spec.nchannels * format.size()} \\
+\spc {\kw ystride} $=$ {\kw xstride * spec.tile_width} \\
+\spc {\kw zstride} $=$ {\kw ystride * spec.tile_height} \\
 This method automatically converts the
 data from the specified {\kw format} to the actual output format of the
 file. 
@@ -1505,10 +1552,11 @@ to already be in the native format (including per-channel formats, if applicable
 The stride values
 give the data spacing of adjacent pixels, scanlines, and volumetric
 slices, respectively (measured in bytes).  Strides set to the special
-value of {\kw AutoStride} imply contiguous data, i.e., \\
+value of {\kw AutoStride} imply contiguous data in the shape of the
+region specified, i.e., \\
 \spc {\kw xstride} $=$ {\kw spec.nchannels * spec.pixel_size()} \\
-\spc {\kw ystride} $=$ {\kw xstride * (xend-xbegin)} \\
-\spc {\kw zstride} $=$ {\kw ystride * (yend-ybegin)} \\
+\spc {\kw ystride} $=$ {\kw xstride * (xend - xbegin)} \\
+\spc {\kw zstride} $=$ {\kw ystride * (yend - ybegin)} \\
 The data for those tiles is assumed to be in the usual image order, as if
 it were just one big tile, and not ``paded'' to a whole multiple of the tile size.
 

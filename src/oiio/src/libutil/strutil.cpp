@@ -605,13 +605,14 @@ Strutil::parse_int (string_view &str, int &val, bool eat)
     if (! p.size())
         return false;
     const char *end = p.begin();
-    val = strtol (p.begin(), (char**)&end, 10);
+    int v = strtol (p.begin(), (char**)&end, 10);
     if (end == p.begin())
         return false;  // no integer found
     if (eat) {
         p.remove_prefix (end-p.begin());
         str = p;
     }
+    val = v;
     return true;
 }
 
@@ -625,13 +626,14 @@ Strutil::parse_float (string_view &str, float &val, bool eat)
     if (! p.size())
         return false;
     const char *end = p.begin();
-    val = (float) strtod (p.begin(), (char**)&end);
+    float v = (float) strtod (p.begin(), (char**)&end);
     if (end == p.begin())
         return false;  // no integer found
     if (eat) {
         p.remove_prefix (end-p.begin());
         str = p;
     }
+    val = v;
     return true;
 }
 
@@ -639,6 +641,15 @@ Strutil::parse_float (string_view &str, float &val, bool eat)
 
 bool
 Strutil::parse_string (string_view &str, string_view &val, bool eat)
+{
+    return parse_string (str, val, eat, DeleteQuotes);
+}
+
+
+
+bool
+Strutil::parse_string (string_view &str, string_view &val,
+                       bool eat, QuoteBehavior keep_quotes)
 {
     string_view p = str;
     skip_whitespace (p);
@@ -655,7 +666,14 @@ Strutil::parse_string (string_view &str, string_view &val, bool eat)
         ++end;
         escaped = false;
     }
-    val = string_view (begin, size_t(end-begin));
+    if (quoted && keep_quotes == KeepQuotes) {
+        if (*end == '\"')
+            val = string_view (begin-1, size_t(end-begin)+2);
+        else
+            val = string_view (begin-1, size_t(end-begin)+1);
+    } else {
+        val = string_view (begin, size_t(end-begin));
+    }
     p.remove_prefix (size_t(end-begin));
     if (quoted && p.size() && p[0] == '\"')
         p.remove_prefix (1);  // eat closing quote

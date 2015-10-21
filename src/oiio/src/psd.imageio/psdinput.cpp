@@ -50,6 +50,10 @@ public:
     PSDInput ();
     virtual ~PSDInput () { close(); }
     virtual const char * format_name (void) const { return "psd"; }
+    virtual bool supports (const std::string &feature) const {
+        return (feature == "exif"
+             || feature == "iptc");
+    }
     virtual bool open (const std::string &name, ImageSpec &newspec);
     virtual bool open (const std::string &name, ImageSpec &newspec,
                        const ImageSpec &config);
@@ -1528,8 +1532,20 @@ PSDInput::read_rle_lengths (uint32_t height, std::vector<uint32_t> &rle_lengths)
 bool
 PSDInput::load_global_mask_info ()
 {
+    if (!m_layer_mask_info.length)
+        return true;
+
     m_file.seekg (m_layer_mask_info.layer_info.end);
+    uint64_t remaining = m_layer_mask_info.end - m_file.tellg();
     uint32_t length;
+
+    // This section should be at least 17 bytes, but some files lack
+    // global mask info and additional layer info, not convered in the spec
+    if (remaining < 17) {
+        m_file.seekg(m_layer_mask_info.end);
+        return true;
+    }
+
     read_bige<uint32_t> (length);
     std::streampos start = m_file.tellg ();
     std::streampos end = start + (std::streampos)length;
@@ -1555,6 +1571,9 @@ PSDInput::load_global_mask_info ()
 bool
 PSDInput::load_global_additional ()
 {
+    if (!m_layer_mask_info.length)
+        return true;
+
     char signature[4];
     char key[4];
     uint64_t length;
@@ -1564,7 +1583,8 @@ PSDInput::load_global_additional ()
         if (!check_io ())
             return false;
 
-        if (std::memcmp (signature, "8BIM", 4) != 0) {
+        // the spec supports 8BIM, and 8B64 (presumably for psb support)
+        if (std::memcmp (signature, "8BIM", 4) != 0 && std::memcmp (signature, "8B64", 4) != 0) {
             error ("[Global Additional Layer Info] invalid signature");
             return false;
         }
@@ -1589,6 +1609,8 @@ PSDInput::load_global_additional ()
         // skip it for now
         m_file.seekg (length, std::ios::cur);
     }
+    // finished with the layer and mask information section, seek to the end
+    m_file.seekg (m_layer_mask_info.end);
     return check_io ();
 }
 

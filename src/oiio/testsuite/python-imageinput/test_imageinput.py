@@ -68,9 +68,11 @@ def poor_mans_iinfo (filename) :
 
 # Read the whole image (using either read_image, read_scanlines, or
 # read_tiles, depending on the 'method' argument) and print a few 
-# pixel values ot prove that we have the right data.
+# pixel values ot prove that we have the right data. Read nchannels
+# channels, if nonzero, otherwise read the full channel range in the
+# file.
 def test_readimage (filename, sub=0, mip=0, type=oiio.UNKNOWN,
-                    method="image") :
+                    method="image", nchannels=0) :
     input = oiio.ImageInput.open (filename)
     if not input :
         print 'Could not open "' + filename + '"'
@@ -80,18 +82,20 @@ def test_readimage (filename, sub=0, mip=0, type=oiio.UNKNOWN,
     print 'Opened "' + filename + '" as a ' + input.format_name()
     input.seek_subimage (sub, mip)
     spec = input.spec ()
+    if nchannels == 0 or method == "image" :
+        nchannels = spec.nchannels
     if type == oiio.UNKNOWN :
         type = spec.format.basetype
     if method == "image" :
         data = input.read_image (type)
     elif method == "scanlines" :
         data = input.read_scanlines (spec.y, spec.y+spec.height, spec.z,
-                                     0, spec.nchannels, type)
+                                     0, nchannels, type)
     elif method == "tiles" :
         data = input.read_tiles (spec.x, spec.x+spec.width,
                                  spec.y, spec.y+spec.height,
                                  spec.z, spec.z+spec.depth,
-                                 0, spec.nchannels, type)
+                                 0, nchannels, type)
     else :
         print "Unknown method:", method
         return
@@ -100,14 +104,14 @@ def test_readimage (filename, sub=0, mip=0, type=oiio.UNKNOWN,
         return
     # print the first, last, and middle pixel values
     (x,y) = (spec.x, spec.y)
-    i = ((y-spec.y)*spec.width + (x-spec.x)) * spec.nchannels
-    print "@", (x,y), "=", data[i:i+spec.nchannels]
+    i = ((y-spec.y)*spec.width + (x-spec.x)) * nchannels
+    print "@", (x,y), "=", data[i:i+nchannels]
     (x,y) = (spec.x+spec.width-1, spec.y+spec.height-1)
-    i = ((y-spec.y)*spec.width + (x-spec.x)) * spec.nchannels
-    print "@", (x,y), "=", data[i:i+spec.nchannels]
+    i = ((y-spec.y)*spec.width + (x-spec.x)) * nchannels
+    print "@", (x,y), "=", data[i:i+nchannels]
     (x,y) = (spec.x+spec.width/2, spec.y+spec.height/2)
-    i = ((y-spec.y)*spec.width + (x-spec.x)) * spec.nchannels
-    print "@", (x,y), "=", data[i:i+spec.nchannels]
+    i = ((y-spec.y)*spec.width + (x-spec.x)) * nchannels
+    print "@", (x,y), "=", data[i:i+nchannels]
     input.close ()
     print
 
@@ -187,7 +191,7 @@ try:
     # test basic opening and being able to read the spec
     poor_mans_iinfo ("badname.tif")
     poor_mans_iinfo ("../../../../../oiio-images/tahoe-gps.jpg")
-    poor_mans_iinfo ("../../../../../oiio-images/grid.tx")
+    poor_mans_iinfo ("../common/textures/grid.tx")
 
     # test readimage
     print "Testing read_image:"
@@ -195,6 +199,9 @@ try:
     # again, force a float buffer
     test_readimage ("../../../../../oiio-images/tahoe-gps.jpg",
                     type=oiio.FLOAT)
+    # Test read of partial channels
+    test_readimage ("../../../../../oiio-images/tahoe-gps.jpg",
+                    method="scanlines", nchannels=1)
 
     # test readscanline
     print "Testing read_scanline:"
@@ -202,7 +209,7 @@ try:
 
     # test readtile
     print "Testing read_tile:"
-    test_readtile ("../../../../../oiio-images/grid.tx")
+    test_readtile ("../common/textures/grid.tx")
 
     # test readscanlines
     print "Testing read_scanlines:"
@@ -211,7 +218,7 @@ try:
 
     # test readtiles
     print "Testing read_tiles:"
-    test_readimage ("../../../../../oiio-images/grid.tx",
+    test_readimage ("../common/textures/grid.tx",
                     method="tiles")
 
     print "Done."

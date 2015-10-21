@@ -122,7 +122,7 @@ static UstringTable & ustring_table ()
     return table;
 }
 
-};          // end anonymous namespace
+}           // end anonymous namespace
 
 
 // Put a ustring in the global scope to force at least one call to
@@ -131,7 +131,7 @@ static UstringTable & ustring_table ()
 // the ustring_table statically declared within make_unique.
 namespace pvt {
 static ustring ustring_force_make_unique_call("");
-};
+}
 
 
 
@@ -166,7 +166,7 @@ struct libcpp_string__long {
 enum {libcpp_string__min_cap = (sizeof(libcpp_string__long) - 1)/sizeof(std::string::value_type) > 2 ?
                                (sizeof(libcpp_string__long) - 1)/sizeof(std::string::value_type) : 2};
 
-};
+}
 
 
 
@@ -183,7 +183,12 @@ ustring::TableRep::TableRep (string_view strref)
     // the std::string to make it point to our chars!  In such a case, the
     // destructor will be careful not to allow a deallocation.
 
-#if defined(__GNUC__) && !defined(_LIBCPP_VERSION)
+#if defined(__GNUC__) && !defined(_LIBCPP_VERSION) && defined(_GLIBCXX_USE_CXX11_ABI) && _GLIBCXX_USE_CXX11_ABI
+    // NEW gcc ABI
+    // FIXME -- do something smart with this.
+
+#elif defined(__GNUC__) && !defined(_LIBCPP_VERSION)
+    // OLD gcc ABI
     // It turns out that the first field of a gcc std::string is a pointer
     // to the characters within the basic_string::_Rep.  We merely redirect
     // that pointer, though for std::string to function properly, the chars

@@ -264,7 +264,8 @@ bool OIIO_API cut (ImageBuf &dst, const ImageBuf &src,
 /// Copy into dst, beginning at (xbegin,ybegin,zbegin), the pixels of
 /// src described by srcroi.  If srcroi is ROI::All(), the entirety of src
 /// will be used.  It will copy into channels [chbegin...], as many
-/// channels as are described by srcroi.
+/// channels as are described by srcroi. Pixels or channels of dst outside
+/// the range of roi will not be altered.
 ///
 /// The nthreads parameter specifies how many threads (potentially) may
 /// be used, but it's not a guarantee.  If nthreads == 0, it will use
@@ -514,18 +515,6 @@ bool OIIO_API clamp (ImageBuf &dst, const ImageBuf &src,
                      bool clampalpha01 = false,
                      ROI roi = ROI::All(), int nthreads = 0);
 
-/// DEPRECATED (1.3) in-place version
-bool OIIO_API clamp (ImageBuf &dst, 
-                     const float *min=NULL, const float *max=NULL,
-                     bool clampalpha01 = false,
-                     ROI roi = ROI::All(), int nthreads = 0);
-
-/// DEPRECATED (1.3) in-place version
-bool OIIO_API clamp (ImageBuf &dst, 
-                     float min=-std::numeric_limits<float>::max(),
-                     float max=std::numeric_limits<float>::max(),
-                     bool clampalpha01 = false,
-                     ROI roi = ROI::All(), int nthreads = 0);
 
 /// For all pixels within the designated region, set dst = A + B.
 /// All three images must have the same number of channels.
@@ -583,13 +572,6 @@ bool OIIO_API add (ImageBuf &dst, const ImageBuf &A, const float *B,
 /// Return true on success, false on error (with an appropriate error
 /// message set in dst).
 bool OIIO_API add (ImageBuf &dst, const ImageBuf &A, float B,
-                   ROI roi=ROI::All(), int nthreads=0);
-
-/// DEPRECATED as of 1.3 -- in-place add
-bool OIIO_API add (ImageBuf &dst, float val,
-                   ROI roi=ROI::All(), int nthreads=0);
-/// DEPRECATED as of 1.3 -- in-place add
-bool OIIO_API add (ImageBuf &dst, const float *val,
                    ROI roi=ROI::All(), int nthreads=0);
 
 
@@ -688,10 +670,6 @@ bool OIIO_API mul (ImageBuf &dst, const ImageBuf &A, const ImageBuf &B,
 bool OIIO_API mul (ImageBuf &dst, const ImageBuf &A, float B,
                    ROI roi=ROI::All(), int nthreads=0);
 
-/// DEPRECATED in-place version. (1.3)
-bool OIIO_API mul (ImageBuf &dst, float val,
-                   ROI roi=ROI::All(), int nthreads=0);
-
 /// For all pixels and channels of dst within region roi (defaulting to
 /// all the defined pixels of dst), set dst = A * B.
 ///
@@ -706,10 +684,6 @@ bool OIIO_API mul (ImageBuf &dst, float val,
 /// Return true on success, false on error (with an appropriate error
 /// message set in dst).
 bool OIIO_API mul (ImageBuf &dst, const ImageBuf &A, const float *B,
-                   ROI roi=ROI::All(), int nthreads=0);
-
-/// DEPRECATED in-place version. (1.3)
-bool OIIO_API mul (ImageBuf &dst, const float *val,
                    ROI roi=ROI::All(), int nthreads=0);
 
 
@@ -802,14 +776,6 @@ bool OIIO_API rangeexpand (ImageBuf &dst, const ImageBuf &src,
                            bool useluma = false,
                            ROI roi = ROI::All(), int nthreads=0);
 
-/// DEPRECATED in-place version (1.3)
-bool OIIO_API rangecompress (ImageBuf &dst, bool useluma = false,
-                             ROI roi = ROI::All(), int nthreads=0);
-
-/// DEPRECATED in-place version (1.3)
-bool OIIO_API rangeexpand (ImageBuf &dst, bool useluma = false,
-                           ROI roi = ROI::All(), int nthreads=0);
-
 
 /// Copy pixels within the ROI from src to dst, applying a color transform.
 ///
@@ -828,7 +794,7 @@ bool OIIO_API rangeexpand (ImageBuf &dst, bool useluma = false,
 /// Return true on success, false on error (with an appropriate error
 /// message set in dst).
 bool OIIO_API colorconvert (ImageBuf &dst, const ImageBuf &src,
-                            const char *from, const char *to,
+                            string_view from, string_view to,
                             bool unpremult=false,
                             ROI roi=ROI::All(), int nthreads=0);
 
@@ -850,9 +816,9 @@ bool OIIO_API colorconvert (ImageBuf &dst, const ImageBuf &src,
 /// Return true on success, false on error (with an appropriate error
 /// message set in dst).
 bool OIIO_API ociolook (ImageBuf &dst, const ImageBuf &src,
-                        const char *looks, const char *from, const char *to,
+                        string_view looks, string_view from, string_view to,
                         bool unpremult=false, bool inverse=false,
-                        const char *key=NULL, const char *value=NULL,
+                        string_view key="", string_view value="",
                         ROI roi=ROI::All(), int nthreads=0);
 
 /// Copy pixels within the ROI from src to dst, applying an OpenColorIO
@@ -875,10 +841,10 @@ bool OIIO_API ociolook (ImageBuf &dst, const ImageBuf &src,
 /// Return true on success, false on error (with an appropriate error
 /// message set in dst).
 bool OIIO_API ociodisplay (ImageBuf &dst, const ImageBuf &src,
-                        const char *display, const char *view,
-                        const char *from=NULL, const char *looks=NULL,
+                        string_view display, string_view view,
+                        string_view from="", string_view looks="",
                         bool unpremult=false,
-                        const char *key=NULL, const char *value=NULL,
+                        string_view key="", string_view value="",
                         ROI roi=ROI::All(), int nthreads=0);
 
 /// Copy pixels within the ROI from src to dst, applying a color transform.
@@ -930,9 +896,6 @@ bool OIIO_API colorconvert (float *color, int nchannels,
 bool OIIO_API unpremult (ImageBuf &dst, const ImageBuf &src,
                          ROI roi = ROI::All(), int nthreads = 0);
 
-/// DEPRECATED (1.3) in-place version
-bool OIIO_API unpremult (ImageBuf &dst, ROI roi = ROI::All(), int nthreads = 0);
-
 /// Copy pixels from dst to src, and in the process multiply all color
 /// channels (those not alpha or z) by the alpha value, to "-premultiply"
 /// them.  This presumes that the image starts off as "unassociated alpha"
@@ -953,9 +916,6 @@ bool OIIO_API unpremult (ImageBuf &dst, ROI roi = ROI::All(), int nthreads = 0);
 /// message set in dst).
 bool OIIO_API premult (ImageBuf &dst, const ImageBuf &src,
                        ROI roi = ROI::All(), int nthreads = 0);
-
-/// DEPRECATED (1.3) in-place version
-bool OIIO_API premult (ImageBuf &dst, ROI roi = ROI::All(), int nthreads = 0);
 
 
 
@@ -1172,7 +1132,7 @@ OIIO_API ROI nonzero_region (const ImageBuf &src,
 /// count).  The 'extrainfo' provides additional text that will be
 /// incorporated into the hash.
 std::string OIIO_API computePixelHashSHA1 (const ImageBuf &src,
-                                           const std::string &extrainfo = "",
+                                           string_view extrainfo = "",
                                            ROI roi = ROI::All(),
                                            int blocksize = 0, int nthreads=0);
 
@@ -1290,7 +1250,7 @@ bool OIIO_API rotate (ImageBuf &dst, const ImageBuf &src,
 /// Return true on success, false on error (with an appropriate error
 /// message set in dst).
 bool OIIO_API resize (ImageBuf &dst, const ImageBuf &src,
-                      const std::string &filtername = "",
+                      string_view filtername = "",
                       float filterwidth = 0.0f,
                       ROI roi = ROI::All(), int nthreads = 0);
 
@@ -1382,7 +1342,7 @@ bool OIIO_API convolve (ImageBuf &dst, const ImageBuf &src,
 /// don't scale with the width, and are therefore probably less useful
 /// in most cases.
 /// 
-bool OIIO_API make_kernel (ImageBuf &dst, const char *name,
+bool OIIO_API make_kernel (ImageBuf &dst, string_view name,
                            float width, float height, float depth = 1.0f,
                            bool normalize = true);
 
@@ -1415,7 +1375,7 @@ bool OIIO_API make_kernel (ImageBuf &dst, const char *name,
 /// Return true on success, false on error (with an appropriate error
 /// message set in dst).
 bool OIIO_API unsharp_mask (ImageBuf &dst, const ImageBuf &src,
-                            const char *kernel="gaussian", float width = 3.0f,
+                            string_view kernel="gaussian", float width = 3.0f,
                             float contrast = 1.0f, float threshold = 0.0f,
                             ROI roi = ROI::All(), int nthreads = 0);
 
@@ -1563,11 +1523,6 @@ bool OIIO_API fixNonFinite (ImageBuf &dst, const ImageBuf &src,
                             int *pixelsFixed = NULL,
                             ROI roi = ROI::All(), int nthreads = 0);
 
-/// DEPRECATED (1.3) in-place version
-bool OIIO_API fixNonFinite (ImageBuf &dst, NonFiniteFixMode mode=NONFINITE_BOX3,
-                            int *pixelsFixed = NULL,
-                            ROI roi = ROI::All(), int nthreads = 0);
-
 
 /// Fill the holes using a push-pull technique.  The src image must have
 /// an alpha channel.  The dst image will end up with a copy of src, but
@@ -1675,8 +1630,8 @@ bool OIIO_API zover (ImageBuf &dst, const ImageBuf &A, const ImageBuf &B,
 /// supplied (and is expected to point to a float array of length at
 /// least equal to R.spec().nchannels).
 bool OIIO_API render_text (ImageBuf &dst, int x, int y,
-                           const std::string &text,
-                           int fontsize=16, const std::string &fontname="",
+                           string_view text,
+                           int fontsize=16, string_view fontname="",
                            const float *textcolor = NULL);
 
 
@@ -1771,9 +1726,12 @@ enum OIIO_API MakeTextureMode {
 ///                           If nonzero, change RGB images which have 
 ///                              R==G==B everywhere to single-channel 
 ///                              grayscale (default: 0).
-///    maketx:opaquedetect (int)
+///    maketx:opaque_detect (int)
 ///                           If nonzero, drop the alpha channel if alpha
 ///                              is 1.0 in all pixels (default: 0).
+///    maketx:compute_average (int)
+///                           If nonzero, compute and store the average
+///                              color of the texture (default: 1).
 ///    maketx:unpremult (int) If nonzero, unpremultiply color by alpha before
 ///                              color conversion, then multiply by alpha
 ///                              after color conversion (default: 0).
@@ -1802,6 +1760,10 @@ enum OIIO_API MakeTextureMode {
 ///                              values to zero. This reduces ringing when
 ///                              using filters with negative lobes on HDR
 ///                              images.
+///    maketx:sharpen (float) If nonzero, sharpens details when creating
+///                              MIPmap levels. The amount is the contrast
+///                              matric. The default is 0, meaning no
+///                              sharpening.
 ///    maketx:nchannels (int) If nonzero, will specify how many channels
 ///                              the output texture should have, padding with
 ///                              0 values or dropping channels, if it doesn't
@@ -1852,15 +1814,15 @@ enum OIIO_API MakeTextureMode {
 ///
 bool OIIO_API make_texture (MakeTextureMode mode,
                             const ImageBuf &input,
-                            const std::string &outputfilename,
+                            string_view outputfilename,
                             const ImageSpec &config,
                             std::ostream *outstream = NULL);
 
 /// Version of make_texture that starts with a filename and reads the input
 /// from that file, rather than being given an ImageBuf directly.
 bool OIIO_API make_texture (MakeTextureMode mode,
-                            const std::string &filename,
-                            const std::string &outputfilename,
+                            string_view filename,
+                            string_view outputfilename,
                             const ImageSpec &config,
                             std::ostream *outstream = NULL);
 
@@ -1868,7 +1830,7 @@ bool OIIO_API make_texture (MakeTextureMode mode,
 /// future expansion, such as assembling several faces into a cube map).
 bool OIIO_API make_texture (MakeTextureMode mode,
                             const std::vector<std::string> &filenames,
-                            const std::string &outputfilename,
+                            string_view outputfilename,
                             const ImageSpec &config,
                             std::ostream *outstream = NULL);
 

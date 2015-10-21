@@ -69,6 +69,11 @@ class FitsInput : public ImageInput {
     FitsInput () { init (); }
     virtual ~FitsInput () { close (); }
     virtual const char *format_name (void) const { return "fits"; }
+    virtual bool supports (const std::string &feature) const {
+        return (feature == "arbitrary_metadata"
+             || feature == "exif"   // Because of arbitrary_metadata
+             || feature == "iptc"); // Because of arbitrary_metadata
+    }
     virtual bool valid_file (const std::string &filename) const;
     virtual bool open (const std::string &name, ImageSpec &spec);
     virtual bool close (void);

@@ -38,8 +38,57 @@
 
 #pragma once
 
+// Make sure all platforms have the explicit sized integer types
+#if defined(_MSC_VER) && _MSC_VER < 1600
+   typedef __int8  int8_t;
+   typedef __int16 int16_t;
+   typedef __int32 int32_t;
+   typedef __int64 int64_t;
+   typedef unsigned __int8  uint8_t;
+   typedef unsigned __int16 uint16_t;
+# ifndef _UINT64_T
+   typedef unsigned __int32 uint32_t;
+   typedef unsigned __int64 uint64_t;
+#  define _UINT32_T
+#  define _UINT64_T
+# endif
+#else
+#  ifndef __STDC_LIMIT_MACROS
+#    define __STDC_LIMIT_MACROS  /* needed for some defs in stdint.h */
+#  endif
+#  include <stdint.h>
+#endif
+
+#if defined(__FreeBSD__)
+#include <sys/param.h>
+#endif
+
 #ifdef __MINGW32__
 #include <malloc.h> // for alloca
+#endif
+
+#ifdef _WIN32
+# ifndef WIN32_LEAN_AND_MEAN
+#   define WIN32_LEAN_AND_MEAN
+# endif
+# ifndef VC_EXTRALEAN
+#   define VC_EXTRALEAN
+# endif
+# ifndef NOMINMAX
+#   define NOMINMAX
+# endif
+# include <windows.h>
+#endif
+
+# ifdef _MSC_VER
+#include <intrin.h>
+#endif
+
+#include "oiioversion.h"
+
+// Detect if we're C++11
+#if (__cplusplus >= 201103L)
+#define OIIO_CPLUSPLUS11 1
 #endif
 
 
@@ -84,7 +133,7 @@
 // Caveat: Programmers are notoriously bad at guessing this, so it
 // should be used only with thorough benchmarking.
 #ifdef __GNUC__
-#define OIIO_LIKELY(x)   (__builtin_expect((x), 1))
+#define OIIO_LIKELY(x)   (__builtin_expect(!!(x), 1))
 #define OIIO_UNLIKELY(x) (__builtin_expect((x), 0))
 #else
 #define OIIO_LIKELY(x)   (x)
@@ -92,6 +141,10 @@
 #endif
 
 
+// OIIO_FORCELINE is a function attribute that attempts to make the function
+// always inline. On many compilers regular 'inline' is only advisory. Put
+// this attribute before the function return type, just like you would use
+// 'inline'.
 #if defined(__GNUC__) || defined(__clang__)
 #  define OIIO_FORCEINLINE inline __attribute__((always_inline))
 #elif defined(_MSC_VER) || defined(__INTEL_COMPILER)
@@ -99,4 +152,97 @@
 #else
 #  define OIIO_FORCEINLINE inline
 #endif
+
+// OIIO_PURE_FUNC is a function attribute that assures the compiler that the
+// function does not write to any non-local memory other than its return
+// value and has no side effects. This can ebable additional compiler
+// optimizations by knowing that calling the function cannot possibly alter
+// any other memory. This declaration goes after the function declaration:
+//   int blah (int arg) OIIO_PURE_FUNC;
+#if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
+#  define OIIO_PURE_FUNC __attribute__((pure))
+#elif defined(_MSC_VER)
+#  define OIIO_PURE_FUNC  /* seems not supported by MSVS */
+#else
+#  define OIIO_PURE_FUNC
+#endif
+
+// OIIO_CONST_FUNC is a function attribute that assures the compiler that
+// the function does not examine (read) any values except for its arguments,
+// does not write any non-local memory other than its return value, and has
+// no side effects. This is even more strict than 'pure', and allows even
+// more optimizations (such as eliminating multiple calls to the function
+// that have the exact same argument values).
+#if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
+#  define OIIO_CONST_FUNC __attribute__((const))
+#elif defined(_MSC_VER)
+#  define OIIO_CONST_FUNC  /* seems not supported by MSVS */
+#else
+#  define OIIO_CONST_FUNC
+#endif
+
+// OIIO_NOTHROW is a function attribute that assures the compiler that
+// neither the function nor any other function it calls will throw an
+// exception. This declaration goes after the
+// function declaration:  int blah (int arg) OIIO_NOTHROW;
+#if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
+#  define OIIO_NOTHROW __attribute__((nothrow))
+#elif defined(_MSC_VER)
+#  define OIIO_NOTHROW __declspec(nothrow)
+#else
+#  define OIIO_NOTHROW
+#endif
+
+// OIIO_UNUSED_OK is a function or variable attribute that assures tells the
+// compiler that it's fine for the item to appear to be unused.
+#if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
+#  define OIIO_UNUSED_OK __attribute__((unused))
+#else
+#  define OIIO_UNUSED_OK
+#endif
+
+// OIIO_RESTRICT is a parameter attribute that indicates a promise that the
+// parameter definitely will not alias any other parameters in such a way
+// that creates a data dependency. Use with caution!
+#if defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER) || defined(__INTEL_COMPILER)
+#  define OIIO_RESTRICT __restrict
+#else
+#  define OIIO_RESTRICT 
+#endif
+
+
+
+// Try to deduce endianness
+#if (defined(_WIN32) || defined(__i386__) || defined(__x86_64__))
+#  ifndef __LITTLE_ENDIAN__
+#    define __LITTLE_ENDIAN__ 1
+#    undef __BIG_ENDIAN__
+#  endif
+#endif
+
+
+namespace {   // anon
+
+/// Return true if the architecture we are running on is little endian
+OIIO_FORCEINLINE bool littleendian (void)
+{
+#if defined(__BIG_ENDIAN__)
+    return false;
+#elif defined(__LITTLE_ENDIAN__)
+    return true;
+#else
+    // Otherwise, do something quick to compute it
+    int i = 1;
+    return *((char *) &i);
+#endif
+}
+
+
+/// Return true if the architecture we are running on is big endian
+OIIO_FORCEINLINE bool bigendian (void)
+{
+    return ! littleendian();
+}
+
+} // end anon namespace
 

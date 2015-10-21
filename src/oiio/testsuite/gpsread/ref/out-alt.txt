@@ -3,12 +3,13 @@ Reading ../../../../../oiio-images/tahoe-gps.jpg
     SHA-1: 71EBEC73B8E8B3533780B15147E61D895C80E8B1
     channel list: R, G, B
     oiio:ColorSpace: "sRGB"
+    jpeg:subsampling: "4:2:0"
     Make: "HTC"
     Model: "T-Mobile G1"
     Orientation: 1 (normal)
     XResolution: 72
     YResolution: 72
-    ResolutionUnit: 2 (inches)
+    ResolutionUnit: "none"
     Software: "title;va"
     Exif:YCbCrPositioning: 1
     Exif:DateTimeOriginal: "2009:02:21 08:32:04"

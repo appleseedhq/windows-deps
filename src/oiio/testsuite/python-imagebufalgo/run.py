@@ -6,6 +6,7 @@ imagedir = parent + "oiio-images"
 refdir2 = "../oiiotool/ref/"
 refdir3 = "../oiiotool-composite/ref/"
 refdir4 = "../oiiotool-fixnan/ref/"
+refdir5 = "../oiiotool-deep/ref/"
 failthresh = 0.004
 failpercent = 0.2
 
@@ -17,6 +18,8 @@ def checkref (name) :
         return diff_command (name, refdir3+name)
     elif os.path.isfile(refdir4+name) :
         return diff_command (name, refdir4+name)
+    elif os.path.isfile(refdir5+name) :
+        return diff_command (name, refdir5+name)
     else :
         return diff_command (name, refdir+name)
 
@@ -41,11 +44,11 @@ for f in [ "black.tif", "filled.tif", "checker.tif",
            "resize.tif", "resample.tif",
            "bsplinekernel.exr", "bspline-blur.tif", "tahoe-median.tif",
            "unsharp.tif", "unsharp-median.tif",
-           "fft.exr", "ifft.exr", "polar.exr", "complex.exr",
+           "fft.exr", "ifft.exr", "polar.exr", "unpolar.exr",
            "tahoe-filled.tif",
            "box3.exr",
            "a_over_b.exr",
-           "tahoe-small.tx"
+           "tahoe-small.tx",
          ] :
     command += checkref (f)
 

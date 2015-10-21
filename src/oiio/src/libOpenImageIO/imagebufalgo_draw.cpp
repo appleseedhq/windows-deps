@@ -67,8 +67,8 @@ static const char * default_font_name[] = {
 
 
 bool
-ImageBufAlgo::render_text (ImageBuf &R, int x, int y, const std::string &text,
-                           int fontsize, const std::string &font_,
+ImageBufAlgo::render_text (ImageBuf &R, int x, int y, string_view text,
+                           int fontsize, string_view font_,
                            const float *textcolor)
 {
     if (R.spec().depth > 1) {
@@ -182,9 +182,9 @@ ImageBufAlgo::render_text (ImageBuf &R, int x, int y, const std::string &text,
         if (error)
             continue;  // ignore errors
         // now, draw to our target surface
-        for (int j = 0;  j < slot->bitmap.rows; ++j) {
+        for (int j = 0;  j < static_cast<int>(slot->bitmap.rows); ++j) {
             int ry = y + j - slot->bitmap_top;
-            for (int i = 0;  i < slot->bitmap.width; ++i) {
+            for (int i = 0;  i < static_cast<int>(slot->bitmap.width); ++i) {
                 int rx = x + i + slot->bitmap_left;
                 float b = slot->bitmap.buffer[slot->bitmap.pitch*j+i] / 255.0f;
                 R.getpixel (rx, ry, pixelcolor);

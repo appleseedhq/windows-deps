@@ -31,10 +31,7 @@
 
 #include <cassert>
 #include <cstdio>
-
-extern "C" {
-#include "jpeglib.h"
-}
+#include <algorithm>
 
 #include "OpenImageIO/imageio.h"
 #include "OpenImageIO/filesystem.h"
@@ -91,6 +88,33 @@ my_output_message (j_common_ptr cinfo)
 {
     JpgInput::my_error_ptr myerr = (JpgInput::my_error_ptr) cinfo->err;
     myerr->jpginput->jpegerror (myerr, true);
+}
+
+
+
+static std::string 
+comp_info_to_attr (const jpeg_decompress_struct &cinfo) 
+{   
+    // Compare the current 6 samples with our known definitions
+    // to determine the corresponding subsampling attr
+    std::vector<int> comp;
+    comp.push_back(cinfo.comp_info[0].h_samp_factor);
+    comp.push_back(cinfo.comp_info[0].v_samp_factor);
+    comp.push_back(cinfo.comp_info[1].h_samp_factor);
+    comp.push_back(cinfo.comp_info[1].v_samp_factor);
+    comp.push_back(cinfo.comp_info[2].h_samp_factor);
+    comp.push_back(cinfo.comp_info[2].v_samp_factor);
+    size_t size = comp.size();
+ 
+    if (std::equal(JPEG_444_COMP, JPEG_444_COMP+size, comp.begin()))
+        return JPEG_444_STR;
+    else if (std::equal(JPEG_422_COMP, JPEG_422_COMP+size, comp.begin()))
+        return JPEG_422_STR;
+    else if (std::equal(JPEG_420_COMP, JPEG_420_COMP+size, comp.begin()))
+        return JPEG_420_STR;
+    else if (std::equal(JPEG_411_COMP, JPEG_411_COMP+size, comp.begin()))
+        return JPEG_411_STR;
+    return "";
 }
 
 
@@ -212,6 +236,13 @@ JpgInput::open (const std::string &name, ImageSpec &newspec)
     // Assume JPEG is in sRGB unless the Exif or XMP tags say otherwise.
     m_spec.attribute ("oiio:ColorSpace", "sRGB");
 
+    // If the chroma subsampling is detected and matches something
+    // we expect, then set an attribute so that it can be preserved
+    // in future operations.
+    std::string subsampling = comp_info_to_attr(m_cinfo);
+    if (!subsampling.empty())
+        m_spec.attribute(JPEG_SUBSAMPLING_ATTR, subsampling);
+        
     for (jpeg_saved_marker_ptr m = m_cinfo.marker_list;  m;  m = m->next) {
         if (m->marker == (JPEG_APP0+1) &&
                 ! strcmp ((const char *)m->data, "Exif")) {
@@ -234,6 +265,29 @@ JpgInput::open (const std::string &name, ImageSpec &newspec)
             if (! m_spec.find_attribute ("ImageDescription", TypeDesc::STRING))
                 m_spec.attribute ("ImageDescription",
                                   std::string ((const char *)m->data));
+        }
+    }
+
+    // Handle density/pixelaspect. We need to do this AFTER the exif is
+    // decoded, in case it contains useful information.
+    float xdensity = m_spec.get_float_attribute ("XResolution");
+    float ydensity = m_spec.get_float_attribute ("YResolution");
+    if (! xdensity || ! ydensity) {
+        xdensity = float(m_cinfo.X_density);
+        ydensity = float(m_cinfo.Y_density);
+        if (xdensity && ydensity) {
+            m_spec.attribute ("XResolution", xdensity);
+            m_spec.attribute ("YResolution", ydensity);
+        }
+    }
+    if (xdensity && ydensity) {
+        float aspect = ydensity/xdensity;
+        if (aspect != 1.0f)
+            m_spec.attribute ("PixelAspectRatio", aspect);
+        switch (m_cinfo.density_unit) {
+        case 0 : m_spec.attribute ("ResolutionUnit", "none"); break;
+        case 1 : m_spec.attribute ("ResolutionUnit", "in");   break;
+        case 2 : m_spec.attribute ("ResolutionUnit", "cm");   break;
         }
     }
 

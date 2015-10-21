@@ -33,6 +33,8 @@
 #include <cstdlib>
 #include <cmath>
 
+#include <boost/regex.hpp>
+
 #include <tiffio.h>
 
 #include "OpenImageIO/dassert.h"
@@ -94,6 +96,11 @@ public:
     virtual ~TIFFInput ();
     virtual const char * format_name (void) const { return "tiff"; }
     virtual bool valid_file (const std::string &filename) const;
+    virtual bool supports (const std::string &feature) const {
+        return (feature == "exif"
+             || feature == "iptc");
+        // N.B. No support for arbitrary metadata.
+    }
     virtual bool open (const std::string &name, ImageSpec &newspec);
     virtual bool open (const std::string &name, ImageSpec &newspec,
                        const ImageSpec &config);
@@ -109,6 +116,18 @@ public:
     virtual bool seek_subimage (int subimage, int miplevel, ImageSpec &newspec);
     virtual bool read_native_scanline (int y, int z, void *data);
     virtual bool read_native_tile (int x, int y, int z, void *data);
+    virtual bool read_scanline (int y, int z, TypeDesc format, void *data,
+                                stride_t xstride);
+    virtual bool read_scanlines (int ybegin, int yend, int z,
+                                 int chbegin, int chend,
+                                 TypeDesc format, void *data,
+                                 stride_t xstride, stride_t ystride);
+    virtual bool read_tile (int x, int y, int z, TypeDesc format, void *data,
+                            stride_t xstride, stride_t ystride, stride_t zstride);
+    virtual bool read_tiles (int xbegin, int xend, int ybegin, int yend,
+                             int zbegin, int zend, int chbegin, int chend,
+                             TypeDesc format, void *data,
+                             stride_t xstride, stride_t ystride, stride_t zstride);
 
 private:
     TIFF *m_tif;                     ///< libtiff handle
@@ -122,6 +141,7 @@ private:
                                      ///  try to keep it that way!
     bool m_convert_alpha;            ///< Do we need to associate alpha?
     bool m_separate;                 ///< Separate planarconfig?
+    bool m_testopenconfig;           ///< Debug aid to test open-with-config
     unsigned short m_planarconfig;   ///< Planar config of the file
     unsigned short m_bitspersample;  ///< Of the *file*, not the client's view
     unsigned short m_photometric;    ///< Of the *file*, not the client's view
@@ -135,6 +155,7 @@ private:
         m_keep_unassociated_alpha = false;
         m_convert_alpha = false;
         m_separate = false;
+        m_testopenconfig = false;
         m_colormap.clear();
     }
 
@@ -164,22 +185,6 @@ private:
                       void *out, int outbits);
 
     void invert_photometric (int n, void *data);
-
-    // Convert from unassociated/non-premultiplied alpha to
-    // associated/premultiplied
-    template <class T>
-    void unassociate (T *data, int size, int nchannels, int alpha_channel) {
-        double scale = std::numeric_limits<T>::is_integer ?
-            1.0/std::numeric_limits<T>::max() : 1.0;
-        for ( ;  size;  --size, data += nchannels)
-            for (int c = 0;  c < nchannels;  c++)
-                if (c != alpha_channel) {
-                    double f = data[c];
-                    data[c] = T (f * (data[alpha_channel] * scale));
-                }
-    }
-
-    void unassalpha_to_assocalpha (int n, void *data);
 
     // Calling TIFFGetField (tif, tag, &dest) is supposed to work fine for
     // simple types... as long as the tag types in the file are the correct
@@ -384,6 +389,11 @@ TIFFInput::open (const std::string &name, ImageSpec &newspec,
     // Check 'config' for any special requests
     if (config.get_int_attribute("oiio:UnassociatedAlpha", 0) == 1)
         m_keep_unassociated_alpha = true;
+    // This configuration hint has no function other than as a debugging aid
+    // for testing whether configurations are received properly from other
+    // OIIO components.
+    if (config.get_int_attribute("oiio:DebugOpenConfig!", 0))
+        m_testopenconfig = true;
     return open (name, newspec);
 }
 
@@ -652,17 +662,13 @@ TIFFInput::readspec (bool read_meta)
         break;
     }
 
-    // If we've been instructed to skip reading metadata, because it is
-    // guaranteed to be identical to what we already have in m_spec,
-    // skip everything following.
-    if (! read_meta)
-        return;
-
     // Use the table for all the obvious things that can be mindlessly
     // shoved into the image spec.
-    for (int i = 0;  tiff_tag_table[i].name;  ++i)
-        find_tag (tiff_tag_table[i].tifftag,
-                  tiff_tag_table[i].tifftype, tiff_tag_table[i].name);
+    if (read_meta) {
+        for (int i = 0;  tiff_tag_table[i].name;  ++i)
+            find_tag (tiff_tag_table[i].tifftag,
+                      tiff_tag_table[i].tifftype, tiff_tag_table[i].name);
+    }
 
     // Now we need to get fields "by hand" for anything else that is less
     // straightforward...
@@ -731,35 +737,11 @@ TIFFInput::readspec (bool read_meta)
     // rowsperstrip==1, support random access to scanlines.
     m_no_random_access = (compress != COMPRESSION_NONE && rowsperstrip != 1);
 
-    short resunit = -1;
-    TIFFGetField (m_tif, TIFFTAG_RESOLUTIONUNIT, &resunit);
-    switch (resunit) {
-    case RESUNIT_NONE : m_spec.attribute ("ResolutionUnit", "none"); break;
-    case RESUNIT_INCH : m_spec.attribute ("ResolutionUnit", "in"); break;
-    case RESUNIT_CENTIMETER : m_spec.attribute ("ResolutionUnit", "cm"); break;
-    }
-
-    get_matrix_attribute ("worldtocamera", TIFFTAG_PIXAR_MATRIX_WORLDTOCAMERA);
-    get_matrix_attribute ("worldtoscreen", TIFFTAG_PIXAR_MATRIX_WORLDTOSCREEN);
-    get_int_attribute ("tiff:subfiletype", TIFFTAG_SUBFILETYPE);
-    // FIXME -- should subfiletype be "conventionized" and used for all
-    // plugins uniformly? 
-
     // Do we care about fillorder?  No, the TIFF spec says, "We
     // recommend that FillOrder=2 (lsb-to-msb) be used only in
     // special-purpose applications".  So OIIO will assume msb-to-lsb
     // convention until somebody finds a TIFF file in the wild that
     // breaks this assumption.
-
-    // Special names for shadow maps
-    char *s = NULL;
-    TIFFGetField (m_tif, TIFFTAG_PIXAR_TEXTUREFORMAT, &s);
-    if (s)
-        m_emulate_mipmap = true;
-    if (s && ! strcmp (s, "Shadow")) {
-        for (int c = 0;  c < m_spec.nchannels;  ++c)
-            m_spec.channelnames[c] = "z";
-    }
 
     unsigned short *sampleinfo = NULL;
     unsigned short extrasamples = 0;
@@ -809,6 +791,40 @@ TIFFInput::readspec (bool read_meta)
     // MaxSampleValue MinSampleValue
     // NewSubfileType SubfileType(deprecated)
     // Colorimetry fields
+
+    // If we've been instructed to skip reading metadata, because it is
+    // assumed to be identical to what we already have in m_spec,
+    // skip everything following.
+    if (! read_meta)
+        return;
+
+    short resunit = -1;
+    TIFFGetField (m_tif, TIFFTAG_RESOLUTIONUNIT, &resunit);
+    switch (resunit) {
+    case RESUNIT_NONE : m_spec.attribute ("ResolutionUnit", "none"); break;
+    case RESUNIT_INCH : m_spec.attribute ("ResolutionUnit", "in"); break;
+    case RESUNIT_CENTIMETER : m_spec.attribute ("ResolutionUnit", "cm"); break;
+    }
+    float xdensity = m_spec.get_float_attribute ("XResolution", 0.0f);
+    float ydensity = m_spec.get_float_attribute ("YResolution", 0.0f);
+    if (xdensity && ydensity)
+        m_spec.attribute ("PixelAspectRatio", ydensity/xdensity);
+
+    get_matrix_attribute ("worldtocamera", TIFFTAG_PIXAR_MATRIX_WORLDTOCAMERA);
+    get_matrix_attribute ("worldtoscreen", TIFFTAG_PIXAR_MATRIX_WORLDTOSCREEN);
+    get_int_attribute ("tiff:subfiletype", TIFFTAG_SUBFILETYPE);
+    // FIXME -- should subfiletype be "conventionized" and used for all
+    // plugins uniformly? 
+
+    // Special names for shadow maps
+    char *s = NULL;
+    TIFFGetField (m_tif, TIFFTAG_PIXAR_TEXTUREFORMAT, &s);
+    if (s)
+        m_emulate_mipmap = true;
+    if (s && ! strcmp (s, "Shadow")) {
+        for (int c = 0;  c < m_spec.nchannels;  ++c)
+            m_spec.channelnames[c] = "z";
+    }
 
     /// read color profile
     unsigned int icc_datasize = 0;
@@ -884,6 +900,57 @@ TIFFInput::readspec (bool read_meta)
         }
     }
 #endif
+
+    // Because TIFF doesn't support arbitrary metadata, we look for certain
+    // hints in the ImageDescription and turn them into metadata.
+    std::string desc = m_spec.get_string_attribute ("ImageDescription");
+    bool updatedDesc = false;
+    static const char *fp_number_pattern =
+            "([+-]?((?:(?:[[:digit:]]*\\.)?[[:digit:]]+(?:[eE][+-]?[[:digit:]]+)?)))";
+    size_t found;
+    found = desc.rfind ("oiio:ConstantColor=");
+    if (found != std::string::npos) {
+        size_t begin = desc.find_first_of ('=', found) + 1;
+        size_t end = desc.find_first_of (' ', begin);
+        string_view s = string_view (desc.data()+begin, end-begin);
+        m_spec.attribute ("oiio:ConstantColor", s);
+        const std::string constcolor_pattern =
+            std::string ("oiio:ConstantColor=(\\[?") + fp_number_pattern + ",?)+\\]?[ ]*";
+        desc = boost::regex_replace (desc, boost::regex(constcolor_pattern), "");
+        updatedDesc = true;
+    }
+    found = desc.rfind ("oiio:AverageColor=");
+    if (found != std::string::npos) {
+        size_t begin = desc.find_first_of ('=', found) + 1;
+        size_t end = desc.find_first_of (' ', begin);
+        string_view s = string_view (desc.data()+begin, end-begin);
+        m_spec.attribute ("oiio:AverageColor", s);
+        const std::string average_pattern =
+            std::string ("oiio:AverageColor=(\\[?") + fp_number_pattern + ",?)+\\]?[ ]*";
+        desc = boost::regex_replace (desc, boost::regex(average_pattern), "");
+        updatedDesc = true;
+    }
+    found = desc.rfind ("oiio:SHA-1=");
+    if (found == std::string::npos)  // back compatibility with < 1.5
+        found = desc.rfind ("SHA-1=");
+    if (found != std::string::npos) {
+        size_t begin = desc.find_first_of ('=', found) + 1;
+        size_t end = begin+40;
+        string_view s = string_view (desc.data()+begin, end-begin);
+        m_spec.attribute ("oiio:SHA-1", s);
+        desc = boost::regex_replace (desc, boost::regex("oiio:SHA-1=[[:xdigit:]]*[ ]*"), "");
+        desc = boost::regex_replace (desc, boost::regex("SHA-1=[[:xdigit:]]*[ ]*"), "");
+        updatedDesc = true;
+    }
+    if (updatedDesc) {
+        if (desc.size())
+            m_spec.attribute ("ImageDescription", desc);
+        else
+            m_spec.erase_attribute ("ImageDescription");
+    }
+
+    if (m_testopenconfig)  // open-with-config debugging
+        m_spec.attribute ("oiio:DebugOpenConfig!", 42);
 }
 
 
@@ -1001,35 +1068,6 @@ TIFFInput::invert_photometric (int n, void *data)
 
 
 
-void
-TIFFInput::unassalpha_to_assocalpha (int n, void *data)
-{
-    switch (m_spec.format.basetype) {
-    case TypeDesc::UINT8:
-        unassociate ((unsigned char *)data, n, m_spec.nchannels, m_spec.alpha_channel);
-        break;
-    case TypeDesc::INT8:
-        unassociate ((char *)data, n, m_spec.nchannels, m_spec.alpha_channel);
-        break;
-    case TypeDesc::UINT16:
-        unassociate ((unsigned short *)data, n, m_spec.nchannels, m_spec.alpha_channel);
-        break;
-    case TypeDesc::INT16:
-        unassociate ((short *)data, n, m_spec.nchannels, m_spec.alpha_channel);
-        break;
-    case TypeDesc::FLOAT:
-        unassociate ((float *)data, n, m_spec.nchannels, m_spec.alpha_channel);
-        break;
-    case TypeDesc::DOUBLE:
-        unassociate ((double *)data, n, m_spec.nchannels, m_spec.alpha_channel);
-        break;
-    default:
-        break;
-    }
-}
-
-
-
 bool
 TIFFInput::read_native_scanline (int y, int z, void *data)
 {
@@ -1122,12 +1160,6 @@ TIFFInput::read_native_scanline (int y, int z, void *data)
     if (m_photometric == PHOTOMETRIC_MINISWHITE)
         invert_photometric (nvals, data);
 
-    // If alpha is unassociated and we aren't requested to keep it that
-    // way, multiply the colors by alpha per the usual OIIO conventions
-    // to deliver associated color & alpha.
-    if (m_convert_alpha)
-        unassalpha_to_assocalpha (m_spec.width, data);
-
     return true;
 }
 
@@ -1191,14 +1223,107 @@ TIFFInput::read_native_tile (int x, int y, int z, void *data)
     if (m_photometric == PHOTOMETRIC_MINISWHITE)
         invert_photometric (tile_pixels, data);
 
-    // If alpha is unassociated and we aren't requested to keep it that
-    // way, multiply the colors by alpha per the usual OIIO conventions
-    // to deliver associated color & alpha.
-    if (m_convert_alpha)
-        unassalpha_to_assocalpha (tile_pixels, data);
-
     return true;
 }
+
+
+
+bool TIFFInput::read_scanline (int y, int z, TypeDesc format, void *data,
+                               stride_t xstride)
+{
+    bool ok = ImageInput::read_scanline (y, z, format, data, xstride);
+    if (ok && m_convert_alpha) {
+        // If alpha is unassociated and we aren't requested to keep it that
+        // way, multiply the colors by alpha per the usual OIIO conventions
+        // to deliver associated color & alpha.  Any auto-premultiplication
+        // by alpha should happen after we've already done data format
+        // conversions. That's why we do it here, rather than in
+        // read_native_blah.
+        OIIO::premult (m_spec.nchannels, m_spec.width, 1, 1,
+                       0 /*chbegin*/, m_spec.nchannels /*chend*/,
+                       format, data, xstride, AutoStride, AutoStride,
+                       m_spec.alpha_channel, m_spec.z_channel);
+    }
+    return ok;
+}
+
+
+
+bool TIFFInput::read_scanlines (int ybegin, int yend, int z,
+                                int chbegin, int chend,
+                                TypeDesc format, void *data,
+                                stride_t xstride, stride_t ystride)
+{
+    bool ok = ImageInput::read_scanlines (ybegin, yend, z, chbegin, chend,
+                                          format, data, xstride, ystride);
+    if (ok && m_convert_alpha) {
+        // If alpha is unassociated and we aren't requested to keep it that
+        // way, multiply the colors by alpha per the usual OIIO conventions
+        // to deliver associated color & alpha.  Any auto-premultiplication
+        // by alpha should happen after we've already done data format
+        // conversions. That's why we do it here, rather than in
+        // read_native_blah.
+        OIIO::premult (m_spec.nchannels, m_spec.width, yend-ybegin, 1,
+                       chbegin, chend, format, data,
+                       xstride, AutoStride, AutoStride,
+                       m_spec.alpha_channel, m_spec.z_channel);
+    }
+    return ok;
+}
+
+
+
+bool TIFFInput::read_tile (int x, int y, int z, TypeDesc format, void *data,
+                           stride_t xstride, stride_t ystride, stride_t zstride)
+{
+    bool ok = ImageInput::read_tile (x, y, z, format, data,
+                                     xstride, ystride, zstride);
+    if (ok && m_convert_alpha) {
+        // If alpha is unassociated and we aren't requested to keep it that
+        // way, multiply the colors by alpha per the usual OIIO conventions
+        // to deliver associated color & alpha.  Any auto-premultiplication
+        // by alpha should happen after we've already done data format
+        // conversions. That's why we do it here, rather than in
+        // read_native_blah.
+        OIIO::premult (m_spec.nchannels, m_spec.tile_width, m_spec.tile_height,
+                       std::max (1, m_spec.tile_depth),
+                       0, m_spec.nchannels, format, data,
+                       xstride, AutoStride, AutoStride,
+                       m_spec.alpha_channel, m_spec.z_channel);
+    }
+    return ok;
+}
+
+
+
+bool TIFFInput::read_tiles (int xbegin, int xend, int ybegin, int yend,
+                            int zbegin, int zend,
+                            int chbegin, int chend,
+                            TypeDesc format, void *data,
+                            stride_t xstride, stride_t ystride, stride_t zstride)
+{
+    bool ok = ImageInput::read_tiles (xbegin, xend, ybegin, yend, zbegin, zend,
+                                      chbegin, chend, format, data,
+                                      xstride, ystride, zstride);
+    if (ok && m_convert_alpha) {
+        // If alpha is unassociated and we aren't requested to keep it that
+        // way, multiply the colors by alpha per the usual OIIO conventions
+        // to deliver associated color & alpha.  Any auto-premultiplication
+        // by alpha should happen after we've already done data format
+        // conversions. That's why we do it here, rather than in
+        // read_native_blah.
+        OIIO::premult (m_spec.nchannels, m_spec.tile_width, m_spec.tile_height,
+                       std::max (1, m_spec.tile_depth),
+                       chbegin, chend, format, data,
+                       xstride, AutoStride, AutoStride,
+                       m_spec.alpha_channel, m_spec.z_channel);
+    }
+    return ok;
+}
+
+
+
+
 
 OIIO_PLUGIN_NAMESPACE_END
 

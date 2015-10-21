@@ -12,7 +12,7 @@
 .PHONY: all debug profile clean realclean nuke doxygen
 
 working_dir	:= ${shell pwd}
-INSTALLDIR       =${working_dir}
+INSTALLDIR	=${working_dir}
 
 # Figure out which architecture we're on
 include ${working_dir}/src/make/detectplatform.mk
@@ -27,7 +27,7 @@ ifdef PROFILE
 endif
 
 MY_MAKE_FLAGS ?=
-MY_CMAKE_FLAGS ?= -DSELF_CONTAINED_INSTALL_TREE:BOOL=TRUE
+MY_CMAKE_FLAGS ?= -g3 -DSELF_CONTAINED_INSTALL_TREE:BOOL=TRUE
 
 # Site-specific build instructions
 ifndef OPENIMAGEIO_SITE
@@ -92,8 +92,16 @@ ifneq (${USE_PYTHON},)
 MY_CMAKE_FLAGS += -DUSE_PYTHON:BOOL=${USE_PYTHON}
 endif
 
+ifneq (${USE_PYTHON3},)
+MY_CMAKE_FLAGS += -DUSE_PYTHON3:BOOL=${USE_PYTHON3}
+endif
+
 ifneq (${PYTHON_VERSION},)
 MY_CMAKE_FLAGS += -DPYTHON_VERSION:STRING=${PYTHON_VERSION}
+endif
+
+ifneq (${USE_FFMPEG},)
+MY_CMAKE_FLAGS += -DUSE_FFMPEG:BOOL=${USE_FFMPEG}
 endif
 
 ifneq (${USE_FIELD3D},)
@@ -120,8 +128,16 @@ ifneq (${USE_OCIO},)
 MY_CMAKE_FLAGS += -DUSE_OCIO:BOOL=${USE_OCIO}
 endif
 
+ifneq (${USE_NUKE},)
+MY_CMAKE_FLAGS += -DUSE_NUKE:BOOL=${USE_NUKE}
+endif
+
 ifneq (${USE_OPENSSL},)
 MY_CMAKE_FLAGS += -DUSE_OPENSSL:BOOL=${USE_OPENSSL}
+endif
+
+ifneq (${USE_OPENCV},)
+MY_CMAKE_FLAGS += -DUSE_OPENCV:BOOL=${USE_OPENCV}
 endif
 
 ifneq (${USE_LIBRAW},)
@@ -149,6 +165,14 @@ endif
 
 ifneq (${BOOST_HOME},)
 MY_CMAKE_FLAGS += -DBOOST_ROOT:STRING=${BOOST_HOME}
+endif
+
+ifneq (${NUKE_HOME},)
+MY_CMAKE_FLAGS += -DNuke_ROOT:STRING=${NUKE_HOME}
+endif
+
+ifneq (${NUKE_VERSION},)
+MY_CMAKE_FLAGS += -DNUKE_VERSION:STRING=${NUKE_VERSION}
 endif
 
 ifneq (${STOP_ON_WARNING},)
@@ -212,6 +236,10 @@ endif
 
 ifneq (${EXTRA_CPP_ARGS},)
 MY_CMAKE_FLAGS += -DEXTRA_CPP_ARGS:STRING="${EXTRA_CPP_ARGS}"
+endif
+
+ifneq (${USE_SIMD},)
+MY_CMAKE_FLAGS += -DUSE_SIMD:STRING="${USE_SIMD}"
 endif
 
 ifneq (${TEST},)
@@ -323,42 +351,55 @@ help:
 	@echo "  make doxygen      Build the Doxygen docs in ${top_build_dir}/doxygen"
 	@echo ""
 	@echo "Helpful modifiers:"
-	@echo "  make VERBOSE=1 ...          Show all compilation commands"
-	@echo "  make STOP_ON_WARNING=0      Do not stop building if compiler warns"
-	@echo "  make SOVERSION=nn ...       Include the specifed major version number "
-	@echo "                                in the shared object metadata"
-	@echo "  make NAMESPACE=name         Wrap everything in another namespace"
-	@echo "  make HIDE_SYMBOLS=1         Hide symbols not in the public API"
-	@echo "  make EMBEDPLUGINS=0 ...     Don't compile the plugins into libOpenImageIO"
-	@echo "  make MYCC=xx MYCXX=yy ...   Use custom compilers"
-	@echo "  make USE_CPP11=1 ...        Compile in C++11 mode"
-	@echo "  make USE_LIBCPLUSPLUS=1     Use clang libc++"
-	@echo "  make EXTRA_CPP_ARGS=...     Additional args to the C++ command"
-	@echo "  make USE_QT=0 ...           Skip anything that needs Qt"
-	@echo "  make USE_OPENGL=0 ...       Skip anything that needs OpenGL"
-	@echo "  make FORCE_OPENGL_1=1 ...   Force iv to use OpenGL's fixed pipeline"
-	@echo "  make USE_PYTHON=0 ...       Don't build the Python binding"
-	@echo "  make PYTHON_VERSION=2.6 ... Specify the Python version"
-	@echo "  make USE_FIELD3D=0 ...      Don't build the Field3D plugin"
-	@echo "  make USE_OPENJPEG=0 ...     Don't build the JPEG-2000 plugin"
-	@echo "  make USE_GIF=0 ...          Don't build the GIF plugin"
-	@echo "  make USE_OCIO=0 ...         Don't use OpenColorIO even if found"
-	@echo "  make USE_OPENSSL=0 ...      Don't use OpenSSL even if found"
-	@echo "  make USE_LIBRAW=0 ...       Don't use LibRaw, even if found"
-	@echo "  make USE_EXTERNAL_PUGIXML=1 Use the system PugiXML, not the one in OIIO"
-	@echo "  make FIELD3D_HOME=path ...  Custom Field3D installation"
-	@echo "  make GIF_DIR=path ...       Custom GIFLIB installation"
-	@echo "  make ILMBASE_HOME=path ...  Custom Ilmbase installation"
-	@echo "  make OPENEXR_HOME=path ...  Custom OpenEXR installation"
-	@echo "  make OCIO_HOME=path ...     Custom OpenColorIO installation"
-	@echo "  make LIBRAW_PATH=path ...   Custom LibRaw installation"
-	@echo "  make BOOST_HOME=path ...    Custom Boost installation"
-	@echo "  make NOTHREADS=1 ...        Build with threading support turned off"
-	@echo "  make OIIO_THREAD_ALLOW_DCLP=0 Don't allow threads.h to use DCLP"
-	@echo "  make BUILDSTATIC=1 ...      Build static library instead of shared"
-	@echo "  make LINKSTATIC=1 ...       Link with static external libraries when possible"
-	@echo "  make OIIO_BUILD_TOOLS=0 ... Skip building the command-line tools"
-	@echo "  make OIIO_BUILD_TESTS=0 ... Skip building the unit tests"
-	@echo "  make BUILD_OIIOUTIL_ONLY=1 ... Build *only* libOpenImageIO_Util"
+	@echo "  C++ compiler and build process:"
+	@echo "      VERBOSE=1                Show all compilation commands"
+	@echo "      STOP_ON_WARNING=0        Do not stop building if compiler warns"
+	@echo "      OPENIMAGEIO_SITE=xx      Use custom site build mods"
+	@echo "      MYCC=xx MYCXX=yy         Use custom compilers"
+	@echo "      USE_CPP11=1              Compile in C++11 mode"
+	@echo "      USE_LIBCPLUSPLUS=1       Use clang libc++"
+	@echo "      EXTRA_CPP_ARGS=          Additional args to the C++ command"
+	@echo "  Linking and libraries:"
+	@echo "      HIDE_SYMBOLS=1           Hide symbols not in the public API"
+	@echo "      SOVERSION=nn             Include the specifed major version number "
+	@echo "                                  in the shared object metadata"
+	@echo "      BUILDSTATIC=1            Build static library instead of shared"
+	@echo "      LINKSTATIC=1             Link with static external libraries when possible"
+	@echo "  Finding and Using Dependencies:"
+	@echo "      BOOST_HOME=path          Custom Boost installation"
+	@echo "      ILMBASE_HOME=path        Custom Ilmbase installation"
+	@echo "      OPENEXR_HOME=path        Custom OpenEXR installation"
+	@echo "      USE_EXTERNAL_PUGIXML=1   Use the system PugiXML, not the one in OIIO"
+	@echo "      USE_QT=0                 Skip anything that needs Qt"
+	@echo "      USE_OPENGL=0             Skip anything that needs OpenGL"
+	@echo "      FORCE_OPENGL_1=1         Force iv to use OpenGL's fixed pipeline"
+	@echo "      USE_PYTHON=0             Don't build the Python binding"
+	@echo "      USE_PYTHON3=1            If 1, try to build against Python3, not 2.x"
+	@echo "      PYTHON_VERSION=2.6       Specify the Python version"
+	@echo "      USE_FIELD3D=0            Don't build the Field3D plugin"
+	@echo "      USE_FFMPEG=0             Don't build the FFmpeg plugin"
+	@echo "      USE_OPENJPEG=0           Don't build the JPEG-2000 plugin"
+	@echo "      USE_GIF=0                Don't build the GIF plugin"
+	@echo "      USE_OCIO=0               Don't use OpenColorIO even if found"
+	@echo "      OCIO_HOME=path           Custom OpenColorIO installation"
+	@echo "      USE_NUKE=0               Don't build Nuke plugins"
+	@echo "      NUKE_HOME=path           Custom Nuke installation"
+	@echo "      NUKE_VERSION=ver         Custom Nuke version"
+#	@echo "      USE_OPENSSL=1            Use OpenSSL's SHA-1 implementation"
+	@echo "      USE_LIBRAW=0             Don't use LibRaw, even if found"
+	@echo "      LIBRAW_PATH=path         Custom LibRaw installation"
+	@echo "      FIELD3D_HOME=path        Custom Field3D installation"
+	@echo "      GIF_DIR=path             Custom GIFLIB installation"
+	@echo "      USE_OPENCV=0             Skip anything that needs OpenCV"
+	@echo "  OIIO build-time options:"
+	@echo "      NAMESPACE=name           Wrap everything in another namespace"
+	@echo "      EMBEDPLUGINS=0           Don't compile the plugins into libOpenImageIO"
+	@echo "      NOTHREADS=1              Build with threading support turned off"
+	@echo "      OIIO_THREAD_ALLOW_DCLP=0 Don't allow threads.h to use DCLP"
+	@echo "      OIIO_BUILD_TOOLS=0       Skip building the command-line tools"
+	@echo "      OIIO_BUILD_TESTS=0       Skip building the unit tests"
+	@echo "      BUILD_OIIOUTIL_ONLY=1    Build *only* libOpenImageIO_Util"
+	@echo "      USE_SIMD=arch            Build with SIMD support (choices: 0, sse2, sse3,"
+	@echo "                                    ssse3, sse4.1, sse4.2)"
 	@echo ""
 

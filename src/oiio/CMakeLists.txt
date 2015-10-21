@@ -3,8 +3,8 @@ project (OpenImageIO)
 # Release version of the library
 set (OIIO_VERSION_MAJOR 1)
 set (OIIO_VERSION_MINOR 5)
-set (OIIO_VERSION_PATCH 4)
-set (OIIO_VERSION_RELEASE_TYPE "dev")   # "dev", "betaX", "RCY", ""
+set (OIIO_VERSION_PATCH 20)
+set (OIIO_VERSION_RELEASE_TYPE "")   # "dev", "betaX", "RCY", ""
 
 cmake_minimum_required (VERSION 2.6)
 if (NOT CMAKE_VERSION VERSION_LESS 2.8.4)
@@ -42,14 +42,24 @@ message (STATUS "CMAKE_CXX_COMPILER is ${CMAKE_CXX_COMPILER}")
 message (STATUS "CMAKE_CXX_COMPILER_ID is ${CMAKE_CXX_COMPILER_ID}")
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set (CMAKE_COMPILER_IS_CLANG 1)
-    message (STATUS "Using clang as the compiler")
 endif ()
-# Second try: for earlier versions of CMake, the CMAKE_CXX_COMPILER_ID
-# appears to be unreliable and may say "GNU" despite using clang, so
-# directly match against the compiler name.
 if (CMAKE_CXX_COMPILER MATCHES "[Cc]lang")
+    # Second try: for earlier versions of CMake, the CMAKE_CXX_COMPILER_ID
+    # appears to be unreliable and may say "GNU" despite using clang, so
+    # directly match against the compiler name.
     set (CMAKE_COMPILER_IS_CLANG 1)
-    message (STATUS "The compiler seems to be clang")
+endif ()
+if (CMAKE_COMPILER_IS_CLANG)
+    if (NOT CLANG_VERSION_STRING)
+        EXECUTE_PROCESS( COMMAND ${CMAKE_CXX_COMPILER} --version OUTPUT_VARIABLE clang_full_version_string )
+        string (REGEX REPLACE ".* version ([0-9]+\\.[0-9]+).*" "\\1" CLANG_VERSION_STRING ${clang_full_version_string})
+    endif ()
+    message (STATUS "The compiler is Clang version ${CLANG_VERSION_STRING}")
+endif ()
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
+    set (CMAKE_COMPILER_IS_INTEL 1)
+    message (STATUS "Using Intel as the compiler")
 endif ()
 
 ## turn on more detailed warnings and consider warnings as errors
@@ -67,6 +77,8 @@ if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_GNUCC)
     set (CMAKE_INCLUDE_SYSTEM_FLAG_CXX "-isystem ")
     # Ensure this macro is set for stdint.h
     add_definitions ("-D__STDC_LIMIT_MACROS")
+    # this allows native instructions to be used for sqrtf instead of a function call
+    add_definitions ("-fno-math-errno")
 endif ()
 
 if (CMAKE_COMPILER_IS_CLANG)
@@ -76,16 +88,20 @@ if (CMAKE_COMPILER_IS_CLANG)
     add_definitions ("-Wno-overloaded-virtual")
     add_definitions ("-Wno-unneeded-internal-declaration")
     add_definitions ("-Wno-unused-private-field")
+    add_definitions ("-Wno-tautological-compare")
     # disable warning about unused command line arguments
     add_definitions ("-Qunused-arguments")
     # Don't warn if we ask it not to warn about warnings it doesn't know
     add_definitions ("-Wunknown-warning-option")
+    if (CLANG_VERSION_STRING VERSION_GREATER 3.5)
+        add_definitions ("-Wno-unused-local-typedefs")
+    endif ()
 endif ()
 
 if (CMAKE_COMPILER_IS_GNUCC AND (NOT CMAKE_COMPILER_IS_CLANG) AND (NOT ${GCC_VERSION} VERSION_LESS 4.8))
     # suppress a warning that Boost::Python hits in g++ 4.8
     add_definitions ("-Wno-error=unused-local-typedefs")
-    add_definitions ("-Wunused-local-typedefs")
+    add_definitions ("-Wno-unused-local-typedefs")
 endif ()
 
 if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_GNUCC)
@@ -114,11 +130,13 @@ set (USE_OPENGL ON CACHE BOOL "Include OpenGL support")
 set (USE_QT ON CACHE BOOL "Include Qt support")
 set (FORCE_OPENGL_1 OFF CACHE BOOL "Force iv to use OpenGL's fixed pipeline")
 set (USE_PYTHON ON CACHE BOOL "Build the Python bindings")
+set (USE_PYTHON3 OFF CACHE BOOL "Build the Python3 bindings")
 set (USE_FIELD3D ON CACHE BOOL "Use Field3D if found")
+set (USE_FFMPEG ON CACHE BOOL "Use FFmpeg if found")
 set (USE_OPENJPEG ON CACHE BOOL "Use OpenJpeg if found")
 set (USE_OCIO ON CACHE BOOL "Use OpenColorIO for color management if found")
 set (USE_OPENCV ON CACHE BOOL "Use OpenCV if found")
-set (USE_OPENSSL ON CACHE BOOL "Use OpenSSL if found")
+set (USE_OPENSSL OFF CACHE BOOL "Use OpenSSL if found (for faster SHA-1)")
 set (USE_FREETYPE ON CACHE BOOL "Use Freetype if found")
 set (USE_GIF ON CACHE BOOL "Use GIF if found")
 set (USE_LIBRAW ON CACHE BOOL "Use LibRaw if found")
@@ -126,6 +144,10 @@ set (LIBRAW_PATH "" CACHE STRING "Custom LibRaw path")
 set (NOTHREADS OFF CACHE BOOL "Compile with no threads or locking")
 set (OIIO_THREAD_ALLOW_DCLP ON CACHE BOOL "OIIO threads may use DCLP for speed")
 set (PYTHON_VERSION 2.6)
+set (PYTHON3_VERSION 3.2)
+set (USE_NUKE ON CACHE BOOL "Build Nuke plugins, if Nuke is found")
+set (Nuke_ROOT "" CACHE STRING "Where to find Nuke installation")
+set (NUKE_VERSION 7.0)
 set (USE_EXTERNAL_PUGIXML OFF CACHE BOOL
      "Use an externally built shared library version of the pugixml library")
 set (PUGIXML_HOME "" CACHE STRING "Hint about where to find external PugiXML library")
@@ -139,11 +161,13 @@ set (BUILD_OIIOUTIL_ONLY OFF CACHE BOOL "If ON, will build *only* libOpenImageIO
 set (USE_CPP11 OFF CACHE BOOL "Compile in C++11 mode")
 set (USE_LIBCPLUSPLUS OFF CACHE BOOL "Compile with clang libc++")
 set (EXTRA_CPP_ARGS "" CACHE STRING "Extra C++ command line definitions")
+set (USE_SIMD "" CACHE STRING "Use SIMD directives (0, sse2, sse3, ssse3, sse4.1, sse4.2)")
 
 if (BUILDSTATIC AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     # On Linux, the lack of -fPIC when building static libraries seems
     # incompatible with the dynamic library needed for the Python bindings.
     set (USE_PYTHON OFF)
+    set (USE_PYTHON3 OFF)
 endif()
 
 if (NOTHREADS)
@@ -166,26 +190,40 @@ endif()
 if (USE_CPP11)
     message (STATUS "Building for C++11")
     add_definitions ("-std=c++11")
-    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if (CMAKE_COMPILER_IS_CLANG)
         # C++11 doesn't like 'register' keyword, which is in Qt headers
         add_definitions ("-Wno-deprecated-register")
     endif ()
 endif ()
 
-if (USE_LIBCPLUSPLUS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if (USE_LIBCPLUSPLUS AND CMAKE_COMPILER_IS_CLANG)
+    message (STATUS "Using libc++")
     add_definitions ("-stdlib=libc++")
 endif ()
 
-set(CMAKE_MODULE_PATH
-    "${PROJECT_SOURCE_DIR}/src/cmake/modules"
-    "${PROJECT_SOURCE_DIR}/src/cmake")
+if (NOT USE_SIMD STREQUAL "")
+    message (STATUS "Compiling with SIMD level ${USE_SIMD}")
+    if (USE_SIMD STREQUAL "0")
+        add_definitions ("-DOIIO_NO_SSE=1")
+    else ()
+        if (MSVC OR CMAKE_COMPILER_IS_INTEL)
+            add_definitions ("/arch:${USE_SIMD}")
+        else ()
+            add_definitions ("-m${USE_SIMD}")
+        endif ()
+    endif ()
+endif ()
+
+set (CMAKE_MODULE_PATH
+     "${PROJECT_SOURCE_DIR}/src/cmake/modules"
+     "${PROJECT_SOURCE_DIR}/src/cmake")
 
 # Set the default namespace
-if(NOT OIIO_NAMESPACE)
-  set(OIIO_NAMESPACE OpenImageIO CACHE STRING
-      "Specify the master OpenImageIO C++ namespace: Options include OpenImageIO OpenImageIO_<YOURFACILITY> etc."
-      FORCE)
-endif(NOT OIIO_NAMESPACE)
+if (NOT OIIO_NAMESPACE)
+    set (OIIO_NAMESPACE OpenImageIO CACHE STRING
+         "Specify the master OpenImageIO C++ namespace: Options include OpenImageIO OpenImageIO_<YOURFACILITY> etc."
+         FORCE)
+endif ()
 
 message(STATUS "Setting Namespace to: ${OIIO_NAMESPACE}")
 
@@ -213,6 +251,7 @@ if (UNIX AND NOT SELF_CONTAINED_INSTALL_TREE)
     # the "standard" unix directory heirarchy
     # TODO: Figure out how to get the correct python directory
     set (DEFAULT_PYLIB_INSTALL_DIR "lib/python/site-packages")
+    set (DEFAULT_PYLIB3_INSTALL_DIR "lib/python3/site-packages")
     set (DEFAULT_DOC_INSTALL_DIR "share/doc/OpenImageIO")
     set (DEFAULT_MAN_INSTALL_DIR "share/man/man1")
 else ()
@@ -220,6 +259,7 @@ else ()
     # that everything OIIO related will go into its own directory, not into
     # some standard system heirarchy.
     set (DEFAULT_PYLIB_INSTALL_DIR "python")
+    set (DEFAULT_PYLIB3_INSTALL_DIR "python3")
     set (DEFAULT_DOC_INSTALL_DIR "doc")
     set (DEFAULT_MAN_INSTALL_DIR "doc/man")
 endif ()
@@ -228,6 +268,7 @@ if (EXEC_INSTALL_PREFIX)
     set (DEFAULT_BIN_INSTALL_DIR   "${EXEC_INSTALL_PREFIX}/${DEFAULT_BIN_INSTALL_DIR}")
     set (DEFAULT_LIB_INSTALL_DIR   "${EXEC_INSTALL_PREFIX}/${DEFAULT_LIB_INSTALL_DIR}")
     set (DEFAULT_PYLIB_INSTALL_DIR "${EXEC_INSTALL_PREFIX}/${DEFAULT_PYLIB_INSTALL_DIR}")
+    set (DEFAULT_PYLIB3_INSTALL_DIR "${EXEC_INSTALL_PREFIX}/${DEFAULT_PYLIB3_INSTALL_DIR}")
 endif ()
 # Set up cmake cache variables corresponding to the defaults deduced above, so
 # that the user can override them as desired:
@@ -237,6 +278,8 @@ set (LIB_INSTALL_DIR ${DEFAULT_LIB_INSTALL_DIR} CACHE STRING
      "Install location for libraries (relative to CMAKE_INSTALL_PREFIX or absolute)")
 set (PYLIB_INSTALL_DIR ${DEFAULT_PYLIB_INSTALL_DIR} CACHE STRING
      "Install location for python libraries (relative to CMAKE_INSTALL_PREFIX or absolute)")
+set (PYLIB3_INSTALL_DIR ${DEFAULT_PYLIB3_INSTALL_DIR} CACHE STRING
+     "Install location for python3 libraries (relative to CMAKE_INSTALL_PREFIX or absolute)")
 set (INCLUDE_INSTALL_DIR ${DEFAULT_INCLUDE_INSTALL_DIR} CACHE STRING
      "Install location of header files (relative to CMAKE_INSTALL_PREFIX or absolute)")
 set (DOC_INSTALL_DIR ${DEFAULT_DOC_INSTALL_DIR} CACHE STRING
@@ -245,6 +288,7 @@ if (UNIX)
     set (MAN_INSTALL_DIR ${DEFAULT_MAN_INSTALL_DIR} CACHE STRING
          "Install location for manual pages (relative to CMAKE_INSTALL_PREFIX or absolute)")
 endif()
+set (PLUGIN_SEARCH_PATH "" CACHE STRING "Default plugin search path")
 
 set (INSTALL_DOCS ON CACHE BOOL "Install documentation")
 
@@ -314,6 +358,7 @@ if (NOT EMBEDPLUGINS)
     add_subdirectory (src/cineon.imageio)
     add_subdirectory (src/dds.imageio)
     add_subdirectory (src/dpx.imageio)
+    add_subdirectory (src/ffmpeg.imageio)
     add_subdirectory (src/field3d.imageio)
     add_subdirectory (src/fits.imageio)
     add_subdirectory (src/gif.imageio)
@@ -341,23 +386,29 @@ endif ()
 if (USE_PYTHON AND oiio_boost_PYTHON_FOUND AND NOT BUILD_OIIOUTIL_ONLY)
     add_subdirectory (src/python)
 endif ()
+if (USE_PYTHON3 AND NOT BUILD_OIIOUTIL_ONLY)
+    #build the python3 module in a different binary directory since it will
+    #have the same name as the python2 module (e.g. OpenImageIO.so)
+    add_subdirectory (src/python src/python3)
+endif ()
 
 add_subdirectory (src/include)
 add_subdirectory (src/doc)
+add_subdirectory (src/nuke)
 
 
 #########################################################################
 # Testing
-# 
+#
 # Just call oiio_add_tests(testname...) for each test.  Additional
 # optional arguments include:
 #     FOUNDVAR   specifies the name of a CMAKE variable; if not defined,
 #                    the test will not be added for 'make test' (helpful
 #                    for excluding tests for libraries not found).
 #     IMAGEDIR   specifies a directory for test images, one level higher
-#                    than where the oiio top level source lives -- a 
+#                    than where the oiio top level source lives -- a
 #                    message will be printed if not found.
-#     URL        URL where the test images can be found, will be 
+#     URL        URL where the test images can be found, will be
 #                    incorporated into the error message if the test
 #                    image directory is not found.
 #     LABEL      If set to "broken", will designate the test as one
@@ -373,17 +424,21 @@ endif()
 
 # List all the individual testsuite tests here:
 oiio_add_tests (gpsread misnamed-file nonwhole-tiles
-                oiiotool oiiotool-composite oiiotool-fixnan
+                oiiotool oiiotool-composite oiiotool-deep oiiotool-fixnan
                 oiiotool-readerror oiiotool-text
                 perchannel dither
                 dpx ico iff png psd rla sgi
-                python-typedesc python-imagespec python-roi
+                python-typedesc python-imagespec python-roi python-deep
                 python-imageinput python-imageoutput
                 python-imagebuf python-imagebufalgo
                 maketx
                 texture-blurtube texture-crop texture-cropover
-                texture-fill texture-filtersize
+                texture-derivs texture-fill texture-filtersize
+                texture-interp-bicubic
+                texture-interp-bilinear
+                texture-interp-closest
                 texture-gray texture-grid
+                texture-mip-nomip texture-mip-onelevel texture-mip-trilinear
                 texture-missing texture-overscan
                 texture-pointsample texture-width0blur texture-res
                 texture-skinny texture-fat texture-wrapfill

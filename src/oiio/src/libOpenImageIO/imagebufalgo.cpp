@@ -96,9 +96,14 @@ ImageBufAlgo::IBAprep (ROI &roi, ImageBuf *dst,
                        const ImageBuf *A, const ImageBuf *B,
                        ImageSpec *force_spec, int prepflags)
 {
-    if ((A && !A->initialized()) || (B && !B->initialized())) {
+    if (A && !A->initialized()) {
         if (dst)
             dst->error ("Uninitialized input image");
+        return false;
+    }
+    if (B && !B->initialized()) {
+        if (dst)
+            dst->error ("Uninitialized destination image");
         return false;
     }
     if (dst->initialized()) {
@@ -183,7 +188,7 @@ ImageBufAlgo::IBAprep (ROI &roi, ImageBuf *dst,
                                 boost::regex_replace (desc, regex_sha, ""));
         }
 
-        dst->alloc (spec);
+        dst->reset (spec);
     }
     if (prepflags & IBAprep_REQUIRE_ALPHA) {
         if (dst->spec().alpha_channel < 0 ||
@@ -218,6 +223,42 @@ ImageBufAlgo::IBAprep (ROI &roi, ImageBuf *dst,
         }
     }
     return true;
+}
+
+
+
+/// Given data types a and b, return a type that is a best guess for one
+/// that can handle both without any loss of range or precision.
+TypeDesc::BASETYPE
+ImageBufAlgo::type_merge (TypeDesc::BASETYPE a, TypeDesc::BASETYPE b)
+{
+    // Same type already? done.
+    if (a == b)
+        return a;
+    if (a == TypeDesc::UNKNOWN)
+        return b;
+    if (b == TypeDesc::UNKNOWN)
+        return a;
+    // Canonicalize so a's size (in bytes) is >= b's size in bytes. This
+    // unclutters remaining cases.
+    if (TypeDesc(a).size() < TypeDesc(b).size())
+        std::swap (a, b);
+    // Double or float trump anything else
+    if (a == TypeDesc::DOUBLE || a == TypeDesc::FLOAT)
+        return a;
+    if (a == TypeDesc::UINT32 && (b == TypeDesc::UINT16 || b == TypeDesc::UINT8))
+        return a;
+    if (a == TypeDesc::INT32 && (b == TypeDesc::INT16 || b == TypeDesc::UINT16 ||
+                                 b == TypeDesc::INT8 || b == TypeDesc::UINT8))
+        return a;
+    if ((a == TypeDesc::UINT16 || a == TypeDesc::HALF) && b == TypeDesc::UINT8)
+        return a;
+    if ((a == TypeDesc::INT16 || a == TypeDesc::HALF) &&
+        (b == TypeDesc::INT8 || b == TypeDesc::UINT8))
+        return a;
+    // Out of common cases. For all remaining edge cases, punt and say that
+    // we prefer float.
+    return TypeDesc::FLOAT;
 }
 
 
@@ -401,7 +442,7 @@ inline float binomial (int n, int k)
 
 
 bool
-ImageBufAlgo::make_kernel (ImageBuf &dst, const char *name,
+ImageBufAlgo::make_kernel (ImageBuf &dst, string_view name,
                            float width, float height, float depth,
                            bool normalize)
 {
@@ -423,14 +464,14 @@ ImageBufAlgo::make_kernel (ImageBuf &dst, const char *name,
     spec.full_width = spec.width;
     spec.full_height = spec.height;
     spec.full_depth = spec.depth;
-    dst.alloc (spec);
+    dst.reset (spec);
 
     if (Filter2D *filter = Filter2D::create (name, width, height)) {
         // Named continuous filter from filter.h
         for (ImageBuf::Iterator<float> p (dst);  ! p.done();  ++p)
             p[0] = (*filter)((float)p.x(), (float)p.y());
         delete filter;
-    } else if (!strcmp (name, "binomial")) {
+    } else if (name == "binomial") {
         // Binomial filter
         float *wfilter = ALLOCA (float, width);
         for (int i = 0;  i < width;  ++i)
@@ -496,7 +537,7 @@ threshold_to_zero (ImageBuf &dst, float threshold,
 
 bool
 ImageBufAlgo::unsharp_mask (ImageBuf &dst, const ImageBuf &src,
-                            const char *kernel, float width,
+                            string_view kernel, float width,
                             float contrast, float threshold,
                             ROI roi, int nthreads)
 {
@@ -509,7 +550,7 @@ ImageBufAlgo::unsharp_mask (ImageBuf &dst, const ImageBuf &src,
     BlurrySpec.set_format (TypeDesc::FLOAT);  // force float
     ImageBuf Blurry (BlurrySpec);
 
-    if (! strcmp(kernel, "median")) {
+    if (kernel == "median") {
         median_filter (Blurry, src, ceilf(width), 0, roi, nthreads);
     } else {
         ImageBuf K;
@@ -534,7 +575,7 @@ ImageBufAlgo::unsharp_mask (ImageBuf &dst, const ImageBuf &src,
 
     // Scale the difference image by the contrast
     if (ok)
-        ok = mul (Diff, contrast, roi, nthreads);
+        ok = mul (Diff, Diff, contrast, roi, nthreads);
     if (! ok) {
         dst.error ("%s", Diff.geterror());
         return false;
@@ -630,7 +671,11 @@ hfft_ (ImageBuf &dst, const ImageBuf &src, bool inverse, bool unitary,
 {
     ASSERT (dst.spec().format.basetype == TypeDesc::FLOAT &&
             src.spec().format.basetype == TypeDesc::FLOAT &&
-            dst.spec().nchannels == 2 && src.spec().nchannels == 2);
+            dst.spec().nchannels == 2 && src.spec().nchannels == 2 &&
+            dst.roi() == src.roi() &&
+            (dst.storage() == ImageBuf::LOCALBUFFER || dst.storage() == ImageBuf::APPBUFFER) &&
+            (src.storage() == ImageBuf::LOCALBUFFER || src.storage() == ImageBuf::APPBUFFER)
+        );
 
     if (nthreads != 1 && roi.npixels() >= 1000) {
         // Lots of pixels and request for multi threads? Parallelize.
@@ -698,7 +743,13 @@ ImageBufAlgo::fft (ImageBuf &dst, const ImageBuf &src,
     dst.reset (dst.name(), spec);
 
     // Copy src to a 2-channel (for "complex") float buffer
-    ImageBuf A (spec);   // zeros it out automatically
+    ImageBuf A (spec);
+    if (src.nchannels() < 2) {
+        // If we're pasting fewer than 2 channels, zero out channel 1.
+        ROI r = roi;
+        r.chbegin = 1; r.chend = 2;
+        zero (A, r);
+    }
     if (! ImageBufAlgo::paste (A, 0, 0, 0, 0, src, roi, nthreads)) {
         dst.error ("%s", A.geterror());
         return false;

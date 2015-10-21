@@ -93,6 +93,7 @@ Oiiotool::clear_options ()
     hash = false;
     updatemode = false;
     autoorient = false;
+    nativeread = false;
     threads = 0;
     full_command_line.clear ();
     printinfo_metamatch.clear ();
@@ -160,7 +161,7 @@ Oiiotool::read (ImageRecRef img)
     float pre_ic_time, post_ic_time;
     imagecache->getattribute ("stat:fileio_time", pre_ic_time);
     total_readtime.start ();
-    bool ok = img->read ();
+    bool ok = img->read (ot.nativeread);
     total_readtime.stop ();
     imagecache->getattribute ("stat:fileio_time", post_ic_time);
     total_imagecache_readtime += post_ic_time - pre_ic_time;
@@ -232,7 +233,7 @@ Oiiotool::error (string_view command, string_view explanation)
 {
     std::cerr << "oiiotool ERROR: " << command;
     if (explanation.length())
-        std::cerr << " (" << explanation << ")";
+        std::cerr << " : " << explanation;
     std::cerr << "\n";
     exit (-1);
 }
@@ -244,7 +245,7 @@ Oiiotool::warning (string_view command, string_view explanation)
 {
     std::cerr << "oiiotool WARNING: " << command;
     if (explanation.length())
-        std::cerr << " (" << explanation << ")";
+        std::cerr << " : " << explanation;
     std::cerr << "\n";
 }
 
@@ -323,24 +324,39 @@ input_file (int argc, const char *argv[])
 {
     for (int i = 0;  i < argc;  i++) {
         std::map<std::string,ImageRecRef>::const_iterator found;
-        found = ot.image_labels.find(argv[0]);
+        found = ot.image_labels.find(argv[i]);
         if (found != ot.image_labels.end()) {
             if (ot.verbose)
-                std::cout << "Referencing labeled image " << argv[0] << "\n";
+                std::cout << "Referencing labeled image " << argv[i] << "\n";
             ot.push (found->second);
             ot.process_pending ();
             break;
         }
         Timer timer (ot.enable_function_timing);
         int exists = 1;
-        if (! ot.imagecache->get_image_info (ustring(argv[0]), 0, 0, 
+        ustring filename (argv[i]);
+        if (! ot.imagecache->get_image_info (filename, 0, 0,
                             ustring("exists"), TypeDesc::TypeInt, &exists)
             || !exists) {
-            ot.error ("read", Strutil::format ("Could not open file \"%s\"", argv[0]));
+            // Try to get a more precise error message to report
+            if (! Filesystem::exists(filename.string()))
+                ot.error ("read", Strutil::format ("File does not exist: \"%s\"", filename));
+            else {
+                std::string err;
+                ImageInput *in = ImageInput::open (filename.string());
+                if (in) {
+                    err = in->geterror();
+                    in->close ();
+                    delete in;
+                } else {
+                    err = OIIO::geterror();
+                }
+                ot.error ("read", err.size() ? err : "(unknown error)");
+            }
             exit (1);
         }
         if (ot.verbose)
-            std::cout << "Reading " << argv[0] << "\n";
+            std::cout << "Reading " << argv[i] << "\n";
         ot.push (ImageRecRef (new ImageRec (argv[i], ot.imagecache)));
         if (ot.printinfo || ot.printstats || ot.dumpdata || ot.hash) {
             OiioTool::print_info_options pio;
@@ -396,6 +412,10 @@ string_to_dataformat (const std::string &s, TypeDesc &dataformat, int &bits)
         dataformat = TypeDesc::UINT16;  bits = 0;
     } else if (s == "int16") {
         dataformat = TypeDesc::INT16;   bits = 0;
+    } else if (s == "uint32") {
+        dataformat = TypeDesc::UINT32;  bits = 0;
+    } else if (s == "int32") {
+        dataformat = TypeDesc::INT32;   bits = 0;
     } else if (s == "half") {
         dataformat = TypeDesc::HALF;    bits = 0;
     } else if (s == "float") {
@@ -486,9 +506,11 @@ adjust_output_options (string_view filename,
         spec.attribute ("oiio:dither", h);
     }
 
-    // Make sure we kill any pixel value hash that may have been in the
-    // input.
+    // Make sure we kill any special hints that maketx adds and that will
+    // no longer be valid after whatever oiiotool operations we've done.
     spec.erase_attribute ("oiio:SHA-1");
+    spec.erase_attribute ("oiio:ConstantColor");
+    spec.erase_attribute ("oiio:AverageColor");
 }
 
 
@@ -513,6 +535,46 @@ DateTime_to_time_t (const char *datetime, time_t &timet)
     tmtime.tm_year = year-1900;
     timet = mktime (&tmtime);
     return true;
+}
+
+
+
+// For a comma-separated list of channel names (e.g., "B,G,R,A"), compute
+// the vector of integer indices for those channels as found in the spec
+// (e.g., {2,1,0,3}), using -1 for any channels whose names were not found
+// in the spec. Return true if all named channels were found, false if one
+// or more were not found.
+static bool
+parse_channels (const ImageSpec &spec, string_view chanlist,
+                std::vector<int> &channels)
+{
+    bool ok = true;
+    channels.clear ();
+    for (int c = 0; chanlist.length(); ++c) {
+        int chan = -1;
+        Strutil::skip_whitespace (chanlist);
+        string_view name = Strutil::parse_until (chanlist, ",");
+        if (name.size()) {
+            for (int i = 0;  i < spec.nchannels;  ++i)
+                if (spec.channelnames[i] == name) { // name of a known channel?
+                    chan = i;
+                    break;
+                }
+            if (chan < 0) { // Didn't find a match? Try case-insensitive.
+                for (int i = 0;  i < spec.nchannels;  ++i)
+                    if (Strutil::iequals (spec.channelnames[i], name)) {
+                        chan = i;
+                        break;
+                    }
+            }
+            if (chan < 0)
+                ok = false;
+            channels.push_back (chan);
+        }
+        if (! Strutil::parse_char (chanlist, ','))
+            break;
+    }
+    return ok;
 }
 
 
@@ -545,6 +607,23 @@ output_file (int argc, const char *argv[])
     ot.read ();
     ImageRecRef saveimg = ot.curimg;
     ImageRecRef ir (ot.curimg);
+
+    // Automatically drop channels we can't support in output
+    if ((ir->spec()->nchannels > 4 && ! out->supports("nchannels")) ||
+        (ir->spec()->nchannels > 3 && ! out->supports("alpha"))) {
+        bool alpha = (ir->spec()->nchannels > 3 && out->supports("alpha"));
+        string_view chanlist = alpha ? "R,G,B,A" : "R,G,B";
+        std::vector<int> channels;
+        bool found = parse_channels (*ir->spec(), chanlist, channels);
+        if (! found)
+            chanlist = alpha ? "0,1,2,3" : "0,1,2";
+        const char *argv[] = { "channels", chanlist.c_str() };
+        int action_channels (int argc, const char *argv[]); // forward decl
+        action_channels (2, argv);
+        ot.warning ("output", Strutil::format("Can't save %d channels to %f... saving only %s",
+                                              ir->spec()->nchannels, out->format_name(), chanlist.c_str()));
+        ir = ot.curimg;
+    }
 
     // Handle --autotrim
     if (supports_displaywindow && ot.output_autotrim) {
@@ -699,6 +778,8 @@ set_dataformat (int argc, const char *argv[])
         ot.output_bitspersample = 0;
         string_to_dataformat (chans[0], ot.output_dataformat,
                               ot.output_bitspersample);
+        if (ot.output_dataformat == TypeDesc::UNKNOWN)
+            ot.error ("-d", Strutil::format ("Unknown data format \"%s\"", chans[0]));
         ot.output_channelformats.clear ();
         return 0;  // we're done
     }
@@ -771,7 +852,8 @@ Oiiotool::adjust_geometry (string_view command,
                            int &w, int &h, int &x, int &y, const char *geom,
                            bool allow_scaling)
 {
-    float scale = 1.0f;
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
     int ww = w, hh = h;
     int xx = x, yy = y;
     int xmax, ymax;
@@ -796,21 +878,30 @@ Oiiotool::adjust_geometry (string_view command,
             hh = int (ww * float(h)/float(w) + 0.5f);
         w = ww;
         h = hh;
+    } else if (allow_scaling && sscanf (geom, "%f%%x%f%%", &scaleX, &scaleY) == 2) {
+        scaleX = std::max(0.0f, scaleX*0.01f);
+        scaleY = std::max(0.0f, scaleY*0.01f);
+        if (scaleX == 0 && scaleY != 0)
+            scaleX = scaleY;
+        if (scaleY == 0 && scaleX != 0)
+            scaleY = scaleX;
+        w = (int)(w * scaleX + 0.5f);
+        h = (int)(h * scaleY + 0.5f);
     } else if (sscanf (geom, "%d%d", &xx, &yy) == 2) {
         x = xx;
         y = yy;
-    } else if (allow_scaling && sscanf (geom, "%f%%", &scale) == 1) {
-        scale *= 0.01f;
-        w = (int)(w * scale + 0.5f);
-        h = (int)(h * scale + 0.5f);
-    } else if (allow_scaling && sscanf (geom, "%f", &scale) == 1) {
-        w = (int)(w * scale + 0.5f);
-        h = (int)(h * scale + 0.5f);
+    } else if (allow_scaling && sscanf (geom, "%f%%", &scaleX) == 1) {
+        scaleX *= 0.01f;
+        w = (int)(w * scaleX + 0.5f);
+        h = (int)(h * scaleX + 0.5f);
+    } else if (allow_scaling && sscanf (geom, "%f", &scaleX) == 1) {
+        w = (int)(w * scaleX + 0.5f);
+        h = (int)(h * scaleX + 0.5f);
     } else {
         error (command, Strutil::format ("Unrecognized geometry \"%s\"", geom));
         return false;
     }
-//    printf ("geom %dx%d, %+d%+d\n", w, h, x, y);
+    // printf ("geom %dx%d, %+d%+d\n", w, h, x, y);
     return true;
 }
 
@@ -1282,7 +1373,7 @@ action_unpremult (int argc, const char *argv[])
 
     for (int s = 0, subimages = R->subimages();  s < subimages;  ++s)
         for (int m = 0, miplevels = R->miplevels(s);  m < miplevels;  ++m)
-            ImageBufAlgo::unpremult ((*R)(s,m));
+            ImageBufAlgo::unpremult ((*R)(s,m), (*R)(s,m));
 
     ot.function_times["unpremult"] += timer();
     return 0;
@@ -1306,7 +1397,7 @@ action_premult (int argc, const char *argv[])
 
     for (int s = 0, subimages = R->subimages();  s < subimages;  ++s)
         for (int m = 0, miplevels = R->miplevels(s);  m < miplevels;  ++m)
-            ImageBufAlgo::premult ((*R)(s,m));
+            ImageBufAlgo::premult ((*R)(s,m), (*R)(s,m));
 
     ot.function_times["premult"] += timer();
     return 0;
@@ -1363,7 +1454,7 @@ set_channelnames (int argc, const char *argv[])
     for (int s = 0; s < A->subimages(); ++s) {
         int miplevels = A->miplevels(s);
         for (int m = 0;  m < miplevels;  ++m) {
-            ImageSpec *spec = A->spec(s,m);
+            ImageSpec *spec = &(*A)(s,m).specmod();
             spec->channelnames.resize (spec->nchannels);
             for (int c = 0; c < spec->nchannels;  ++c) {
                 if (c < (int)newchannelnames.size() &&
@@ -1382,6 +1473,7 @@ set_channelnames (int argc, const char *argv[])
                         spec->z_channel = c;
                 }
             }
+           A->update_spec_from_imagebuf(s,m);
         }
     }
     ot.function_times["chnames"] += timer();
@@ -1394,7 +1486,8 @@ set_channelnames (int argc, const char *argv[])
 // a comma separated list of channels (e.g., "B,G,R,A"), compute the
 // vector of integer indices for those channels (e.g., {2,1,0,3}).
 // A channel may be a literal assignment (e.g., "=0.5"), or a literal
-// assignment with channel naming (e.g., "Z=0.5").
+// assignment with channel naming (e.g., "Z=0.5"), the name of a channel
+// ("A"), or the name of a channel with a new name reassigned ("R=G").
 // Return true for success, false for failure, including if any of the
 // channels were not present in the image.  Upon return, channels
 // will be the indices of the source image channels to copy (-1 for
@@ -1402,59 +1495,89 @@ set_channelnames (int argc, const char *argv[])
 // the value to fill un-sourced channels (defaulting to zero), and
 // newchannelnames will be the name of renamed or non-default-named
 // channels (defaulting to "" if no special name is needed).
-static bool
-decode_channel_set (const ImageSpec &spec, std::string chanlist,
+bool
+decode_channel_set (const ImageSpec &spec, string_view chanlist,
                     std::vector<std::string> &newchannelnames,
                     std::vector<int> &channels, std::vector<float> &values)
 {
+    // std::cout << "Decode_channel_set '" << chanlist << "'\n";
     channels.clear ();
-    while (chanlist.length()) {
-        // Extract the next channel name
-        size_t pos = chanlist.find_first_of(",");
-        std::string onechan (chanlist, 0, pos);
-        onechan = Strutil::strip (onechan);
-        if (pos == std::string::npos)
-            chanlist.clear();
-        else
-            chanlist = chanlist.substr (pos+1, std::string::npos);
-
-        // Find the index corresponding to that channel
-        newchannelnames.push_back (std::string());
-        float value = 0.0f;
-        int ch = -1;
-        for (int i = 0;  i < spec.nchannels;  ++i)
-            if (spec.channelnames[i] == onechan) { // name of a known channel?
-                ch = i;
-                break;
-            }
-        if (ch < 0) { // Didn't find a match? Try case-insensitive.
-            for (int i = 0;  i < spec.nchannels;  ++i)
-                if (Strutil::iequals (spec.channelnames[i], onechan)) {
-                    ch = i;
-                    break;
+    for (int c = 0; chanlist.length(); ++c) {
+        // It looks like:
+        //     <int>                (put old channel here, by numeric index)
+        //     oldname              (put old named channel here)
+        //     newname=oldname      (put old channel here, with new name)
+        //     newname=<float>      (put constant value here, with a name)
+        //     =<float>             (put constant value here, default name)
+        std::string newname;
+        int chan = -1;
+        float val = 0.0f;
+        Strutil::skip_whitespace (chanlist);
+        if (chanlist.empty())
+            break;
+        if (Strutil::parse_int (chanlist, chan) && chan >= 0
+                                                && chan < spec.nchannels) {
+            // case: <int>
+            newname = spec.channelnames[chan];
+        } else if (Strutil::parse_char (chanlist, '=')) {
+            // case: =<float>
+            Strutil::parse_float (chanlist, val);
+        } else {
+            string_view n = Strutil::parse_until (chanlist, "=,");
+            string_view oldname;
+            if (Strutil::parse_char (chanlist, '=')) {
+                if (Strutil::parse_float (chanlist, val)) {
+                    // case: newname=float
+                    newname = n;
+                } else {
+                    // case: newname=oldname
+                    newname = n;
+                    oldname = Strutil::parse_until (chanlist, ",");
                 }
-        }
-        if (ch < 0 && onechan.length() &&
-                (isdigit(onechan[0]) || onechan[0] == '-'))
-            ch = atoi (onechan.c_str());  // numeric channel index
-        if (ch < 0 && onechan.length()) {
-            // Look for Either =val or name=val
-            size_t equal_pos = onechan.find ('=');
-            if (equal_pos != std::string::npos) {
-                value = (float) atof (onechan.c_str()+equal_pos+1);
-                onechan.erase (equal_pos);
-                newchannelnames.back() = onechan;
+            } else {
+                // case: oldname
+                oldname = n;
+            }
+            if (oldname.size()) {
+                for (int i = 0;  i < spec.nchannels;  ++i)
+                    if (spec.channelnames[i] == oldname) { // name of a known channel?
+                        chan = i;
+                        break;
+                    }
+                if (chan < 0) { // Didn't find a match? Try case-insensitive.
+                    for (int i = 0;  i < spec.nchannels;  ++i)
+                        if (Strutil::iequals (spec.channelnames[i], oldname)) {
+                            chan = i;
+                            break;
+                        }
+                }
+                if (newname.empty() && chan >= 0)
+                    newname = spec.channelnames[chan];
             }
         }
-        channels.push_back (ch);
-        values.push_back (value);
+
+        if (! newname.size()) {
+            const char *RGBAZ[] = { "R", "G", "B", "A", "Z" };
+            if (c <= 4)
+                newname = std::string(RGBAZ[c]);
+            else
+                newname = Strutil::format ("channel%d", c);
+        }
+
+        // std::cout << "  Chan " << c << ": " << newname << ' ' << chan << ' ' << val << "\n";
+        newchannelnames.push_back (newname);
+        channels.push_back (chan);
+        values.push_back (val);
+
+        if (! Strutil::parse_char (chanlist, ','))
+            break;
     }
     return true;
 }
 
 
 
-static int
+int
 action_channels (int argc, const char *argv[])
 {
     if (ot.postpone_callback (1, action_channels, argc, argv))
@@ -1603,10 +1726,19 @@ action_select_subimage (int argc, const char *argv[])
     Timer timer (ot.enable_function_timing);
 
     ot.read ();
+
+    int subimage = atoi(argv[1]);
+    if (subimage < 0 || subimage >= ot.curimg->subimages()) {
+        ot.error ("-subimage",
+                 Strutil::format ("Invalid -subimage (%d): %s has %d subimage%s",
+                                  subimage, ot.curimg->name(), ot.curimg->subimages(),
+                                  ot.curimg->subimages() == 1 ? "" : "s"));
+        return 0;
+    }
+
     if (ot.curimg->subimages() == 1)
         return 0;    // --subimage on a single-image file is a no-op
     
-    int subimage = std::min (atoi(argv[1]), ot.curimg->subimages());
     ImageRecRef A = ot.pop();
     ot.push (new ImageRec (*A, subimage));
     ot.function_times["subimage"] += timer();
@@ -3716,7 +3848,7 @@ getargs (int argc, char *argv[])
                 "--dumpdata %@", set_dumpdata, NULL, "Print all pixel data values (options: empty=0)",
                 "--hash", &ot.hash, "Print SHA-1 hash of each input image",
                 "--colorcount %@ %s", action_colorcount, NULL,
-                    "Count of how many pixels have the given color (argument: color;color;...) (optional args: eps=color)",
+                    "Count of how many pixels have the given color (argument: color;color;...) (options: eps=color)",
                 "--rangecheck %@ %s %s", action_rangecheck, NULL, NULL,
                     "Count of how many pixels are outside the low and high color arguments (each is a comma-separated color value list)",
 //                "-u", &ot.updatemode, "Update mode: skip outputs when the file exists and is newer than all inputs",
@@ -3732,13 +3864,14 @@ getargs (int argc, char *argv[])
                 "--autopremult %@", set_autopremult, NULL, "Turn on automatic premultiplication of images with unassociated alpha",
                 "--autoorient", &ot.autoorient, "Automatically --reorient all images upon input",
                 "--auto-orient", &ot.autoorient, "", // symonym for --autoorient
+                "--native", &ot.nativeread, "Force native data type reads if cache would lose precision",
                 "<SEPARATOR>", "Commands that write images:",
                 "-o %@ %s", output_file, NULL, "Output the current image to the named file",
                 "<SEPARATOR>", "Options that affect subsequent image output:",
                 "-d %@ %s", set_dataformat, NULL,
                     "'-d TYPE' sets the output data format of all channels, "
                     "'-d CHAN=TYPE' overrides a single named channel (multiple -d args are allowed). "
-                    "Data types include: uint8, sint8, uint10, uint12, uint16, sint16, half, float, double",
+                    "Data types include: uint8, sint8, uint10, uint12, uint16, sint16, uint32, sint32, half, float, double",
                 "--scanline", &ot.output_scanline, "Output scanline images",
                 "--tile %@ %d %d", output_tiles, &ot.output_tilewidth, &ot.output_tileheight,
                     "Output tiled images (tilewidth, tileheight)",
@@ -3821,10 +3954,10 @@ getargs (int argc, char *argv[])
                 "--transpose %@", action_transpose, NULL, "Transpose the image",
                 "--cshift %@ %s", action_cshift, NULL, "Circular shift the image (e.g.: +20-10)",
                 "--resample %@ %s", action_resample, NULL, "Resample (640x480, 50%)",
-                "--resize %@ %s", action_resize, NULL, "Resize (640x480, 50%) (optional args: filter=%s)",
-                "--fit %@ %s", action_fit, NULL, "Resize to fit within a window size (optional args: filter=%s, pad=%d)",
-                "--rotate %@ %g", action_rotate, NULL, "Rotate pixels (argument is degrees clockwise) around the center of the display window (optional args: filter=%s:center=%f,%f:recompute_roi=%d",
-                "--warp %@ %s", action_warp, NULL, "Warp pixels (argument is a 3x3 matrix, separated by commas) (optional args: filter=%s:,recompute_roi=%d",
+                "--resize %@ %s", action_resize, NULL, "Resize (640x480, 50%) (options: filter=%s)",
+                "--fit %@ %s", action_fit, NULL, "Resize to fit within a window size (options: filter=%s, pad=%d)",
+                "--rotate %@ %g", action_rotate, NULL, "Rotate pixels (argument is degrees clockwise) around the center of the display window (options: filter=%s, center=%f,%f, recompute_roi=%d",
+                "--warp %@ %s", action_warp, NULL, "Warp pixels (argument is a 3x3 matrix, separated by commas) (options: filter=%s, recompute_roi=%d)",
                 "--convolve %@", action_convolve, NULL,
                     "Convolve with a kernel",
                 "--blur %@ %s", action_blur, NULL,
@@ -3881,9 +4014,9 @@ getargs (int argc, char *argv[])
                 "--colorconvert %@ %s %s", action_colorconvert, NULL, NULL,
                     "Convert pixels from 'src' to 'dst' color space (without regard to its previous interpretation)",
                 "--ociolook %@ %s", action_ociolook, NULL,
-                    "Apply the named OCIO look (optional args: from=, to=, inverse=, key=, value=)",
+                    "Apply the named OCIO look (options: from=, to=, inverse=, key=, value=)",
                 "--ociodisplay %@ %s %s", action_ociodisplay, NULL, NULL,
-                    "Apply the named OCIO display and view (optional args: from=, looks=, key=, value=)",
+                    "Apply the named OCIO display and view (options: from=, looks=, key=, value=)",
                 "--unpremult %@", action_unpremult, NULL,
                     "Divide all color channels of the current image by the alpha to \"un-premultiply\"",
                 "--premult %@", action_premult, NULL,
@@ -3957,6 +4090,9 @@ getargs (int argc, char *argv[])
             s << " (* = default)";
             std::cout << Strutil::wordwrap(s.str(), columns, 4) << "\n";
         }
+
+        if (! ot.colorconfig.supportsOpenColorIO())
+            std::cout << "No OpenColorIO support was enabled at build time.\n";
 
         exit (EXIT_SUCCESS);
     }
@@ -4065,7 +4201,7 @@ handle_sequence (int argc, const char **argv)
                                             frame_numbers[a]);
             Filesystem::enumerate_file_sequence (normalized_pattern,
                                                  frame_numbers[a],
-                                                 views,
+                                                 frame_views[a],
                                                  filenames[a]);
         } else if (sequence_is_output[i]) {
             // use frame numbers from first sequence

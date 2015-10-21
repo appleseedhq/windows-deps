@@ -115,7 +115,11 @@ bool
 ImageOutputWrap::write_scanline (int y, int z, TypeDesc format, object &buffer,
                                  stride_t xstride)
 {
-    const void *array = make_read_buffer (buffer, m_output->spec().scanline_bytes());
+    bool native = (format == TypeDesc::UNKNOWN);
+    imagesize_t size = native ? m_output->spec().scanline_bytes (native)
+                                  : format.size() * m_output->spec().nchannels * m_output->spec().width;
+    const void *array = make_read_buffer (buffer, size);
+    ScopedGILRelease gil;
     return m_output->write_scanline(y, z, format, array, xstride);
 }
 
@@ -133,7 +137,11 @@ ImageOutputWrap::write_scanlines (int ybegin, int yend, int z,
                                   TypeDesc format, object &buffer,
                                   stride_t xstride)
 {
-    const void *array = make_read_buffer (buffer, m_output->spec().scanline_bytes());
+    bool native = (format == TypeDesc::UNKNOWN);
+    imagesize_t size = native ? m_output->spec().scanline_bytes (native)
+                                  : format.size() * m_output->spec().nchannels * m_output->spec().width;
+    const void *array = make_read_buffer (buffer, size);
+    ScopedGILRelease gil;
     return m_output->write_scanlines(ybegin, yend, z, format, array, xstride);
 }
 
@@ -153,8 +161,11 @@ ImageOutputWrap::write_tile (int x, int y, int z, TypeDesc format,
                              object &buffer, stride_t xstride,
                              stride_t ystride, stride_t zstride)
 {
-    imagesize_t size = m_output->spec().tile_bytes();
+    bool native = (format == TypeDesc::UNKNOWN);
+    imagesize_t size = native ? m_output->spec().tile_bytes (native)
+                                  : format.size() * m_output->spec().nchannels * m_output->spec().tile_pixels();
     const void *array = make_read_buffer(buffer, size);
+    ScopedGILRelease gil;
     return m_output->write_tile(x, y, z, format, array, xstride, ystride, zstride);    
 }
 
@@ -174,8 +185,11 @@ ImageOutputWrap::write_tiles (int xbegin, int xend, int ybegin, int yend,
                               object &buffer, stride_t xstride,
                               stride_t ystride, stride_t zstride)
 {
-    imagesize_t size = m_output->spec().tile_bytes();
+    bool native = (format == TypeDesc::UNKNOWN);
+    imagesize_t size = native ? m_output->spec().tile_bytes (native)
+                                  : format.size() * m_output->spec().nchannels * m_output->spec().tile_pixels();
     const void *array = make_read_buffer(buffer, size);
+    ScopedGILRelease gil;
     return m_output->write_tiles (xbegin, xend, ybegin, yend, zbegin, zend,
                                   format, array, xstride, ystride, zstride);    
 }
@@ -197,8 +211,11 @@ ImageOutputWrap::write_image (TypeDesc format, object &buffer,
                               stride_t xstride, stride_t ystride,
                               stride_t zstride)
 {
-    imagesize_t size = m_output->spec().image_bytes();
+    bool native = (format == TypeDesc::UNKNOWN);
+    imagesize_t size = native ? m_output->spec().image_bytes (native)
+                                  : format.size() * m_output->spec().nchannels * m_output->spec().image_pixels();
     const void *array = make_read_buffer (buffer, size);
+    ScopedGILRelease gil;
     if (array)
         return m_output->write_image (format, array, xstride, ystride, zstride);
     return false;
@@ -237,6 +254,33 @@ BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(ImageOutputWrap_write_tiles_overloads,
                                        write_tiles, 8, 11)
 BOOST_PYTHON_MEMBER_FUNCTION_OVERLOADS(ImageOutputWrap_write_tiles_bt_overloads,
                                        write_tiles_bt, 8, 11)
+
+
+bool
+ImageOutputWrap::write_deep_scanlines (int ybegin, int yend, int z,
+                                       const DeepData &deepdata)
+{
+    ScopedGILRelease gil;
+    return m_output->write_deep_scanlines (ybegin, yend, z, deepdata);
+}
+
+
+bool
+ImageOutputWrap::write_deep_tiles (int xbegin, int xend, int ybegin, int yend,
+                                   int zbegin, int zend, const DeepData &deepdata)
+{
+    ScopedGILRelease gil;
+    return m_output->write_deep_tiles (xbegin, xend, ybegin, yend,
+                                       zbegin, zend, deepdata);
+}
+
+
+bool
+ImageOutputWrap::write_deep_image (const DeepData &deepdata)
+{
+    ScopedGILRelease gil;
+    return m_output->write_deep_image (deepdata);
+}
 
 
 
@@ -297,6 +341,9 @@ void declare_imageoutput()
              ImageOutputWrap_write_tiles_overloads())
         .def("write_tiles",      &ImageOutputWrap::write_tiles_bt,
              ImageOutputWrap_write_tiles_bt_overloads())
+        .def("write_deep_scanlines", &ImageOutputWrap::write_deep_scanlines)
+        .def("write_deep_tiles", &ImageOutputWrap::write_deep_tiles)
+        .def("write_deep_image", &ImageOutputWrap::write_deep_image)
 // FIXME - write_deep_{image,scanlines,tiles}
         .def("copy_image",      &ImageOutputWrap::copy_image)
         .def("geterror",        &ImageOutputWrap::geterror)

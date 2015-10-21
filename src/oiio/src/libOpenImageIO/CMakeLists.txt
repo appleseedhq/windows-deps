@@ -1,3 +1,8 @@
+message (STATUS "Create imagio_pvt.h from imageio_pvt.h.in")
+file (TO_NATIVE_PATH "${PLUGIN_SEARCH_PATH}" PLUGIN_SEARCH_PATH_NATIVE)
+configure_file (imageio_pvt.h.in "${CMAKE_CURRENT_BINARY_DIR}/imageio_pvt.h" @ONLY)
+include_directories("${CMAKE_CURRENT_BINARY_DIR}")
+
 file (GLOB libOpenImageIO_hdrs ../include/OpenImageIO/*.h)
 
 if (NOT USE_EXTERNAL_PUGIXML)
@@ -115,6 +120,17 @@ if (EMBEDPLUGINS)
 
     add_definitions ("-DEMBED_PLUGINS=1")
 
+    if (FFMPEG_FOUND AND USE_FFMPEG)
+        set (libOpenImageIO_srcs ${libOpenImageIO_srcs}
+             ../ffmpeg.imageio/ffmpeginput.cpp
+             ../ffmpeg.imageio/ffmpegoutput.cpp
+            )
+        include_directories (${FFMPEG_INCLUDE_DIR})
+        add_definitions("-DUSE_FFMPEG")
+    else ()
+        message (STATUS "FFmpeg plugin will not be built")
+    endif ()
+
     if (FIELD3D_FOUND AND USE_FIELD3D)
         set (libOpenImageIO_srcs ${libOpenImageIO_srcs}
              ../field3d.imageio/field3dinput.cpp
@@ -198,6 +214,13 @@ target_link_libraries (OpenImageIO
                            ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
                            ${Boost_LIBRARIES})
 
+# Include FFmpeg if using it
+if (USE_FFMPEG AND FFMPEG_FOUND)
+    message (STATUS "Linking FFmpeg ${FFMPEG_LIBRARIES}")
+    target_link_libraries (OpenImageIO ${FFMPEG_LIBRARIES})
+endif ()
+
+        
 # Include OpenColorIO if using it
 if (USE_OCIO AND OCIO_FOUND)
     message (STATUS "Linking OpenColorIO ${OCIO_LIBRARIES}")
@@ -228,7 +251,7 @@ endif ()
 if (WIN32)
     target_link_libraries (OpenImageIO psapi.lib)
 endif ()
-link_ilmbase (OpenImageIO)
+
 add_dependencies (OpenImageIO "${CMAKE_CURRENT_SOURCE_DIR}/libOpenImageIO.map")
 
 if (EMBEDPLUGINS)
@@ -248,6 +271,8 @@ if (EMBEDPLUGINS)
         target_link_libraries (OpenImageIO ${LibRaw_r_LIBRARIES})
     endif ()
 endif ()
+
+link_ilmbase (OpenImageIO)
 
 if (USE_EXTERNAL_PUGIXML)
     target_link_libraries (OpenImageIO ${PUGIXML_LIBRARIES})

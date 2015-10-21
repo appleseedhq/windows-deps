@@ -155,11 +155,20 @@ TIFFOutput::supports (const std::string &feature) const
         return true;
     if (feature == "appendsubimage")
         return true;
+    if (feature == "alpha")
+        return true;
+    if (feature == "nchannels")
+        return true;
     if (feature == "displaywindow")
         return true;
     if (feature == "origin")
         return true;
     // N.B. TIFF doesn't support "negativeorigin"
+    if (feature == "exif")
+        return true;
+    if (feature == "iptc")
+        return true;
+    // N.B. TIFF doesn't support arbitrary metadata.
 
     // FIXME: we could support "volumes" and "empty"
 
@@ -253,6 +262,14 @@ TIFFOutput::open (const std::string &name, const ImageSpec &userspec,
         bps = 16;
         sampformat = SAMPLEFORMAT_UINT;
         break;
+    case TypeDesc::INT32:
+        bps = 32;
+        sampformat = SAMPLEFORMAT_INT;
+        break;
+    case TypeDesc::UINT32:
+        bps = 32;
+        sampformat = SAMPLEFORMAT_UINT;
+        break;
     case TypeDesc::HALF:
         // Silently change requests for unsupported 'half' to 'float'
         m_spec.set_format (TypeDesc::FLOAT);
@@ -291,9 +308,9 @@ TIFFOutput::open (const std::string &name, const ImageSpec &userspec,
         TIFFSetField (m_tif, TIFFTAG_EXTRASAMPLES, e, &extra[0]);
     }
 
-    // Default to LZW compression if no request came with the user spec
+    // Default to ZIP compression if no request came with the user spec
     if (! m_spec.find_attribute("compression"))
-        m_spec.attribute ("compression", "lzw");
+        m_spec.attribute ("compression", "zip");
 
     ImageIOParameter *param;
     const char *str = NULL;
@@ -337,6 +354,20 @@ TIFFOutput::open (const std::string &name, const ImageSpec &userspec,
 
     if (Strutil::iequals (m_spec.get_string_attribute ("oiio:ColorSpace"), "sRGB"))
         m_spec.attribute ("Exif:ColorSpace", 1);
+
+    // Deal with missing XResolution or YResolution, or a PixelAspectRatio
+    // that contradicts them.
+    float X_density = m_spec.get_float_attribute ("XResolution", 1.0f);
+    float Y_density = m_spec.get_float_attribute ("YResolution", 1.0f);
+    float aspect = m_spec.get_float_attribute ("PixelAspectRatio", 1.0f);
+    if (X_density < 1.0f || Y_density < 1.0f || aspect*X_density != Y_density) {
+        if (X_density < 1.0f || Y_density < 1.0f) {
+            X_density = Y_density = 1.0f;
+            m_spec.attribute ("ResolutionUnit", "none");
+        }
+        m_spec.attribute ("XResolution", X_density);
+        m_spec.attribute ("YResolution", X_density * aspect);
+    }
 
     // Deal with all other params
     for (size_t p = 0;  p < m_spec.extra_attribs.size();  ++p)
@@ -447,10 +478,6 @@ TIFFOutput::put_parameter (const std::string &name, TypeDesc type,
         else ok = false;
         return ok;
     }
-    if (Strutil::iequals(name, "ResolutionUnit") && type == TypeDesc::UINT) {
-        TIFFSetField (m_tif, TIFFTAG_RESOLUTIONUNIT, *(unsigned int *)data);
-        return true;
-    }
     if (Strutil::iequals(name, "tiff:RowsPerStrip")
           && ! m_spec.tile_width /* don't set rps for tiled files */
           && m_planarconfig == PLANARCONFIG_CONTIG /* only for contig */) {
@@ -505,8 +532,17 @@ TIFFOutput::put_parameter (const std::string &name, TypeDesc type,
 bool
 TIFFOutput::write_exif_data ()
 {
-#if TIFFLIB_VERSION >= 20120922
+#if defined(TIFF_VERSION_BIG) && TIFFLIB_VERSION >= 20120922
     // Older versions of libtiff do not support writing Exif directories
+
+    if (m_spec.get_int_attribute ("tiff:write_exif", 1) == 0) {
+        // The special metadata "tiff:write_exif", if present and set to 0
+        // (the default is 1), will cause us to skip outputting Exif data.
+        // This is useful in cases where we think the TIFF file will need to
+        // be read by an app that links against an old version of libtiff
+        // that will have trouble reading the Exif directory.
+        return true;
+    }
 
     // First, see if we have any Exif data at all
     bool any_exif = false;

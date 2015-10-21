@@ -56,6 +56,10 @@ static void TypeDesc_set_vecsemantics (TypeDesc &t, TypeDesc::VECSEMANTICS val) 
     t.vecsemantics = val;
 }
 
+static void TypeDesc_fromstring (TypeDesc &t, const char* typestring)
+{
+    t.fromstring (typestring);
+}
 
 
 
@@ -141,9 +145,11 @@ void declare_typedesc() {
         .def("elementtype",      &TypeDesc::elementtype)
         .def("elementsize",      &TypeDesc::elementsize)
         .def("basesize",         &TypeDesc::basesize)
-        .def("fromstring",       &TypeDesc::fromstring)
+        .def("fromstring",       &TypeDesc_fromstring)
         .def("equivalent",       &TypeDesc::equivalent)
         .def("unarray",          &TypeDesc::unarray)
+        .def("is_vec3",          &TypeDesc::is_vec3)
+        .def("is_vec4",          &TypeDesc::is_vec4)
 
         // overloaded operators
         .def(self == other<TypeDesc>())    // operator==
@@ -157,12 +163,14 @@ void declare_typedesc() {
         .def_readonly("TypeColor",    &TypeDesc::TypeColor)
         .def_readonly("TypeString",   &TypeDesc::TypeString)
         .def_readonly("TypeInt",      &TypeDesc::TypeInt)
+        .def_readonly("TypeHalf",     &TypeDesc::TypeHalf)
         .def_readonly("TypePoint",    &TypeDesc::TypePoint)
         .def_readonly("TypeVector",   &TypeDesc::TypeVector)
         .def_readonly("TypeNormal",   &TypeDesc::TypeNormal)
         .def_readonly("TypeMatrix",   &TypeDesc::TypeMatrix)
         .def_readonly("TypeTimeCode", &TypeDesc::TypeTimeCode)
         .def_readonly("TypeKeyCode",  &TypeDesc::TypeKeyCode)
+        .def_readonly("TypeFloat4",   &TypeDesc::TypeFloat4)
     ;
 
 }

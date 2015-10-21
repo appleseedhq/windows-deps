@@ -29,14 +29,9 @@
   (This is the Modified BSD License)
 */
 
-
 #include <cassert>
 #include <cstdio>
 #include <vector>
-
-extern "C" {
-#include "jpeglib.h"
-}
 
 #include "OpenImageIO/imageio.h"
 #include "OpenImageIO/filesystem.h"
@@ -57,7 +52,10 @@ class JpgOutput : public ImageOutput {
     JpgOutput () { init(); }
     virtual ~JpgOutput () { close(); }
     virtual const char * format_name (void) const { return "jpeg"; }
-    virtual bool supports (const std::string &property) const { return false; }
+    virtual bool supports (const std::string &feature) {
+        return (feature == "exif"
+             || feature == "iptc");
+    }
     virtual bool open (const std::string &name, const ImageSpec &spec,
                        OpenMode mode=Create);
     virtual bool write_scanline (int y, int z, TypeDesc format,
@@ -84,6 +82,16 @@ class JpgOutput : public ImageOutput {
         m_fd = NULL;
         m_copy_coeffs = NULL;
         m_copy_decompressor = NULL;
+    }
+    
+    void set_subsampling (const int components[]) {
+        jpeg_set_colorspace (&m_cinfo, JCS_YCbCr);
+        m_cinfo.comp_info[0].h_samp_factor = components[0];
+        m_cinfo.comp_info[0].v_samp_factor = components[1];
+        m_cinfo.comp_info[1].h_samp_factor = components[2];
+        m_cinfo.comp_info[1].v_samp_factor = components[3];
+        m_cinfo.comp_info[2].h_samp_factor = components[4];
+        m_cinfo.comp_info[2].v_samp_factor = components[5];
     }
 };
 
@@ -130,7 +138,7 @@ JpgOutput::open (const std::string &name, const ImageSpec &newspec,
 
     if (m_spec.nchannels != 1 && m_spec.nchannels != 3 &&
             m_spec.nchannels != 4) {
-        error ("%s does not support %d-channel images\n",
+        error ("%s does not support %d-channel images",
                format_name(), m_spec.nchannels);
         return false;
     }
@@ -156,9 +164,29 @@ JpgOutput::open (const std::string &name, const ImageSpec &newspec,
         m_cinfo.input_components = 1;
         m_cinfo.in_color_space = JCS_GRAYSCALE;
     }
-    m_cinfo.density_unit = 2; // RESUNIT_INCH;
-    m_cinfo.X_density = 72;
-    m_cinfo.Y_density = 72;
+
+    string_view resunit = m_spec.get_string_attribute ("ResolutionUnit");
+    if (Strutil::iequals (resunit, "none"))
+        m_cinfo.density_unit = 0;
+    else if (Strutil::iequals (resunit, "in"))
+        m_cinfo.density_unit = 1;
+    else if (Strutil::iequals (resunit, "cm"))
+        m_cinfo.density_unit = 2;
+    else
+        m_cinfo.density_unit = 0;
+    m_cinfo.X_density = int (m_spec.get_float_attribute ("XResolution"));
+    m_cinfo.Y_density = int (m_spec.get_float_attribute ("YResolution"));
+    float aspect = m_spec.get_float_attribute ("PixelAspectRatio", 1.0f);
+    if (m_cinfo.X_density <= 1 && m_cinfo.Y_density <= 1 && aspect != 1.0f) {
+        // No useful [XY]Resolution, but there is an aspect ratio requested.
+        // Arbitrarily pick 72 dots per undefined unit, and jigger it to
+        // honor it as best as we can.
+        m_cinfo.X_density = 72;
+        m_cinfo.Y_density = int (m_cinfo.X_density * aspect);
+        m_spec.attribute ("XResolution", 72.0f);
+        m_spec.attribute ("YResolution", 72.0f*aspect);
+    }
+
     m_cinfo.write_JFIF_header = TRUE;
 
     if (m_copy_coeffs) {
@@ -170,10 +198,27 @@ JpgOutput::open (const std::string &name, const ImageSpec &newspec,
     } else {
         // normal write of scanlines
         jpeg_set_defaults (&m_cinfo);                 // default compression
+        // Careful -- jpeg_set_defaults overwrites density
+        m_cinfo.X_density = int (m_spec.get_float_attribute ("XResolution"));
+        m_cinfo.Y_density = int (m_spec.get_float_attribute ("YResolution", m_cinfo.X_density));
         DBG std::cout << "out open: set_defaults\n";
         int quality = newspec.get_int_attribute ("CompressionQuality", 98);
         jpeg_set_quality (&m_cinfo, quality, TRUE);   // baseline values
         DBG std::cout << "out open: set_quality\n";
+        
+        if (m_cinfo.input_components == 3) {
+            std::string subsampling = m_spec.get_string_attribute (JPEG_SUBSAMPLING_ATTR);
+            if (subsampling == JPEG_444_STR)
+                set_subsampling(JPEG_444_COMP);
+            else if (subsampling == JPEG_422_STR)
+                set_subsampling(JPEG_422_COMP);
+            else if (subsampling == JPEG_420_STR)
+                set_subsampling(JPEG_420_COMP);
+            else if (subsampling == JPEG_411_STR)
+                set_subsampling(JPEG_411_COMP);
+        }
+        DBG std::cout << "out open: set_colorspace\n";
+                
         jpeg_start_compress (&m_cinfo, TRUE);         // start working
         DBG std::cout << "out open: start_compress\n";
     }
@@ -242,7 +287,7 @@ JpgOutput::open (const std::string &name, const ImageSpec &newspec,
         if (icc_profile && icc_profile_length){
             /* Calculate the number of markers we'll need, rounding up of course */
             int num_markers = icc_profile_length / MAX_DATA_BYTES_IN_MARKER;
-            if (num_markers * MAX_DATA_BYTES_IN_MARKER != icc_profile_length)
+            if ((unsigned int)(num_markers * MAX_DATA_BYTES_IN_MARKER) != icc_profile_length)
                 num_markers++;
             int curr_marker = 1;  /* per spec, count strarts at 1*/
             std::vector<unsigned char> profile (MAX_DATA_BYTES_IN_MARKER + ICC_HEADER_SIZE);

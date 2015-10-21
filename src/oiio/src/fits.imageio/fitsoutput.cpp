@@ -51,6 +51,20 @@ OIIO_PLUGIN_EXPORTS_END
 
 
 bool
+FitsOutput::supports (const std::string &feature) const
+{
+    return (feature == "multiimage"
+         || feature == "alpha"
+         || feature == "nchannels"
+         || feature == "random_access"
+         || feature == "arbitrary_metadata"
+         || feature == "exif"   // Because of arbitrary_metadata
+         || feature == "iptc"); // Because of arbitrary_metadata
+}
+
+
+
+bool
 FitsOutput::open (const std::string &name, const ImageSpec &spec,
                   OpenMode mode)
 {
@@ -144,19 +158,6 @@ FitsOutput::write_tile (int x, int y, int z, TypeDesc format,
     // Emulate tiles by buffering the whole image
     return copy_tile_to_image_buffer (x, y, z, format, data, xstride,
                                       ystride, zstride, &m_tilebuffer[0]);
-}
-
-
-
-bool
-FitsOutput::supports (const std::string &feature) const
-{
-    // for now we only supports IMAGE extensions
-    if (feature == "multiimage")
-        return true;
-    if (feature == "random_access")
-        return true;
-    return false;
 }
 
 

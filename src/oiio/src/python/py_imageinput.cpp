@@ -38,7 +38,10 @@ using namespace boost::python;
 object ImageInputWrap::open_static_regular (const std::string &filename)
 {
     ImageInputWrap* iiw = new ImageInputWrap;
-    iiw->m_input = ImageInput::open(filename);
+    {
+        ScopedGILRelease gil;
+        iiw->m_input = ImageInput::open(filename);
+    }
     if (iiw->m_input == NULL) {
         delete iiw;
         return object(handle<>(Py_None));
@@ -51,7 +54,10 @@ object ImageInputWrap::open_static_with_config (const std::string &filename,
                                                 const ImageSpec &config)
 {
     ImageInputWrap* iiw = new ImageInputWrap;
-    iiw->m_input = ImageInput::open(filename, &config);
+    {
+        ScopedGILRelease gil;
+        iiw->m_input = ImageInput::open(filename, &config);
+    }
     if (iiw->m_input == NULL) {
         delete iiw;
         return object(handle<>(Py_None));
@@ -64,7 +70,10 @@ object ImageInputWrap::create(const std::string &filename,
                               const std::string &plugin_searchpath) 
 {
     ImageInputWrap* iiw = new ImageInputWrap;
-    iiw->m_input = ImageInput::create(filename, plugin_searchpath);
+    {
+        ScopedGILRelease gil;
+        iiw->m_input = ImageInput::create(filename, plugin_searchpath);
+    }
     if (iiw->m_input == NULL) {
         delete iiw;
         return object(handle<>(Py_None));
@@ -85,11 +94,13 @@ const char* ImageInputWrap::format_name() const {
 
 bool ImageInputWrap::valid_file (const std::string &filename) const
 {
+    ScopedGILRelease gil;
     return m_input->valid_file (filename);
 }
 
 bool ImageInputWrap::open_regular (const std::string &name)
 {
+    ScopedGILRelease gil;
     ImageSpec newspec;
     return m_input->open(name, newspec);
 }
@@ -97,6 +108,7 @@ bool ImageInputWrap::open_regular (const std::string &name)
 bool ImageInputWrap::open_with_config (const std::string &name, 
                                        const ImageSpec &config)
 {
+    ScopedGILRelease gil;
     ImageSpec newspec;
     return m_input->open(name, newspec, config);
 }
@@ -128,6 +140,7 @@ int ImageInputWrap::current_miplevel() const
 
 bool ImageInputWrap::seek_subimage(int subimage, int miplevel)
 {
+    ScopedGILRelease gil;
     ImageSpec dummyspec;
     return m_input->seek_subimage (subimage, miplevel, dummyspec);
 }
@@ -183,9 +196,16 @@ ImageInputWrap::read_image (TypeDesc format)
     // Allocate our own temp buffer and try to read the image into it.
     // If the read fails, return None.
     const ImageSpec &spec = m_input->spec();
+    if (format.basetype == TypeDesc::UNKNOWN)
+        format = spec.format;
     size_t size = (size_t) spec.image_pixels() * spec.nchannels * format.size();
     char *data = new char[size];
-    if (!m_input->read_image(format, data)) {
+    bool ok;
+    {
+        ScopedGILRelease gil;
+        ok = m_input->read_image(format, data);
+    }
+    if (! ok) {
         delete [] data;  // never mind
         return object(handle<>(Py_None));
     }
@@ -219,9 +239,16 @@ ImageInputWrap::read_scanline (int y, int z, TypeDesc format)
     // Allocate our own temp buffer and try to read the scanline into it.
     // If the read fails, return None.
     const ImageSpec &spec = m_input->spec();
+    if (format.basetype == TypeDesc::UNKNOWN)
+        format = spec.format;
     size_t size = (size_t) spec.width * spec.nchannels * format.size();
     char *data = new char[size];
-    if (!m_input->read_scanline (y, z, format, data)) {
+    bool ok;
+    {
+        ScopedGILRelease gil;
+        ok = m_input->read_scanline (y, z, format, data);
+    }
+    if (!ok) {
         delete [] data;  // never mind
         return object(handle<>(Py_None));
     }
@@ -258,11 +285,18 @@ ImageInputWrap::read_scanlines (int ybegin, int yend, int z,
     // If the read fails, return None.
     ASSERT (m_input);
     const ImageSpec &spec = m_input->spec();
+    if (format.basetype == TypeDesc::UNKNOWN)
+        format = spec.format;
     chend = clamp (chend, chbegin+1, spec.nchannels);
     int nchans = chend - chbegin;
     size_t size = (size_t) spec.width * (yend-ybegin) * nchans * format.size();
     char *data = new char[size];
-    if (!m_input->read_scanlines (ybegin, yend, z, format, data)) {
+    bool ok;
+    {
+        ScopedGILRelease gil;
+        ok = m_input->read_scanlines (ybegin, yend, z, chbegin, chend, format, data);
+    }
+    if (! ok) {
         delete [] data;  // never mind
         return object(handle<>(Py_None));
     }
@@ -299,9 +333,16 @@ ImageInputWrap::read_tile (int x, int y, int z, TypeDesc format)
     // Allocate our own temp buffer and try to read the scanline into it.
     // If the read fails, return None.
     const ImageSpec &spec = m_input->spec();
+    if (format.basetype == TypeDesc::UNKNOWN)
+        format = spec.format;
     size_t size = (size_t) spec.tile_pixels() * spec.nchannels * format.size();
     char *data = new char[size];
-    if (!m_input->read_tile (x, y, z, format, data)) {
+    bool ok;
+    {
+        ScopedGILRelease gil;
+        ok = m_input->read_tile (x, y, z, format, data);
+    }
+    if (! ok) {
         delete [] data;  // never mind
         return object(handle<>(Py_None));
     }
@@ -339,13 +380,20 @@ ImageInputWrap::read_tiles (int xbegin, int xend, int ybegin, int yend,
     // Allocate our own temp buffer and try to read the scanline into it.
     // If the read fails, return None.
     const ImageSpec &spec = m_input->spec();
+    if (format.basetype == TypeDesc::UNKNOWN)
+        format = spec.format;
     chend = clamp (chend, chbegin+1, spec.nchannels);
     int nchans = chend - chbegin;
     size_t size = (size_t) ((xend-xbegin) * (yend-ybegin) * 
                             (zend-zbegin) * nchans * format.size());
     char *data = new char[size];
-    if (!m_input->read_tiles (xbegin, xend, ybegin, yend,
-                              zbegin, zend, chbegin, chend, format, data)) {
+    bool ok;
+    {
+        ScopedGILRelease gil;
+        ok = m_input->read_tiles (xbegin, xend, ybegin, yend,
+                                  zbegin, zend, chbegin, chend, format, data);
+    }
+    if (! ok) {
         delete [] data;  // never mind
         return object(handle<>(Py_None));
     }
@@ -378,6 +426,62 @@ ImageInputWrap_read_tiles_default (ImageInputWrap& in,
                           chbegin, chend, TypeDesc::UNKNOWN);
 }
 
+
+
+
+object
+ImageInputWrap::read_native_deep_scanlines (int ybegin, int yend, int z,
+                                            int chbegin, int chend)
+{
+    DeepData* dd = NULL;
+    bool ok = true;
+    {
+        ScopedGILRelease gil;
+        dd = new DeepData;
+        ok = m_input->read_native_deep_scanlines (ybegin, yend, z,
+                                                  chbegin, chend, *dd);
+    }
+    if (ok)
+        return object(dd);
+    delete dd;
+    return object(handle<>(Py_None));
+}
+
+
+object
+ImageInputWrap::read_native_deep_tiles (int xbegin, int xend, int ybegin, int yend,
+                                        int zbegin, int zend, int chbegin, int chend)
+{
+    DeepData* dd = NULL;
+    bool ok = true;
+    {
+        ScopedGILRelease gil;
+        dd = new DeepData;
+        ok = m_input->read_native_deep_tiles (xbegin, xend, ybegin, yend,
+                                              zbegin, zend, chbegin, chend, *dd);
+    }
+    if (ok)
+        return object(dd);
+    delete dd;
+    return object(handle<>(Py_None));
+}
+
+
+object
+ImageInputWrap::read_native_deep_image ()
+{
+    DeepData* dd = NULL;
+    bool ok = true;
+    {
+        ScopedGILRelease gil;
+        dd = new DeepData;
+        ok = m_input->read_native_deep_image (*dd);
+    }
+    if (ok)
+        return object(dd);
+    delete dd;
+    return object(handle<>(Py_None));
+}
 
 
 
@@ -426,7 +530,9 @@ void declare_imageinput()
         .def("read_image",       &ImageInputWrap::read_image)
         .def("read_image",       &ImageInputWrap_read_image_bt)
         .def("read_image",       &ImageInputWrap_read_image_default)
-//FIXME: read_native_deep_{scanlines,tiles,image}
+        .def("read_native_deep_scanlines", &ImageInputWrap::read_native_deep_scanlines)
+        .def("read_native_deep_tiles",     &ImageInputWrap::read_native_deep_tiles)
+        .def("read_native_deep_image",     &ImageInputWrap::read_native_deep_image)
         .def("geterror",         &ImageInputWrap::geterror)
     ;
 }

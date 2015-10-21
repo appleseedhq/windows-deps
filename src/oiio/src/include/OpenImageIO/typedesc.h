@@ -54,6 +54,8 @@
 
 #include "export.h"
 #include "oiioversion.h"
+#include "dassert.h"
+#include "string_view.h"
 
 
 OIIO_NAMESPACE_ENTER
@@ -142,7 +144,8 @@ struct OIIO_API TypeDesc {
 
     /// Construct from a string (e.g., "float[3]").  If no valid
     /// type could be assembled, set base to UNKNOWN.
-    TypeDesc (const char *typestring);
+    TypeDesc (string_view typestring);
+    TypeDesc (const char *typestring);   // DEPRECATED (1.6)
 
     /// Copy constructor.
     TypeDesc (const TypeDesc &t)
@@ -162,12 +165,26 @@ struct OIIO_API TypeDesc {
     /// Return the number of elements: 1 if not an array, or the array
     /// length.
     size_t numelements () const {
+        DASSERT_MSG (arraylen >= 0, "Called numelements() on TypeDesc "
+                     "of array with unspecified length (%d)", arraylen);
         return (arraylen >= 1 ? arraylen : 1);
     }
+
+    /// Does this TypeDesc describe an array?
+    bool is_array () const { return (arraylen != 0); }
+
+    /// Does this TypeDesc describe an array, but whose length is not
+    /// specified?
+    bool is_unsized_array () const { return (arraylen < 0); }
+
+    /// Does this TypeDesc describe an array, whose length is specified?
+    bool is_sized_array () const { return (arraylen > 0); }
 
     /// Return the size, in bytes, of this type.
     ///
     size_t size () const {
+        DASSERT_MSG (arraylen >= 0, "Called size() on TypeDesc "
+                     "of array with unspecified length (%d)", arraylen);
         size_t a = (size_t) (arraylen > 0 ? arraylen : 1);
         if (sizeof(size_t) > sizeof(int)) {
             // size_t has plenty of room for this multiplication
@@ -206,7 +223,8 @@ struct OIIO_API TypeDesc {
     /// length of the part of the string that describes the type.  If
     /// no valid type could be assembled, return 0 and do not modify
     /// *this.
-    size_t fromstring (const char *typestring);
+    size_t fromstring (string_view typestring);
+    size_t fromstring (const char *typestring);   // DEPRECATED (1.6)
 
     /// Compare two TypeDesc values for equality.
     ///
@@ -222,31 +240,43 @@ struct OIIO_API TypeDesc {
     /// Compare a TypeDesc to a basetype (it's the same if it has the
     /// same base type and is not an aggregate or an array).
     friend bool operator== (const TypeDesc &t, BASETYPE b) {
-        return (BASETYPE)t.basetype == b && (AGGREGATE)t.aggregate == SCALAR && t.arraylen == 0;
+        return (BASETYPE)t.basetype == b && (AGGREGATE)t.aggregate == SCALAR && !t.is_array();
     }
     friend bool operator== (BASETYPE b, const TypeDesc &t) {
-        return (BASETYPE)t.basetype == b && (AGGREGATE)t.aggregate == SCALAR && t.arraylen == 0;
+        return (BASETYPE)t.basetype == b && (AGGREGATE)t.aggregate == SCALAR && !t.is_array();
     }
 
     /// Compare a TypeDesc to a basetype (it's the same if it has the
     /// same base type and is not an aggregate or an array).
     friend bool operator!= (const TypeDesc &t, BASETYPE b) {
-        return (BASETYPE)t.basetype != b || (AGGREGATE)t.aggregate != SCALAR || t.arraylen != 0;
+        return (BASETYPE)t.basetype != b || (AGGREGATE)t.aggregate != SCALAR || t.is_array();
     }
     friend bool operator!= (BASETYPE b, const TypeDesc &t) {
-        return (BASETYPE)t.basetype != b || (AGGREGATE)t.aggregate != SCALAR || t.arraylen != 0;
+        return (BASETYPE)t.basetype != b || (AGGREGATE)t.aggregate != SCALAR || t.is_array();
     }
 
     /// TypeDesc's are equivalent if they are equal, or if their only
     /// inequality is differing vector semantics.
     friend bool equivalent (const TypeDesc &a, const TypeDesc &b) {
         return a.basetype == b.basetype && a.aggregate == b.aggregate &&
-               a.arraylen == b.arraylen;
+               (a.arraylen == b.arraylen || (a.is_unsized_array() && b.is_sized_array())
+                                         || (a.is_sized_array()   && b.is_unsized_array()));
     }
     /// Member version of equivalent
     bool equivalent (const TypeDesc &b) const {
         return this->basetype == b.basetype && this->aggregate == b.aggregate &&
-               this->arraylen == b.arraylen;
+               (this->arraylen == b.arraylen || (this->is_unsized_array() && b.is_sized_array())
+                                             || (this->is_sized_array()   && b.is_unsized_array()));
+    }
+
+    /// Is this a 3-vector aggregate (of the given type, float by default)?
+    bool is_vec3 (BASETYPE b=FLOAT) const {
+        return this->aggregate == VEC3 && this->basetype == b && !is_array();
+    }
+
+    /// Is this a 3-vector aggregate (of the given type, float by default)?
+    bool is_vec4 (BASETYPE b=FLOAT) const {
+        return this->aggregate == VEC4 && this->basetype == b && !is_array();
     }
 
     /// Demote the type to a non-array
@@ -261,12 +291,14 @@ struct OIIO_API TypeDesc {
     static const TypeDesc TypeColor;
     static const TypeDesc TypeString;
     static const TypeDesc TypeInt;
+    static const TypeDesc TypeHalf;
     static const TypeDesc TypePoint;
     static const TypeDesc TypeVector;
     static const TypeDesc TypeNormal;
     static const TypeDesc TypeMatrix;
     static const TypeDesc TypeTimeCode;
     static const TypeDesc TypeKeyCode;
+    static const TypeDesc TypeFloat4;
 };
 
 

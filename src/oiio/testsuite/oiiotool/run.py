@@ -27,6 +27,8 @@ command += oiiotool ("filled.tif --rangecheck 0,0,0 1,0.9,1")
 # test --rangecompress & --rangeexpand
 command += oiiotool ("tahoe-small.tif --rangecompress -d uint8 -o rangecompress.tif")
 command += oiiotool ("rangecompress.tif --rangeexpand -d uint8 -o rangeexpand.tif")
+command += oiiotool ("tahoe-small.tif --rangecompress:luma=1 -d uint8 -o rangecompress-luma.tif")
+command += oiiotool ("rangecompress-luma.tif --rangeexpand:luma=1 -d uint8 -o rangeexpand-luma.tif")
 
 # test resample
 command += oiiotool (parent + "/oiio-images/grid.tif --resample 128x128 -o resample.tif")
@@ -163,9 +165,6 @@ command += info_command ("allhalf.exr", safematch=1)
 command += oiiotool ("src/rgbaz.exr -d half -d Z=float -o rgbahalf-zfloat.exr")
 command += info_command ("rgbahalf-zfloat.exr", safematch=1)
 
-# test --flatten
-command += oiiotool("src/deepalpha.exr --flatten -o flat.exr")
-
 # test hole filling
 command += oiiotool ("ref/hole.tif --fillholes -o tahoe-filled.tif")
 
@@ -200,13 +199,13 @@ command += oiiotool ("tahoe-small.tif --unsharp -d uint8 -o unsharp.tif")
 command += oiiotool ("tahoe-small.tif --unsharp:kernel=median -d uint8 -o unsharp-median.tif")
 
 # test fft, ifft
-command += oiiotool ("tahoe-small.tif --ch 2 --fft -o fft.exr")
-command += oiiotool ("fft.exr --ifft --ch 0,0,0 -o ifft.exr")
+command += oiiotool ("tahoe-tiny.tif --ch 2 --fft -d float -o fft.exr")
+command += oiiotool ("fft.exr --ifft --ch 0,0,0 -d float -o ifft.exr")
 
 # test --polar, --unpolar
 # note that fft.exr that we built above is in complex form
-command += oiiotool ("fft.exr --polar -d half -o polar.exr")
-command += oiiotool ("polar.exr --unpolar -d half -o unpolar.exr")
+command += oiiotool ("fft.exr --polar -d float -o polar.exr")
+command += oiiotool ("polar.exr --unpolar -d float -o unpolar.exr")
 
 # test labels
 command += oiiotool (
@@ -247,7 +246,7 @@ outputs = [ "filled.tif", "autotrim.tif",
             "transpose.tif", "transpose-crop.tif",
             "cshift.tif",
             "chanshuffle.tif", "ch-rgba.exr", "ch-z.exr",
-            "chappend-rgbaz.exr", "chname.exr", "flat.exr",
+            "chappend-rgbaz.exr", "chname.exr",
             "cmul1.exr", "cmul2.exr",
             "cadd1.exr", "cadd2.exr",
             "cpow1.exr", "cpow2.exr",
@@ -255,6 +254,7 @@ outputs = [ "filled.tif", "autotrim.tif",
             "rgbahalf-zfloat.exr",
             "tahoe-filled.tif",
             "rangecompress.tif", "rangeexpand.tif",
+            "rangecompress-luma.tif", "rangeexpand-luma.tif",
             "grid-clamped.tif",
             "unpremult.exr", "premult.exr",
             "bsplinekernel.exr", "bspline-blur.tif",

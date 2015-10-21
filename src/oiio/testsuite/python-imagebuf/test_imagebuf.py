@@ -53,7 +53,7 @@ try:
 
     # Test reading from disk
     print "Testing read of grid.tx:"
-    b = oiio.ImageBuf ("../../../../../oiio-images/grid.tx")
+    b = oiio.ImageBuf ("../common/textures/grid.tx")
     print "subimage:", b.subimage, " / ", b.nsubimages
     print "miplevel:", b.miplevel, " / ", b.nmiplevels
     print "channels:", b.nchannels
@@ -75,7 +75,7 @@ try:
     print_imagespec (b.spec())
     print ""
     print "Resetting to a different MIP level:"
-    b.reset ("../../../../../oiio-images/grid.tx", 0, 2)
+    b.reset ("../common/textures/grid.tx", 0, 2)
     print_imagespec (b.spec())
     print ""
 
@@ -92,6 +92,8 @@ try:
     print "Pixel 0,1 is", b.getpixel(0,1)
     print "Interpolating 1,0.5 ->", b.interppixel(1,0.5)
     print "Interpolating NDC 0.25,0.5 ->", b.interppixel_NDC(0.25,0.5)
+    print "Interpolating bicubic 0.25,0.5 ->", b.interppixel_bicubic(1.0,0.5)
+    print "Interpolating NDC bicubic 0.25,0.5 ->", b.interppixel_bicubic_NDC(0.25,0.5)
     print "The whole image is: ", b.get_pixels(oiio.TypeDesc.TypeFloat)
     print ""
     print "Saving file..."

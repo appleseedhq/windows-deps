@@ -53,7 +53,7 @@ namespace pvt {
 recursive_mutex imageio_mutex;
 atomic_int oiio_threads (boost::thread::hardware_concurrency());
 atomic_int oiio_read_chunk (256);
-ustring plugin_searchpath;
+ustring plugin_searchpath (OIIO_DEFAULT_PLUGIN_SEARCHPATH);
 std::string format_list;   // comma-separated list of all formats
 std::string extension_list;   // list of all extensions for all formats
 }
@@ -184,11 +184,11 @@ getattribute (string_view name, TypeDesc type, void *val)
 }
 
 
-inline int
-quantize (float value, int quant_min, int quant_max)
+inline long long
+quantize (float value, long long quant_min, long long quant_max)
 {
     value = value * quant_max;
-    return Imath::clamp ((int)(value + 0.5f), quant_min, quant_max);
+    return Imath::clamp ((long long)(value + 0.5f), quant_min, quant_max);
 }
 
 namespace {
@@ -331,7 +331,7 @@ pvt::convert_to_float (const void *src, float *dst, int nvals,
 template<typename T>
 const void *
 _from_float (const float *src, T *dst, size_t nvals,
-             int quant_min, int quant_max)
+             long long quant_min, long long quant_max)
 {
     if (! src) {
         // If no source pixels, assume zeroes
@@ -361,7 +361,7 @@ _from_float (const float *src, T *dst, size_t nvals,
 
 const void *
 pvt::convert_from_float (const float *src, void *dst, size_t nvals,
-                         int quant_min, int quant_max, TypeDesc format)
+                         long long quant_min, long long quant_max, TypeDesc format)
 {
     switch (format.basetype) {
     case TypeDesc::FLOAT :
@@ -406,8 +406,8 @@ pvt::convert_from_float (const float *src, void *dst, size_t nvals,
 // DEPRECATED (1.4)
 const void *
 pvt::convert_from_float (const float *src, void *dst, size_t nvals,
-                         int quant_black, int quant_white,
-                         int quant_min, int quant_max,
+                         long long quant_black, long long quant_white,
+                         long long quant_min, long long quant_max,
                          TypeDesc format)
 {
     return convert_from_float (src, dst, nvals, quant_min, quant_max, format);
@@ -429,7 +429,7 @@ pvt::parallel_convert_from_float (const float *src, void *dst, size_t nvals,
     if (nthreads <= 0)
         nthreads = oiio_threads;
 
-    int quant_min, quant_max;
+    long long quant_min, quant_max;
     get_default_quantize (format, quant_min, quant_max);
 
     if (nthreads <= 1)
@@ -457,8 +457,8 @@ pvt::parallel_convert_from_float (const float *src, void *dst, size_t nvals,
 const void *
 pvt::parallel_convert_from_float (const float *src, void *dst,
                                   size_t nvals,
-                                  int quant_black, int quant_white,
-                                  int quant_min, int quant_max,
+                                  long long quant_black, long long quant_white,
+                                  long long quant_min, long long quant_max,
                                   TypeDesc format, int nthreads)
 {
     return parallel_convert_from_float (src, dst, nvals, format, nthreads);
@@ -551,8 +551,8 @@ convert_image (int nchannels, int width, int height, int depth,
     ImageSpec::auto_stride (dst_xstride, dst_ystride, dst_zstride,
                             dst_type, nchannels, width, height);
     bool result = true;
-    bool contig = (src_xstride == dst_xstride &&
-                   src_xstride == stride_t(nchannels*src_type.size()));
+    bool contig = (src_xstride == stride_t(nchannels * src_type.size()) &&
+                   dst_xstride == stride_t(nchannels * dst_type.size()));
     for (int z = 0;  z < depth;  ++z) {
         for (int y = 0;  y < height;  ++y) {
             const char *f = (const char *)src + (z*src_zstride + y*src_ystride);
@@ -741,6 +741,106 @@ add_dither (int nchannels, int width, int height, int depth,
 
 
 
+template<typename T>
+static void
+premult_impl (int nchannels, int width, int height, int depth,
+              int chbegin, int chend,
+              T *data, stride_t xstride, stride_t ystride, stride_t zstride,
+              int alpha_channel, int z_channel)
+{
+    char *plane = (char *)data;
+    for (int z = 0;  z < depth;  ++z, plane += zstride) {
+        char *scanline = plane;
+        for (int y = 0;  y < height;  ++y, scanline += ystride) {
+            char *pixel = scanline;
+            for (int x = 0;  x < width;  ++x, pixel += xstride) {
+                DataArrayProxy<T,float> val ((T*)pixel);
+                float alpha = val[alpha_channel];
+                for (int c = chbegin;  c < chend;  ++c) {
+                    if (c == alpha_channel || c == z_channel)
+                        continue;
+                    val[c] = alpha * val[c];
+                }
+            }
+        }
+    }
+}
+
+
+
+void
+premult (int nchannels, int width, int height, int depth,
+         int chbegin, int chend,
+         TypeDesc datatype, void *data,
+         stride_t xstride, stride_t ystride, stride_t zstride,
+         int alpha_channel, int z_channel)
+{
+    if (alpha_channel < 0 || alpha_channel > nchannels)
+        return;  // nothing to do
+    ImageSpec::auto_stride (xstride, ystride, zstride,
+                            datatype.size(), nchannels, width, height);
+    switch (datatype.basetype) {
+    case TypeDesc::FLOAT :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (float*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::UINT8 :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (unsigned char*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::UINT16 :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (unsigned short*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::HALF :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (half*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::INT8 :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (char*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::INT16 :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (short*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::INT :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (int*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::UINT :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (unsigned int*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::INT64 :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (int64_t*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::UINT64 :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (uint64_t*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    case TypeDesc::DOUBLE :
+        premult_impl (nchannels, width, height, depth, chbegin, chend,
+                      (double*)data, xstride, ystride, zstride,
+                      alpha_channel, z_channel);
+        break;
+    default: break;
+    }
+}
+
+
+
 void
 DeepData::init (int npix, int nchan,
                 const TypeDesc *chbegin, const TypeDesc *chend)
@@ -761,10 +861,11 @@ DeepData::alloc ()
     // Calculate the total size we need, align each channel to 4 byte boundary
     size_t totalsamples = 0, totalbytes = 0;
     for (int i = 0;  i < npixels;  ++i) {
-        int s = nsamples[i];
-        totalsamples += s;
-        for (int c = 0;  c < nchannels;  ++c)
-            totalbytes += round_to_multiple (channeltypes[c].size() * s, 4);
+        if (int s = nsamples[i]) {
+            totalsamples += s;
+            for (int c = 0;  c < nchannels;  ++c)
+                totalbytes += round_to_multiple (channeltypes[c].size() * s, 4);
+        }
     }
 
     // Set all the data pointers to the right offsets within the
@@ -772,10 +873,10 @@ DeepData::alloc ()
     data.resize (totalbytes);
     char *p = &data[0];
     for (int i = 0;  i < npixels;  ++i) {
-        if (nsamples[i]) {
+        if (int s = nsamples[i]) {
             for (int c = 0;  c < nchannels;  ++c) {
                 pointers[i*nchannels+c] = p;
-                p += round_to_multiple (channeltypes[c].size()*nsamples[i], 4);
+                p += round_to_multiple (channeltypes[c].size()*s, 4);
             }
         }
     }
@@ -851,6 +952,124 @@ DeepData::deep_value (int pixel, int channel, int sample) const
     default:
         ASSERT (0);
         return 0.0f;
+    }
+}
+
+
+
+uint32_t
+DeepData::deep_value_uint (int pixel, int channel, int sample) const
+{
+    if (pixel < 0 || pixel >= npixels || channel < 0 || channel >= nchannels)
+        return 0.0f;
+    int nsamps = nsamples[pixel];
+    if (nsamps == 0 || sample < 0 || sample >= nsamps)
+        return 0.0f;
+    const void *ptr = pointers[pixel*nchannels + channel];
+    if (! ptr)
+        return 0.0f;
+    switch (channeltypes[channel].basetype) {
+    case TypeDesc::FLOAT :
+        return ConstDataArrayProxy<float,uint32_t>((const float *)ptr)[sample];
+    case TypeDesc::HALF  :
+        return ConstDataArrayProxy<half,uint32_t>((const half *)ptr)[sample];
+    case TypeDesc::UINT8 :
+        return ConstDataArrayProxy<unsigned char,uint32_t>((const unsigned char *)ptr)[sample];
+    case TypeDesc::INT8  :
+        return ConstDataArrayProxy<char,uint32_t>((const char *)ptr)[sample];
+    case TypeDesc::UINT16:
+        return ConstDataArrayProxy<unsigned short,uint32_t>((const unsigned short *)ptr)[sample];
+    case TypeDesc::INT16 :
+        return ConstDataArrayProxy<short,uint32_t>((const short *)ptr)[sample];
+    case TypeDesc::UINT  :
+        return ((const unsigned int *)ptr)[sample];
+    case TypeDesc::INT   :
+        return ConstDataArrayProxy<int,uint32_t>((const int *)ptr)[sample];
+    case TypeDesc::UINT64:
+        return ConstDataArrayProxy<unsigned long long,uint32_t>((const unsigned long long *)ptr)[sample];
+    case TypeDesc::INT64 :
+        return ConstDataArrayProxy<long long,uint32_t>((const long long *)ptr)[sample];
+    default:
+        ASSERT (0);
+        return 0.0f;
+    }
+}
+
+
+
+void
+DeepData::set_deep_value (int pixel, int channel, int sample, float value)
+{
+    if (pixel < 0 || pixel >= npixels || channel < 0 || channel >= nchannels)
+        return;
+    int nsamps = nsamples[pixel];
+    if (nsamps == 0 || sample < 0 || sample >= nsamps)
+        return;
+    void *ptr = pointers[pixel*nchannels + channel];
+    if (! ptr)
+        return;
+    switch (channeltypes[channel].basetype) {
+    case TypeDesc::FLOAT :
+        DataArrayProxy<float,float>((float *)ptr)[sample] = value; break;
+    case TypeDesc::HALF  :
+        DataArrayProxy<half,float>((half *)ptr)[sample] = value; break;
+    case TypeDesc::UINT8 :
+        DataArrayProxy<unsigned char,float>((unsigned char *)ptr)[sample] = value; break;
+    case TypeDesc::INT8  :
+        DataArrayProxy<char,float>((char *)ptr)[sample] = value; break;
+    case TypeDesc::UINT16:
+        DataArrayProxy<unsigned short,float>((unsigned short *)ptr)[sample] = value; break;
+    case TypeDesc::INT16 :
+        DataArrayProxy<short,float>((short *)ptr)[sample] = value; break;
+    case TypeDesc::UINT  :
+        DataArrayProxy<uint32_t,float>((uint32_t *)ptr)[sample] = value; break;
+    case TypeDesc::INT   :
+        DataArrayProxy<int,float>((int *)ptr)[sample] = value; break;
+    case TypeDesc::UINT64:
+        DataArrayProxy<uint64_t,float>((uint64_t *)ptr)[sample] = value; break;
+    case TypeDesc::INT64 :
+        DataArrayProxy<int64_t,float>((int64_t *)ptr)[sample] = value; break;
+    default:
+        ASSERT (0);
+    }
+}
+
+
+
+void
+DeepData::set_deep_value_uint (int pixel, int channel, int sample, uint32_t value)
+{
+    if (pixel < 0 || pixel >= npixels || channel < 0 || channel >= nchannels)
+        return;
+    int nsamps = nsamples[pixel];
+    if (nsamps == 0 || sample < 0 || sample >= nsamps)
+        return;
+    void *ptr = pointers[pixel*nchannels + channel];
+    if (! ptr)
+        return;
+    switch (channeltypes[channel].basetype) {
+    case TypeDesc::FLOAT :
+        DataArrayProxy<float,uint32_t>((float *)ptr)[sample] = value; break;
+    case TypeDesc::HALF  :
+        DataArrayProxy<half,uint32_t>((half *)ptr)[sample] = value; break;
+    case TypeDesc::UINT8 :
+        DataArrayProxy<unsigned char,uint32_t>((unsigned char *)ptr)[sample] = value; break;
+    case TypeDesc::INT8  :
+        DataArrayProxy<char,uint32_t>((char *)ptr)[sample] = value; break;
+    case TypeDesc::UINT16:
+        DataArrayProxy<unsigned short,uint32_t>((unsigned short *)ptr)[sample] = value; break;
+    case TypeDesc::INT16 :
+        DataArrayProxy<short,uint32_t>((short *)ptr)[sample] = value; break;
+    case TypeDesc::UINT  :
+        DataArrayProxy<uint32_t,uint32_t>((uint32_t *)ptr)[sample] = value; break;
+    case TypeDesc::INT   :
+        DataArrayProxy<int,uint32_t>((int *)ptr)[sample] = value; break;
+    case TypeDesc::UINT64:
+        DataArrayProxy<uint64_t,uint32_t>((uint64_t *)ptr)[sample] = value; break;
+    case TypeDesc::INT64 :
+        DataArrayProxy<int64_t,uint32_t>((int64_t *)ptr)[sample] = value; break;
+    default:
+        ASSERT (0);
     }
 }
 

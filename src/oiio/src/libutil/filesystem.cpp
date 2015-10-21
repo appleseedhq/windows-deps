@@ -40,14 +40,14 @@
 #include <boost/foreach.hpp>
 #include <boost/regex.hpp>
 
+#include "OpenImageIO/dassert.h"
+#include "OpenImageIO/ustring.h"
+#include "OpenImageIO/filesystem.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
 #endif
-
-#include "OpenImageIO/dassert.h"
-#include "OpenImageIO/ustring.h"
-#include "OpenImageIO/filesystem.h"
 
 
 OIIO_NAMESPACE_ENTER
@@ -199,7 +199,12 @@ Filesystem::get_directory_entries (const std::string &dirname,
     if (dirname.size() && ! is_directory(dirname))
         return false;
     boost::filesystem::path dirpath (dirname.size() ? dirname : std::string("."));
-    boost::regex re (filter_regex);
+    boost::regex re;
+    try {
+        re = boost::regex(filter_regex);
+    } catch (...) {
+        return false;
+    }
 
     if (recursive) {
         for (boost::filesystem::recursive_directory_iterator s (dirpath);
@@ -249,7 +254,7 @@ Filesystem::exists (const std::string &path)
     bool r = false;
     try {
         r = boost::filesystem::exists (path);
-    } catch (const std::exception &) {
+    } catch (...) {
         r = false;
     }
     return r;
@@ -263,7 +268,7 @@ Filesystem::is_directory (const std::string &path)
     bool r = false;
     try {
         r = boost::filesystem::is_directory (path);
-    } catch (const std::exception &) {
+    } catch (...) {
         r = false;
     }
     return r;
@@ -277,7 +282,7 @@ Filesystem::is_regular (const std::string &path)
     bool r = false;
     try {
         r = boost::filesystem::is_regular_file (path);
-    } catch (const std::exception &) {
+    } catch (...) {
         r = false;
     }
     return r;
@@ -317,7 +322,31 @@ Filesystem::copy (string_view from, string_view to, std::string &err)
 # else
     boost::filesystem::copy (from.str(), to.str(), ec);
 # endif
-    if (ec) {
+    if (! ec) {
+        err.clear();
+        return true;
+    } else {
+        err = ec.message();
+        return false;
+    }
+#else
+    return false; // I'm too lazy to figure this out.
+#endif
+}
+
+
+
+bool
+Filesystem::rename (string_view from, string_view to, std::string &err)
+{
+#if BOOST_FILESYSTEM_VERSION >= 3
+    boost::system::error_code ec;
+# if BOOST_VERSION < 105000
+    boost::filesystem3::rename (from.str(), to.str(), ec);
+# else
+    boost::filesystem::rename (from.str(), to.str(), ec);
+# endif
+    if (! ec) {
         err.clear();
         return true;
     } else {
@@ -464,6 +493,28 @@ Filesystem::open (std::ofstream &stream, string_view path,
 
 
 
+/// Read the entire contents of the named file and place it in str,
+/// returning true on success, false on failure.
+bool
+Filesystem::read_text_file (string_view filename, std::string &str)
+{
+    // For info on why this is the fastest method:
+    // http://insanecoding.blogspot.com/2011/11/how-to-read-in-file-in-c.html
+    std::ifstream in;
+    Filesystem::open (in, filename);
+    // N.B. for binary read: open(in, filename, std::ios::in|std::ios::binary);
+    if (in) {
+        std::ostringstream contents;
+        contents << in.rdbuf();
+        in.close ();
+        str = contents.str();
+        return true;
+    }
+    return false;
+}
+
+
+
 std::time_t
 Filesystem::last_write_time (const std::string& path)
 {
@@ -474,7 +525,7 @@ Filesystem::last_write_time (const std::string& path)
 #else
         return boost::filesystem::last_write_time (path);
 #endif
-    } catch (const std::exception &) {
+    } catch (...) {
         // File doesn't exist
         return 0;
     }
@@ -492,7 +543,7 @@ Filesystem::last_write_time (const std::string& path, std::time_t time)
 #else
         boost::filesystem::last_write_time (path, time);
 #endif
-    } catch (const std::exception &) {
+    } catch (...) {
         // File doesn't exist
     }
 }
@@ -641,6 +692,7 @@ Filesystem::enumerate_file_sequence (const std::string &pattern,
                                      const std::vector<int> &numbers,
                                      std::vector<std::string> &filenames)
 {
+    filenames.clear ();
     for (size_t i = 0, e = numbers.size(); i < e; ++i) {
         std::string f = Strutil::format (pattern.c_str(), numbers[i]);
         filenames.push_back (f);
@@ -656,10 +708,10 @@ Filesystem::enumerate_file_sequence (const std::string &pattern,
                                      const std::vector<string_view> &views,
                                      std::vector<std::string> &filenames)
 {
-    DASSERT (views.size() == 0 || views.size() == numbers.size());
-
+    ASSERT (views.size() == 0 || views.size() == numbers.size());
     static boost::regex view_re ("%V"), short_view_re ("%v");
 
+    filenames.clear ();
     for (size_t i = 0, e = numbers.size(); i < e; ++i) {
         std::string f = pattern;
         if (views.size() > 0 && ! views[i].empty()) {
@@ -685,6 +737,9 @@ Filesystem::scan_for_matching_filenames(const std::string &pattern,
     static boost::regex format_re ("%0([0-9]+)d");
     static boost::regex all_views_re ("%[Vv]"), view_re ("%V"), short_view_re ("%v");
 
+    frame_numbers.clear ();
+    frame_views.clear ();
+    filenames.clear ();
     if (boost::regex_search (pattern, all_views_re)) {
         if (boost::regex_search (pattern, format_re)) {
             // case 1: pattern has format and view
@@ -754,8 +809,9 @@ Filesystem::scan_for_matching_filenames(const std::string &pattern_,
                                         std::vector<int> &numbers,
                                         std::vector<std::string> &filenames)
 {
+    numbers.clear ();
+    filenames.clear ();
     std::string pattern = pattern_;
-
     // Isolate the directory name (or '.' if none was specified)
     std::string directory = Filesystem::parent_path (pattern);
     if (directory.size() == 0) {
@@ -780,7 +836,7 @@ Filesystem::scan_for_matching_filenames(const std::string &pattern_,
     std::string prefix (format_match.prefix().first, format_match.prefix().second);
     std::string suffix (format_match.suffix().first, format_match.suffix().second);
 
-    std::string pattern_re_str = prefix + "([0-9]{" + thepadding + "})" + suffix;
+    std::string pattern_re_str = prefix + "([0-9]{" + thepadding + ",})" + suffix;
     std::vector< std::pair< int, std::string > > matches;
 
     // There are some corner cases regex that could be constructed here that
@@ -807,7 +863,7 @@ Filesystem::scan_for_matching_filenames(const std::string &pattern_,
         }
     }
 
-    } catch (std::exception &e) {
+    } catch (...) {
         // Botched regex. Just fail.
         return false;
     }

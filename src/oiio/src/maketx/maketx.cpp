@@ -204,12 +204,14 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
     bool constant_color_detect = false;
     bool monochrome_detect = false;
     bool opaque_detect = false;
+    bool compute_average = true;
     int nchannels = -1;
     bool prman = false;
     bool oiio = false;
     bool ignore_unassoc = false;  // ignore unassociated alpha tags
     bool unpremult = false;
     bool sansattrib = false;
+    float sharpen = 0.0f;
     std::string incolorspace;
     std::string outcolorspace;
     std::string channelnames;
@@ -246,6 +248,7 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
                   "--filter %s", &filtername, filter_help_string().c_str(),
                   "--hicomp", &do_highlight_compensation,
                           "Compress HDR range before resize, expand after.",
+                  "--sharpen %f", &sharpen, "Sharpen MIP levels (default = 0.0 = no)",
                   "--nomipmap", &nomipmap, "Do not make multiple MIP-map levels",
                   "--checknan", &checknan, "Check for NaN/Inf values (abort if found)",
                   "--fixnan %s", &fixnan, "Attempt to fix NaN/Inf values in the image (options: none, black, box3)",
@@ -270,6 +273,7 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
                   "--constant-color-detect", &constant_color_detect, "Create 1-tile textures from constant color inputs",
                   "--monochrome-detect", &monochrome_detect, "Create 1-channel textures from monochrome inputs",
                   "--opaque-detect", &opaque_detect, "Drop alpha channel that is always 1.0",
+                  "--no-compute-average %!", &compute_average, "Don't compute and store average color",
                   "--ignore-unassoc", &ignore_unassoc, "Ignore unassociated alpha tags in input (don't autoconvert)",
                   "--stats", &stats, "Print runtime statistics",
                   "--mipimage %L", &mipimages, "Specify an individual MIP level",
@@ -341,6 +345,10 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
             configspec.format = TypeDesc::FLOAT;
         else if (dataformatname == "double")
             configspec.format = TypeDesc::DOUBLE;
+        else {
+            std::cerr << "maketx ERROR: unknown data format \"" << dataformatname << "\"\n";
+            exit (EXIT_FAILURE);
+        }
     }
 
     configspec.tile_width  = tile[0];
@@ -366,6 +374,7 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
     configspec.attribute ("maketx:constant_color_detect", constant_color_detect);
     configspec.attribute ("maketx:monochrome_detect", monochrome_detect);
     configspec.attribute ("maketx:opaque_detect", opaque_detect);
+    configspec.attribute ("maketx:compute_average", compute_average);
     configspec.attribute ("maketx:unpremult", unpremult);
     configspec.attribute ("maketx:incolorspace", incolorspace);
     configspec.attribute ("maketx:outcolorspace", outcolorspace);
@@ -373,6 +382,7 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
     configspec.attribute ("maketx:fixnan", fixnan);
     configspec.attribute ("maketx:set_full_to_pixels", set_full_to_pixels);
     configspec.attribute ("maketx:highlightcomp", (int)do_highlight_compensation);
+    configspec.attribute ("maketx:sharpen", sharpen);
     if (filtername.size())
         configspec.attribute ("maketx:filtername", filtername);
     configspec.attribute ("maketx:nchannels", nchannels);

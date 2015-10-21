@@ -400,19 +400,25 @@ be retrieved, {\cf datatype} is the type of data expected, and
 placed.  It is up to the caller to ensure that {\cf data} contains
 enough space to hold an item of the requested {\cf datatype}.
 
-The return value is {\cf true} if {\cf get_image_info()} is able
-to find the requested {\cf dataname} and it matched the requested
-{\cf datatype}.  If the requested data was not found, or was not
-of the right data type, {\cf get_image_info()} will return {\cf false}.
+The return value is {\cf true} if {\cf get_image_info()} is able to answer
+the query -- that is, find the requested {\cf dataname} for the texture and
+it matched the requested {\cf datatype}.  If the requested data was not
+found, or was not of the right data type, {\cf get_texture_info()} will
+return {\cf false}. Except for the \qkw{exists} query, file that does not
+exist or could not be read properly as an image also constitutes a query
+failure that will return {\cf false}.
 
 Supported {\cf dataname} values include:
 
 \begin{description}
 \item[\spc] \spc
 \vspace{-12pt} 
-\item[\rm \kw{exists}] Return 1 if the file exists and
-is an image format that OpenImageIO knows how to read, otherwise return
-0.  The {\cf data} pointer is not used.
+
+\item[\rm \kw{exists}] Stores the value 1 (as an {\cf int} if the file
+exists and is an image format that \product can read, or 0 if the file
+does not exist, or could not be properly read as an image. Note that
+unlike all other queries, this query will ``succeed'' (return {\cf true})
+even if the file does not exist.
 
 \item[\rm \kw{subimages}] The number of subimages in the file, as an integer.
 
@@ -462,13 +468,16 @@ array of 4 integers (returning xmin, ymin, xmax, ymax) or an array of 6
 integers (returning xmin, ymin, zmin, xmax, ymax, zmax). The $z$ values may
 be useful for 3D/volumetric images; for 2D images they will be 0).
 
-\item[\rm \kw{viewingmatrix}] The viewing matrix, which is a
-$4 \times 4$ matrix (an {\cf Imath::M44f}, described as {\cf
-  TypeDesc(FLOAT,MATRIX)}).
+\item[\rm \kw{worldtocamera}] The viewing matrix, which is a $4 \times 4$
+matrix (an {\cf Imath::M44f}, described as {\cf TypeDesc(FLOAT,MATRIX)}),
+giving the world-to-camera 3D transformation matrix that was used when  the
+image was created. Generally, only rendered images will have this.
 
-\item[\rm \kw{projectionmatrix}] The projection matrix, which is a
-$4 \times 4$ matrix (an {\cf Imath::M44f}, described as {\cf
-  TypeDesc(FLOAT,MATRIX)}).
+\item[\rm \kw{worldtoscreen}] The projection matrix, which is a $4 \times 4$
+matrix (an {\cf Imath::M44f}, described as {\cf TypeDesc(FLOAT,MATRIX)}),
+giving the matrix that projected points from world space into a 2D screen
+coordinate system where $x$ and $y$ range from $-1$ to $+1$.  Generally,
+only rendered images will have this.
 
 \item[Anything else] -- For all other data names, the
 the metadata of the image file will be searched for an item that
@@ -626,22 +635,38 @@ modification times have been changed since they were first opened.
 
 \subsection{Seeding the cache}
 \label{sec:imagecache:api:seeding}
-\apiitem{bool {\ce add_file} (ustring filename, ImageInput::Creator creator)}
-This creates a file entry in the cache that, instead of reading
-from disk, uses a custom \ImageInput to generate the image (note
-that it will have no effect if there's already an image by the
-same name in the cache).  The {\cf creator} is a factory that
-creates the custom \ImageInput and will be called like this:
+\apiitem{bool {\ce add_file} (ustring filename, \\
+    \bigspc ImageInput::Creator creator = NULL,\\
+    \bigspc const ImageSpec *config = NULL)}
+This method causes a file to be opened or added to the
+cache. There is no reason to use this method unless you are supplying
+a custom creator, or configuration, or both.
+
+If {\cf creator} is not NULL, it points to an {\cf ImageInput::Creator} that
+will be used rather than the default {\cf ImageInput::create()}, thus
+instead of reading from disk, creates and uses a custom ImageInput
+to generate the image. The {\cf creator} is a factory that creates the
+custom ImageInput and will be called like this:
 \begin{code}
     ImageInput *in = creator();
 \end{code}
+Once created, the \ImageCache owns the \ImageInput and is responsible
+for destroying it when done. Custom \ImageInput's allow ``procedural''
+images, among other things.  Also, this is the method you use to set
+up a ``writeable'' \ImageCache images (perhaps with a type of
+\ImageInput that's just a stub that does as little as possible).
 
-Once created, the \ImageCache owns
-the \ImageInput and is responsible for destroying it when done.
-Custom \ImageInput's allow ``procedural'' images, among other
-things.  Also, this is the method you use to set up a
-``writeable'' \ImageCache images (perhaps with a type of \ImageInput
-that's just a stub that does as little as possible).
+\NEW  % 1.5
+If {\cf config} is not NULL, it points to an \ImageSpec with configuration
+options/hints that will be passed to the underlying
+{\cf ImageInput::open()} call. Thus, this can be used to ensure that the
+\ImageCache opens a call with special configuration options.
+
+This call (including any custom creator or configuration hints) will
+have no effect if there's already an image by the same name in the
+cache. Custom creators or configurations only ``work'' the \emph{first} time
+a particular filename is referenced in the lifetime of the
+\ImageCache.
 \apiend
 
 \apiitem{bool {\ce add_tile} (ustring filename, int subimage, int miplevel,\\

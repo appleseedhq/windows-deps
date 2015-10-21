@@ -447,7 +447,7 @@ This can be accomplished using the technique of the following example:
                         f[8], f[9], f[10], f[11], f[12], f[13], f[14], f[15]);
             }
             else
-                printf ("<unknown data type>");
+                printf (" <unknown data type> ");
             printf ("\n");
         }
 \end{code}
@@ -843,8 +843,17 @@ instance supports that feature.  The following features are recognized
 by this query:
 \begin{description}
 \item[\spc] \spc
-\item[\rm ] No queries supported at this time.
-\end{description}
+\item[\rm \qkw{arbitrary_metadata}] Does the image file format allow
+  metadata with arbitrary names (and either arbitrary, or a reasonable set
+  of, data types)? (Versus the file format supporting only a fixed list of
+  specific metadata names/values?
+\item[\rm \qkw{exif}] Does the image file format support Exif camera data
+  (either specifically, or via arbitrary named metadata)?
+\item[\rm \qkw{iptc}] Does the image file format support IPTC data
+  (either specifically, or via arbitrary named metadata)?
+\item[\rm \qkw{procedural}] Might the image ``file format'' generate pixels
+  procedurally, without the need for any disk file to be present?
+  \end{description}
 \apiend
 
 \apiitem{bool {\ce valid_file} (const std::string \&filename) const}
@@ -870,6 +879,7 @@ otherwise {\kw false}.
 
 \apiitem{bool {\ce open} (const std::string \&name, ImageSpec \&newspec,\\
 \bigspc  const ImageSpec \&config)}
+\label{sec:inputwithconfig}
 
 Opens the file with given name, similarly to {\cf open(name, newspec)}.
 However, in this version, any non-default fields of {\cf config},
@@ -974,7 +984,8 @@ in its native format (including per-channel formats, if applicable).
 The stride values
 give the data spacing of adjacent pixels, scanlines, and volumetric
 slices, respectively (measured in bytes).  Strides set to the special
-value of {\kw AutoStride} imply contiguous data, i.e., \\
+value of {\kw AutoStride} imply contiguous data in the shape of a full tile,
+i.e., \\
 \spc {\kw xstride} $=$ {\kw spec.nchannels * spec.pixel_size()} \\
 \spc {\kw ystride} $=$ {\kw xstride * spec.tile_width} \\
 \spc {\kw zstride} $=$ {\kw ystride * spec.tile_height} \\
@@ -1017,10 +1028,11 @@ in its native format (including per-channel formats, if applicable).
 The stride values
 give the data spacing of adjacent pixels, scanlines, and volumetric
 slices, respectively (measured in bytes).  Strides set to the special
-value of {\kw AutoStride} imply contiguous data, i.e., \\
+value of {\kw AutoStride} imply contiguous data in the shape of
+the region specified, i.e., \\
 \spc {\kw xstride} $=$ {\kw spec.nchannels * spec.pixel_size()} \\
-\spc {\kw ystride} $=$ {\kw xstride * spec.tile_width} \\
-\spc {\kw zstride} $=$ {\kw ystride * spec.tile_height} \\
+\spc {\kw ystride} $=$ {\kw xstride * (xend - xbegin)} \\
+\spc {\kw zstride} $=$ {\kw ystride * (yend - ybegin)} \\
 The \ImageInput is expected to give the appearance of random access
 --- in other words, if it can't randomly seek to the given tile, it
 should transparently close, reopen, and sequentially read through prior

@@ -74,11 +74,6 @@ OIIO_API std::string filename (const std::string &filepath);
 OIIO_API std::string extension (const std::string &filepath,
                                  bool include_dot=true);
 
-/// DEPRECATED.
-inline std::string file_extension (const std::string &filepath) {
-    return extension (filepath, false);
-}
-
 /// Return all but the last part of the path, for example,
 /// parent_path("foo/bar") returns "foo", and parent_path("foo")
 /// returns "".
@@ -160,6 +155,14 @@ inline bool copy (string_view from, string_view to) {
     return copy (from, to, err);
 }
 
+/// Rename (or move) a file, directory, or link.  Return true upon success,
+/// false upon failure and place an error message in err.
+OIIO_API bool rename (string_view from, string_view to, std::string &err);
+inline bool rename (string_view from, string_view to) {
+    std::string err;
+    return rename (from, to, err);
+}
+
 /// Remove the file or directory. Return true for success, false for
 /// failure and place an error message in err.
 OIIO_API bool remove (string_view path, std::string &err);
@@ -198,6 +201,10 @@ OIIO_API void open (std::ifstream &stream, string_view path,
 ///
 OIIO_API void open (std::ofstream &stream, string_view path,
                     std::ios_base::openmode mode = std::ios_base::out);
+
+/// Read the entire contents of the named text file and place it in str,
+/// returning true on success, false on failure.
+OIIO_API bool read_text_file (string_view filename, std::string &str);
 
 /// Get last modified time of file
 ///

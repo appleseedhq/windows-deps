@@ -45,6 +45,7 @@
 #include "OpenImageIO/sysutil.h"
 #include "OpenImageIO/thread.h"
 #include "OpenImageIO/fmath.h"
+#include "OpenImageIO/simd.h"
 #include "OpenImageIO/filter.h"
 #include "OpenImageIO/optparser.h"
 #include "OpenImageIO/imageio.h"
@@ -56,15 +57,31 @@
 #include "imagecache_pvt.h"
 #include "texture_pvt.h"
 
+#define TEX_FAST_MATH 1
+
 
 OIIO_NAMESPACE_ENTER
 {
     using namespace pvt;
+    using namespace simd;
 
 
 namespace {  // anonymous
 
 static EightBitConverter<float> uchar2float;
+
+simd::float4 uchar2float4 (const unsigned char *c) {
+    return simd::float4(simd::int4(c[0],c[1],c[2],c[3])) * (1.0f/255.0f);
+}
+
+
+static const OIIO_SIMD4_ALIGN mask4 channel_masks[5] = {
+    mask4(false, false, false, false),
+    mask4(true,  false, false, false),
+    mask4(true,  true,  false, false),
+    mask4(true,  true,  true,  false),
+    mask4(true,  true,  true,  true),
+};
 
 }  // end anonymous namespace
 
@@ -129,9 +146,109 @@ TextureSystemImpl::wrap_periodic_sharedborder (int &coord, int origin, int width
 }
 
 
-const wrap_impl TextureSystemImpl::wrap_functions[] = {
+const TextureSystemImpl::wrap_impl TextureSystemImpl::wrap_functions[] = {
     // Must be in same order as Wrap enum
-    wrap_black, wrap_black, wrap_clamp, wrap_periodic, wrap_mirror
+    wrap_black, wrap_black, wrap_clamp, wrap_periodic, wrap_mirror,
+    wrap_periodic_pow2, wrap_periodic_sharedborder
+};
+
+
+
+simd::mask4
+wrap_black_simd (simd::int4 &coord_, const simd::int4& origin,
+                 const simd::int4& width)
+{
+    simd::int4 coord (coord_);
+    return (coord >= origin) & (coord < (width+origin));
+}
+
+
+simd::mask4
+wrap_clamp_simd (simd::int4 &coord_, const simd::int4& origin,
+                 const simd::int4& width)
+{
+    simd::int4 coord (coord_);
+    coord = simd::blend (coord, origin, coord < origin);
+    coord = simd::blend (coord, (origin+width-1), coord >= (origin+width));
+    coord_ = coord;
+    return simd::mask4::True();
+}
+
+
+simd::mask4
+wrap_periodic_simd (simd::int4 &coord_, const simd::int4& origin,
+                    const simd::int4& width)
+{
+    simd::int4 coord (coord_);
+    coord = coord - origin;
+    coord = coord % width;
+    coord = simd::blend (coord, coord+width, coord < 0);
+    coord = coord + origin;
+    coord_ = coord;
+    return simd::mask4::True();
+}
+
+
+simd::mask4
+wrap_periodic_pow2_simd (simd::int4 &coord_, const simd::int4& origin,
+                         const simd::int4& width)
+{
+    simd::int4 coord (coord_);
+//    DASSERT (ispow2(width));
+    coord = coord - origin;
+    coord = coord & (width - 1); // Shortcut periodic if we're sure it's a pow of 2
+    coord = coord + origin;
+    coord_ = coord;
+    return simd::mask4::True();
+}
+
+
+simd::mask4
+wrap_mirror_simd (simd::int4 &coord_, const simd::int4& origin,
+                  const simd::int4& width)
+{
+    simd::int4 coord (coord_);
+    coord = coord - origin;
+    coord = simd::blend (coord, -1 - coord, coord < 0);
+    simd::int4 iter = coord / width;    // Which iteration of the pattern?
+    coord -= iter * width;
+    // Odd iterations -- flip the sense
+    coord = blend (coord, (width - 1) - coord, (iter & 1) != 0);
+    // DASSERT_MSG (coord >= 0 && coord < width,
+    //              "width=%d, origin=%d, result=%d", width, origin, coord);
+    coord += origin;
+    coord_ = coord;
+    return simd::mask4::True();
+}
+
+
+simd::mask4
+wrap_periodic_sharedborder_simd (simd::int4 &coord_, const simd::int4& origin,
+                                 const simd::int4& width)
+{
+    // Like periodic, but knowing that the first column and last are
+    // actually the same position, so we essentially skip the last
+    // column in the next cycle.
+    simd::int4 coord (coord_);
+    coord = coord - origin;
+    coord = coord % (width-1);
+    coord += blend (simd::int4(origin), width+origin, coord < 0); // Fix negative values
+    coord = blend (coord, origin, width <= 2);  // special case -- just 1 pixel wide
+    coord_ = coord;
+    return true;
+}
+
+
+
+typedef simd::mask4 (*wrap_impl_simd) (simd::int4 &coord, const simd::int4& origin,
+                                       const simd::int4& width);
+
+
+const wrap_impl_simd wrap_functions_simd[] = {
+    // Must be in same order as Wrap enum
+    wrap_black_simd, wrap_black_simd, wrap_clamp_simd,
+    wrap_periodic_simd, wrap_mirror_simd, wrap_periodic_pow2_simd,
+    wrap_periodic_sharedborder_simd
 };
 
 
@@ -379,6 +496,7 @@ bool
 TextureSystemImpl::get_texels (ustring filename, TextureOpt &options,
                                int miplevel, int xbegin, int xend,
                                int ybegin, int yend, int zbegin, int zend,
+                               int chbegin, int chend,
                                TypeDesc format, void *result)
 {
     PerThreadInfo *thread_info = m_imagecache->get_perthread_info ();
@@ -409,7 +527,8 @@ TextureSystemImpl::get_texels (ustring filename, TextureOpt &options,
     // grab a whole tile at a time and memcpy it rapidly.  But no point
     // doing anything more complicated (not to mention bug-prone) until
     // somebody reports this routine as being a bottleneck.
-    int actualchannels = Imath::clamp (spec.nchannels - options.firstchannel, 0, options.nchannels);
+    int nchannels = chend - chbegin;
+    int actualchannels = Imath::clamp (spec.nchannels - chbegin, 0, nchannels);
     int nc = spec.nchannels;
     size_t formatpixelsize = nc * format.size();
     size_t scanlinesize = (xend-xbegin) * formatpixelsize;
@@ -444,10 +563,10 @@ TextureSystemImpl::get_texels (ustring filename, TextureOpt &options,
                 TileRef &tile (thread_info->tile);
                 const char *data;
                 if (tile && (data = (const char *)tile->data (x, y, z))) {
-                    data += options.firstchannel * texfile->datatype(subimage).size();
+                    data += chbegin * texfile->datatype(subimage).size();
                     convert_types (texfile->datatype(subimage), data,
                                    format, result, actualchannels);
-                    for (int c = actualchannels;  c < options.nchannels;  ++c)
+                    for (int c = actualchannels;  c < nchannels;  ++c)
                         convert_types (TypeDesc::FLOAT, &options.fill,
                                        format, result, 1);
                 } else {
@@ -515,16 +634,18 @@ TextureSystemImpl::invalidate_all (bool force)
 
 
 bool
-TextureSystemImpl::missing_texture (TextureOpt &options, float *result)
+TextureSystemImpl::missing_texture (TextureOpt &options, int nchannels,
+                                    float *result, float *dresultds,
+                                    float *dresultdt, float *dresultdr)
 {
-    for (int c = 0;  c < options.nchannels;  ++c) {
+    for (int c = 0;  c < nchannels;  ++c) {
         if (options.missingcolor)
             result[c] = options.missingcolor[c];
         else
             result[c] = options.fill;
-        if (options.dresultds) options.dresultds[c] = 0;
-        if (options.dresultdt) options.dresultdt[c] = 0;
-        if (options.dresultdr) options.dresultdr[c] = 0;
+        if (dresultds) dresultds[c] = 0;
+        if (dresultdt) dresultdt[c] = 0;
+        if (dresultdr) dresultdr[c] = 0;
     }
     if (options.missingcolor) {
         // don't treat it as an error if missingcolor was supplied
@@ -539,73 +660,137 @@ TextureSystemImpl::missing_texture (TextureOpt &options, float *result)
 
 void
 TextureSystemImpl::fill_gray_channels (const ImageSpec &spec,
-                                       TextureOpt &options, float *result)
+                                       int nchannels, float *result,
+                                       float *dresultds, float *dresultdt,
+                                       float *dresultdr)
 {
-    if (! m_gray_to_rgb || options.firstchannel != 0)
-        return;   // never mind
+    int specchans = spec.nchannels;
+    if (specchans == 1 && nchannels >= 3) {
+        // Asked for RGB or RGBA, texture was just R...
+        // copy the one channel to G and B
+        *(simd::float4 *)result = simd::shuffle<0,0,0,3>(*(simd::float4 *)result);
+        if (dresultds) {
+            *(simd::float4 *)dresultds = simd::shuffle<0,0,0,3>(*(simd::float4 *)dresultds);
+            *(simd::float4 *)dresultdt = simd::shuffle<0,0,0,3>(*(simd::float4 *)dresultdt);
+            if (dresultdr)
+                *(simd::float4 *)dresultdr = simd::shuffle<0,0,0,3>(*(simd::float4 *)dresultdr);
+        }
+    } else if (specchans == 2 && nchannels == 4 && spec.alpha_channel == 1) {
+        // Asked for RGBA, texture was RA
+        // Shuffle into RRRA
+        *(simd::float4 *)result = simd::shuffle<0,0,0,1>(*(simd::float4 *)result);
+        if (dresultds) {
+            *(simd::float4 *)dresultds = simd::shuffle<0,0,0,1>(*(simd::float4 *)dresultds);
+            *(simd::float4 *)dresultdt = simd::shuffle<0,0,0,1>(*(simd::float4 *)dresultdt);
+            if (dresultdr)
+                *(simd::float4 *)dresultdr = simd::shuffle<0,0,0,1>(*(simd::float4 *)dresultdr);
+        }
 
-    // Multi-channel texture reads from single channel files will
-    // propagate their grayscale value to G and B (no alpha)
-    bool propagate = (spec.nchannels == 1 && options.nchannels >= 3);
-
-    // When reading monochrome images with alpha into a 4
-    // channel result, move the alpha to the last position (CCCA)
-    if (spec.nchannels == 2 && spec.alpha_channel == 1 &&
-        options.nchannels == 4) {
-        result[3] = result[1];
-        if (options.dresultds)
-            options.dresultds[3] = options.dresultds[1];
-        if (options.dresultdt)
-            options.dresultdt[3] = options.dresultdt[1];
-        if (options.dresultdr)
-            options.dresultdr[3] = options.dresultdr[1];
-        // And we will propagate monochrome to G and B
-        propagate = true;
     }
+}
 
-    // Propagate to G and B if needed
-    if (propagate) {
-        result[1] = result[0];
-        result[2] = result[0];
-        if (options.dresultds) {
-            options.dresultds[1] = options.dresultds[0];
-            options.dresultds[2] = options.dresultds[0];
+
+
+bool
+TextureSystemImpl::texture (ustring filename, TextureOptions &options,
+                            Runflag *runflags, int beginactive, int endactive,
+                            VaryingRef<float> s, VaryingRef<float> t,
+                            VaryingRef<float> dsdx, VaryingRef<float> dtdx,
+                            VaryingRef<float> dsdy, VaryingRef<float> dtdy,
+                            int nchannels, float *result,
+                            float *dresultds, float *dresultdt)
+{
+    Perthread *thread_info = get_perthread_info();
+    TextureHandle *texture_handle = get_texture_handle (filename, thread_info);
+    return texture (texture_handle, thread_info, options,
+                    runflags, beginactive, endactive,
+                    s, t, dsdx, dtdx, dsdy, dtdy,
+                    nchannels, result, dresultds, dresultdt);
+}
+
+
+
+bool
+TextureSystemImpl::texture (TextureHandle *texture_handle,
+                            Perthread *thread_info, TextureOptions &options,
+                            Runflag *runflags, int beginactive, int endactive,
+                            VaryingRef<float> s, VaryingRef<float> t,
+                            VaryingRef<float> dsdx, VaryingRef<float> dtdx,
+                            VaryingRef<float> dsdy, VaryingRef<float> dtdy,
+                            int nchannels, float *result,
+                            float *dresultds, float *dresultdt)
+{
+    if (! texture_handle)
+        return false;
+    bool ok = true;
+    result += beginactive*nchannels;
+    if (dresultds) {
+        dresultds += beginactive*nchannels;
+        dresultdt += beginactive*nchannels;
+    }
+    for (int i = beginactive;  i < endactive;  ++i) {
+        if (runflags[i]) {
+            TextureOpt opt (options, i);
+            ok &= texture (texture_handle, thread_info,
+                           opt, s[i], t[i], dsdx[i], dtdx[i],
+                           dsdy[i], dtdy[i], nchannels,
+                           result, dresultds, dresultdt);
         }
-        if (options.dresultdt) {
-            options.dresultdt[1] = options.dresultdt[0];
-            options.dresultdt[2] = options.dresultdt[0];
-        }
-        if (options.dresultdr) {
-            options.dresultdr[1] = options.dresultdr[0];
-            options.dresultdr[2] = options.dresultdr[0];
+        result += nchannels;
+        if (dresultds) {
+            dresultds += nchannels;
+            dresultdt += nchannels;
         }
     }
+    return ok;
 }
 
 
 
 bool
 TextureSystemImpl::texture (ustring filename, TextureOpt &options,
-                            float s, float t,
-                            float dsdx, float dtdx, float dsdy, float dtdy,
-                            float *result)
+                            float s, float t, float dsdx, float dtdx,
+                            float dsdy, float dtdy,
+                            int nchannels, float *result,
+                            float *dresultds, float *dresultdt)
 {
     PerThreadInfo *thread_info = m_imagecache->get_perthread_info ();
     TextureFile *texturefile = find_texturefile (filename, thread_info);
     return texture ((TextureHandle *)texturefile, (Perthread *)thread_info,
-                    options, s, t, dsdx, dtdx, dsdy, dtdy, result);
+                    options, s, t, dsdx, dtdx, dsdy, dtdy,
+                    nchannels, result, dresultds, dresultdt);
 }
 
 
 
 bool
 TextureSystemImpl::texture (TextureHandle *texture_handle_,
-                            Perthread *thread_info_,
-                            TextureOpt &options,
-                            float s, float t,
-                            float dsdx, float dtdx, float dsdy, float dtdy,
-                            float *result)
+                            Perthread *thread_info_, TextureOpt &options,
+                            float s, float t, float dsdx, float dtdx,
+                            float dsdy, float dtdy,
+                            int nchannels, float *result,
+                            float *dresultds, float *dresultdt)
 {
+    // Handle >4 channel lookups by recursion.
+    if (nchannels > 4) {
+        int save_firstchannel = options.firstchannel;
+        while (nchannels) {
+            int n = std::min (nchannels, 4);
+            bool ok = texture (texture_handle_, thread_info_, options,
+                               s, t, dsdx, dtdx, dsdy, dtdy, n /* chans */,
+                               result, dresultds, dresultdt);
+            if (! ok)
+                return false;
+            result += n;
+            if (dresultds) dresultds += n;
+            if (dresultdt) dresultdt += n;
+            options.firstchannel += n;
+            nchannels -= n;
+        }
+        options.firstchannel = save_firstchannel; // restore what we changed
+        return true;
+    }
+
     static const texture_lookup_prototype lookup_functions[] = {
         // Must be in the same order as Mipmode enum
         &TextureSystemImpl::texture_lookup,
@@ -623,7 +808,7 @@ TextureSystemImpl::texture (TextureHandle *texture_handle_,
     ++stats.texture_queries;
 
     if (! texturefile  ||  texturefile->broken())
-        return missing_texture (options, result);
+        return missing_texture (options, nchannels, result, dresultds, dresultdt);
 
     if (options.subimagename) {
         // If subimage was specified by name, figure out its index.
@@ -640,6 +825,39 @@ TextureSystemImpl::texture (TextureHandle *texture_handle_,
     const ImageCacheFile::SubimageInfo &subinfo (texturefile->subimageinfo(options.subimage));
     const ImageSpec &spec (texturefile->spec(options.subimage, 0));
 
+    int actualchannels = Imath::clamp (spec.nchannels - options.firstchannel, 0, nchannels);
+
+    // Figure out the wrap functions
+    if (options.swrap == TextureOpt::WrapDefault)
+        options.swrap = (TextureOpt::Wrap)texturefile->swrap();
+    if (options.swrap == TextureOpt::WrapPeriodic && ispow2(spec.width))
+        options.swrap = TextureOpt::WrapPeriodicPow2;
+    if (options.twrap == TextureOpt::WrapDefault)
+        options.twrap = (TextureOpt::Wrap)texturefile->twrap();
+    if (options.twrap == TextureOpt::WrapPeriodic && ispow2(spec.height))
+        options.twrap = TextureOpt::WrapPeriodicPow2;
+
+    if (subinfo.is_constant_image && options.swrap != TextureOpt::WrapBlack &&
+          options.twrap != TextureOpt::WrapBlack) {
+        // Lookup of constant color texture, non-black wrap -- skip all the
+        // hard stuff.
+        for (int c = 0; c < actualchannels; ++c)
+            result[c] = subinfo.average_color[c+options.firstchannel];
+        for (int c = actualchannels; c < nchannels; ++c)
+            result[c] = options.fill;
+        if (dresultds) {
+            // Derivs are always 0 from a constant texture lookup
+            for (int c = 0; c < nchannels; ++c) {
+                dresultds[c] = 0.0f;
+                dresultdt[c] = 0.0f;
+            }
+        }
+        if (actualchannels < nchannels && options.firstchannel == 0 && m_gray_to_rgb)
+            fill_gray_channels (spec, nchannels, result,
+                                dresultds, dresultdt);
+        return true;
+    }
+
     if (! subinfo.full_pixel_range) {  // remap st for overscan or crop
         s = s * subinfo.sscale + subinfo.soffset;
         dsdx *= subinfo.sscale;
@@ -649,53 +867,45 @@ TextureSystemImpl::texture (TextureHandle *texture_handle_,
         dtdy *= subinfo.tscale;
     }
 
-    // Figure out the wrap functions
-    if (options.swrap == TextureOpt::WrapDefault)
-        options.swrap = (TextureOpt::Wrap)texturefile->swrap();
-    if (options.swrap == TextureOpt::WrapPeriodic && ispow2(spec.width))
-        options.swrap_func = wrap_periodic_pow2;
-    else
-        options.swrap_func = wrap_functions[(int)options.swrap];
-    if (options.twrap == TextureOpt::WrapDefault)
-        options.twrap = (TextureOpt::Wrap)texturefile->twrap();
-    if (options.twrap == TextureOpt::WrapPeriodic && ispow2(spec.height))
-        options.twrap_func = wrap_periodic_pow2;
-    else
-        options.twrap_func = wrap_functions[(int)options.twrap];
-
-    int actualchannels = Imath::clamp (spec.nchannels - options.firstchannel, 0, options.nchannels);
-    options.actualchannels = actualchannels;
-
-    bool ok = (this->*lookup) (*texturefile, thread_info, options,
-                               s, t, dsdx, dtdx, dsdy, dtdy, result);
-    if (actualchannels < options.nchannels)
-        fill_gray_channels (spec, options, result);
-    return ok;
-}
-
-
-
-bool
-TextureSystemImpl::texture (ustring filename, TextureOptions &options,
-                            Runflag *runflags, int beginactive, int endactive,
-                            VaryingRef<float> s, VaryingRef<float> t,
-                            VaryingRef<float> dsdx, VaryingRef<float> dtdx,
-                            VaryingRef<float> dsdy, VaryingRef<float> dtdy,
-                            float *result)
-{
-    Perthread *thread_info = get_perthread_info();
-    TextureHandle *texture_handle = get_texture_handle (filename, thread_info);
-    if (! texture_handle)
-        return false;
-    bool ok = true;
-    for (int i = beginactive;  i < endactive;  ++i) {
-        if (runflags[i]) {
-            TextureOpt opt (options, i);
-            ok &= texture (texture_handle, thread_info,
-                           opt, s[i], t[i], dsdx[i], dtdx[i],
-                           dsdy[i], dtdy[i], result+i*options.nchannels);
+    bool ok;
+    // Everything from the lookup function on down will assume that there
+    // is space for a float4 in all of the result locations, so if that's
+    // not the case (or it's not properly aligned), make a local copy and
+    // then copy back when we're done.
+    bool simd_copy = (nchannels != 4 || ((size_t)result&0x0f) ||
+                      ((size_t)dresultds & 0x0f) ||
+                      ((size_t)dresultdt & 0x0f));
+    if (simd_copy) {
+        simd::float4 result_simd, dresultds_simd, dresultdt_simd;
+        float * OIIO_RESTRICT saved_dresultds = dresultds;
+        float * OIIO_RESTRICT saved_dresultdt = dresultdt;
+        if (saved_dresultds) {
+            dresultds = (float *)&dresultds_simd;
+            dresultdt = (float *)&dresultdt_simd;
         }
+        ok = (this->*lookup) (*texturefile, thread_info, options,
+                              nchannels, actualchannels,
+                              s, t, dsdx, dtdx, dsdy, dtdy, (float *)&result_simd,
+                              dresultds, dresultdt);
+        if (actualchannels < nchannels && options.firstchannel == 0 && m_gray_to_rgb)
+            fill_gray_channels (spec, nchannels, (float *)&result_simd,
+                                dresultds, dresultdt);
+        result_simd.store (result, nchannels);
+        if (saved_dresultds) {
+            dresultds_simd.store (saved_dresultds, nchannels);
+            dresultdt_simd.store (saved_dresultdt, nchannels);
+        }
+    } else {
+        // All provided output slots are aligned 4-floats, use them directly
+        ok = (this->*lookup) (*texturefile, thread_info, options,
+                              nchannels, actualchannels,
+                              s, t, dsdx, dtdx, dsdy, dtdy, result,
+                              dresultds, dresultdt);
+        if (actualchannels < nchannels && options.firstchannel == 0 && m_gray_to_rgb)
+            fill_gray_channels (spec, nchannels, result,
+                                dresultds, dresultdt);
     }
+
     return ok;
 }
 
@@ -705,39 +915,35 @@ bool
 TextureSystemImpl::texture_lookup_nomip (TextureFile &texturefile,
                             PerThreadInfo *thread_info, 
                             TextureOpt &options,
+                            int nchannels_result, int actualchannels,
                             float s, float t,
                             float dsdx, float dtdx,
                             float dsdy, float dtdy,
-                            float *result)
+                            float *result, float *dresultds, float *dresultdt)
 {
     // Initialize results to 0.  We'll add from here on as we sample.
-    for (int c = 0;  c < options.nchannels;  ++c)
-        result[c] = 0;
-    float* dresultds = options.dresultds;
-    float* dresultdt = options.dresultdt;
-    if (dresultds)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultds[c] = 0;
-    if (dresultdt)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultdt[c] = 0;
-    // If the user only provided us with one pointer, clear both to simplify
-    // the rest of the code, but only after we zero out the data for them so
-    // they know something went wrong.
-    if (!(dresultds && dresultdt))
-        dresultds = dresultdt = NULL;
+    DASSERT ((dresultds == NULL) == (dresultdt == NULL));
+    ((simd::float4 *)result)->clear();
+    if (dresultds) {
+        ((simd::float4 *)dresultds)->clear();
+        ((simd::float4 *)dresultdt)->clear();
+    }
 
-    static const accum_prototype accum_functions[] = {
+    static const sampler_prototype sample_functions[] = {
         // Must be in the same order as InterpMode enum
-        &TextureSystemImpl::accum_sample_closest,
-        &TextureSystemImpl::accum_sample_bilinear,
-        &TextureSystemImpl::accum_sample_bicubic,
-        &TextureSystemImpl::accum_sample_bilinear,
+        &TextureSystemImpl::sample_closest,
+        &TextureSystemImpl::sample_bilinear,
+        &TextureSystemImpl::sample_bicubic,
+        &TextureSystemImpl::sample_bilinear,
     };
-    accum_prototype accumer = accum_functions[(int)options.interpmode];
-    bool ok = (this->*accumer) (s, t, 0, texturefile,
-                                thread_info, options,
-                                1.0f, result, dresultds, dresultdt);
+    sampler_prototype sampler = sample_functions[(int)options.interpmode];
+    OIIO_SIMD4_ALIGN float sval[4] = { s, 0.0f, 0.0f, 0.0f };
+    OIIO_SIMD4_ALIGN float tval[4] = { t, 0.0f, 0.0f, 0.0f };
+    static OIIO_SIMD4_ALIGN float weight[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+    bool ok = (this->*sampler) (1, sval, tval, 0 /*miplevel*/,
+                                texturefile, thread_info, options,
+                                nchannels_result, actualchannels, weight,
+                                (float4 *)result, (float4 *)dresultds, (float4 *)dresultdt);
 
     // Update stats
     ImageCacheStatistics &stats (thread_info->m_stats);
@@ -811,7 +1017,11 @@ adjust_blur (float &majorlength, float &minorlength, float theta,
         // here could have any detectable performance improvement.
         DASSERT (majorlength > 0.0f && minorlength > 0.0f);
         float sintheta, costheta;
+#ifdef TEX_FAST_MATH
+        fast_sincos (theta, &sintheta, &costheta);
+#else
         sincos (theta, &sintheta, &costheta);
+#endif
         sintheta = fabsf(sintheta);
         costheta = fabsf(costheta);
         majorlength += sblur * costheta + tblur * sintheta;
@@ -891,27 +1101,19 @@ bool
 TextureSystemImpl::texture_lookup_trilinear_mipmap (TextureFile &texturefile,
                             PerThreadInfo *thread_info,
                             TextureOpt &options,
-                            float _s, float _t,
+                            int nchannels_result, int actualchannels,
+                            float s, float t,
                             float dsdx, float dtdx,
                             float dsdy, float dtdy,
-                            float *result)
+                            float *result, float *dresultds, float *dresultdt)
 {
     // Initialize results to 0.  We'll add from here on as we sample.
-    for (int c = 0;  c < options.nchannels;  ++c)
-        result[c] = 0;
-    float* dresultds = options.dresultds;
-    float* dresultdt = options.dresultdt;
-    if (dresultds)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultds[c] = 0;
-    if (dresultdt)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultdt[c] = 0;
-    // If the user only provided us with one pointer, clear both to simplify
-    // the rest of the code, but only after we zero out the data for them so
-    // they know something went wrong.
-    if (!(dresultds && dresultdt))
-        dresultds = dresultdt = NULL;
+    DASSERT ((dresultds == NULL) == (dresultdt == NULL));
+    ((simd::float4 *)result)->clear();
+    if (dresultds) {
+        ((simd::float4 *)dresultds)->clear();
+        ((simd::float4 *)dresultdt)->clear();
+    }
 
     adjust_width (dsdx, dtdx, dsdy, dtdy, options.swidth, options.twidth);
 
@@ -929,28 +1131,48 @@ TextureSystemImpl::texture_lookup_trilinear_mipmap (TextureFile &texturefile,
     compute_miplevels (texturefile, options, filtwidth, filtwidth, aspect,
                        miplevel, levelweight);
 
-    static const accum_prototype accum_functions[] = {
+    static const sampler_prototype sample_functions[] = {
         // Must be in the same order as InterpMode enum
-        &TextureSystemImpl::accum_sample_closest,
-        &TextureSystemImpl::accum_sample_bilinear,
-        &TextureSystemImpl::accum_sample_bicubic,
-        &TextureSystemImpl::accum_sample_bilinear,
+        &TextureSystemImpl::sample_closest,
+        &TextureSystemImpl::sample_bilinear,
+        &TextureSystemImpl::sample_bicubic,
+        &TextureSystemImpl::sample_bilinear,
     };
-    accum_prototype accumer = accum_functions[(int)options.interpmode];
-//    if (level == 0 || texturefile.spec(lev).height < naturalres/2)
-//        accumer = &TextureSystemImpl::accum_sample_bicubic;
+    sampler_prototype sampler = sample_functions[(int)options.interpmode];
 
     // FIXME -- support for smart cubic?
 
+    OIIO_SIMD4_ALIGN float sval[4] = { s, 0.0f, 0.0f, 0.0f };
+    OIIO_SIMD4_ALIGN float tval[4] = { t, 0.0f, 0.0f, 0.0f };
+    OIIO_SIMD4_ALIGN float weight[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
     bool ok = true;
     int npointson = 0;
+    float4 r_sum, drds_sum, drdt_sum;
+    r_sum.clear();
+    if (dresultds) {
+        drds_sum.clear(); drdt_sum.clear();
+    }
     for (int level = 0;  level < 2;  ++level) {
         if (! levelweight[level])  // No contribution from this level, skip it
             continue;
-        ok &= (this->*accumer) (_s, _t, miplevel[level], texturefile,
-                          thread_info, options,
-                          levelweight[level], result, dresultds, dresultdt);
+        float4 r, drds, drdt;
+        ok &= (this->*sampler) (1, sval, tval, miplevel[level],
+                                texturefile, thread_info, options,
+                                nchannels_result, actualchannels, weight,
+                                &r, dresultds ? &drds : NULL, dresultds ? &drdt : NULL);
         ++npointson;
+        float4 lw = levelweight[level];
+        r_sum += lw * r;
+        if (dresultds) {
+            drds_sum += lw * drds;
+            drdt_sum += lw * drdt;
+        }
+    }
+
+    *(simd::float4 *)(result) = r_sum;
+    if (dresultds) {
+        *(simd::float4 *)(dresultds) = drds_sum;
+        *(simd::float4 *)(dresultdt) = drdt_sum;
     }
 
     // Update stats
@@ -997,7 +1219,11 @@ ellipse_axes (float dsdx, float dtdx, float dsdy, float dtdy,
     majorlength = std::min (safe_sqrtf(Cprime), 1000.0f);
     minorlength = std::min (safe_sqrtf(Aprime), 1000.0f);
 #endif
+#ifdef TEX_FAST_MATH
+    theta = fast_atan2 (B, A-C) * 0.5f + float(M_PI_2);
+#else
     theta = atan2 (B, A-C) * 0.5 + M_PI_2;
+#endif
     if (ABCF) {
         // Optionally store the ellipse equation parameters, the ellipse
         // is given by: A*u^2 + B*u*v + C*v^2 < 1
@@ -1025,6 +1251,8 @@ ellipse_axes (float dsdx, float dtdx, float dsdy, float dtdy,
 // they should be positioned as:
 //     p_i = 2*(i+0.5)/n - 1.0;
 //     sample_i = (s + p_i*smajor, t + p_i*tmajor)
+// If a weights ptr is supplied, it will be filled in [0..nsamples-1] with
+// normalized weights for each sample.
 inline int
 compute_ellipse_sampling (float aspect, float theta,
                           float majorlength, float minorlength,
@@ -1056,9 +1284,18 @@ compute_ellipse_sampling (float aspect, float theta,
             float scale = majorlength / L;  // 1/(L/major)
             for (int i = 0, e = (nsamples+1)/2;  i < e;  ++i) {
                 float x = (2.0f*(i+0.5f)*invsamples - 1.0f) * scale;
+#ifdef TEX_FAST_MATH
+                float w = fast_exp(-2.0f*x*x);
+#else
                 float w = expf(-2.0f*x*x);
+#endif
                 weights[nsamples-i-1] = weights[i] = w;
             }
+            float sumw = 0.0f;
+            for (int i = 0; i < nsamples; ++i)
+                sumw += weights[i];
+            for (int i = 0; i < nsamples; ++i)
+                weights[i] /= sumw;
         }
     }
     return nsamples;
@@ -1070,27 +1307,13 @@ bool
 TextureSystemImpl::texture_lookup (TextureFile &texturefile,
                             PerThreadInfo *thread_info,
                             TextureOpt &options,
+                            int nchannels_result, int actualchannels,
                             float s, float t,
                             float dsdx, float dtdx,
                             float dsdy, float dtdy,
-                            float *result)
+                            float *result, float *dresultds, float *dresultdt)
 {
-    // Initialize results to 0.  We'll add from here on as we sample.
-    for (int c = 0;  c < options.nchannels;  ++c)
-        result[c] = 0;
-    float* dresultds = options.dresultds;
-    float* dresultdt = options.dresultdt;
-    if (dresultds)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultds[c] = 0;
-    if (dresultdt)
-        for (int c = 0;  c < options.nchannels;  ++c)
-            dresultdt[c] = 0;
-    // If the user only provided us with one pointer, clear both to simplify
-    // the rest of the code, but only after we zero out the data for them so
-    // they know something went wrong.
-    if (!(dresultds && dresultdt))
-        dresultds = dresultdt = NULL;
+    DASSERT ((dresultds == NULL) == (dresultdt == NULL));
 
     // Compute the natural resolution we want for the bare derivs, this
     // will be the threshold for knowing we're maxifying (and therefore
@@ -1114,7 +1337,6 @@ TextureSystemImpl::texture_lookup (TextureFile &texturefile,
     // better, but for scenes with lots of grazing angles, it can greatly
     // increase the average anisotropy, therefore the number of bilinear
     // or bicubic texture probes, and therefore runtime!
-    // FIXME -- come back and improve performance to compensate.
     ellipse_axes (dsdx, dtdx, dsdy, dtdy, majorlength, minorlength, theta);
 
     adjust_blur (majorlength, minorlength, theta, options.sblur, options.tblur);
@@ -1127,7 +1349,7 @@ TextureSystemImpl::texture_lookup (TextureFile &texturefile,
     compute_miplevels (texturefile, options, majorlength, minorlength, aspect,
                        miplevel, levelweight);
 
-    float *lineweight = ALLOCA (float, 2*options.anisotropic);
+    float *lineweight = ALLOCA (float, round_to_multiple_of_pow2(2*options.anisotropic, 4));
     float invsamples;
     int nsamples = compute_ellipse_sampling (aspect, theta, majorlength,
                                              minorlength, smajor, tmajor,
@@ -1142,55 +1364,96 @@ TextureSystemImpl::texture_lookup (TextureFile &texturefile,
     bool ok = true;
     int npointson = 0;
     int closestprobes = 0, bilinearprobes = 0, bicubicprobes = 0;
-    float sumw = 0;
+    int nsamples_padded = round_to_multiple_of_pow2 (nsamples, 4);
+    float *sval = OIIO_ALLOCA (float, nsamples_padded);
+    float *tval = OIIO_ALLOCA (float, nsamples_padded);
+
+    // Compute the s and t positions of the samples along the major axis.
+#if OIIO_SIMD
+    // Do the computations in batches of 4, with SIMD ops.
+    static OIIO_SIMD4_ALIGN float iota_start[4] = { 0.5f, 1.5f, 2.5f, 3.5f };
+    float4 iota = *(const float4 *)iota_start;
+    for (int sample = 0;  sample < nsamples;  sample += 4) {
+        float4 pos = 2.0f * (iota * invsamples - 0.5f);
+        float4 ss = s + pos * smajor;
+        float4 tt = t + pos * tmajor;
+        ss.store (sval+sample);
+        tt.store (tval+sample);
+        iota += 4.0f;
+    }
+#else
+    // Non-SIMD, reference code
+    for (int sample = 0;  sample < nsamples;  ++sample) {
+        float pos = 2.0f * ((sample + 0.5f) * invsamples - 0.5f);
+        sval[sample] = s + pos * smajor;
+        tval[sample] = t + pos * tmajor;
+    }
+#endif
+
+    float4 r_sum, drds_sum, drdt_sum;
+    r_sum.clear();
+    if (dresultds) {
+        drds_sum.clear(); drdt_sum.clear();
+    }
     for (int level = 0;  level < 2;  ++level) {
         if (! levelweight[level])  // No contribution from this level, skip it
             continue;
         ++npointson;
+        float4 r, drds, drdt;
         int lev = miplevel[level];
-        accum_prototype accumer = &TextureSystemImpl::accum_sample_bilinear;
         switch (options.interpmode) {
         case TextureOpt::InterpClosest :
-            accumer = &TextureSystemImpl::accum_sample_closest;
+            ok &= sample_closest (nsamples, sval, tval,
+                                  lev, texturefile, thread_info, options,
+                                  nchannels_result, actualchannels, lineweight,
+                                  &r, NULL, NULL);
             ++closestprobes;
             break;
         case TextureOpt::InterpBilinear :
-            accumer = &TextureSystemImpl::accum_sample_bilinear;
+            ok &= sample_bilinear (nsamples, sval, tval,
+                                   lev, texturefile, thread_info, options,
+                                   nchannels_result, actualchannels, lineweight,
+                                   &r, dresultds ? &drds : NULL, dresultds ? &drdt : NULL);
             ++bilinearprobes;
             break;
         case TextureOpt::InterpBicubic :
-            accumer = &TextureSystemImpl::accum_sample_bicubic;
+            ok &= sample_bicubic (nsamples, sval, tval,
+                                  lev, texturefile, thread_info, options,
+                                  nchannels_result, actualchannels, lineweight,
+                                  &r, dresultds ? &drds : NULL, dresultds ? &drdt : NULL);
             ++bicubicprobes;
             break;
         case TextureOpt::InterpSmartBicubic :
             if (lev == 0 || 
                 (texturefile.spec(options.subimage,lev).width < naturalsres/2) ||
                 (texturefile.spec(options.subimage,lev).height < naturaltres/2)) {
-                accumer = &TextureSystemImpl::accum_sample_bicubic;
+                ok &= sample_bicubic (nsamples, sval, tval,
+                                      lev, texturefile, thread_info, options,
+                                      nchannels_result, actualchannels, lineweight,
+                                      &r, dresultds ? &drds : NULL, dresultds ? &drdt : NULL);
                 ++bicubicprobes;
             } else {
-                accumer = &TextureSystemImpl::accum_sample_bilinear;
+                ok &= sample_bilinear (nsamples, sval, tval,
+                                       lev, texturefile, thread_info, options,
+                                       nchannels_result, actualchannels, lineweight,
+                                       &r, dresultds ? &drds : NULL, dresultds ? &drdt : NULL);
                 ++bilinearprobes;
             }
             break;
         }
-        for (int sample = 0;  sample < nsamples;  ++sample) {
-            float pos = 2.0f * ((sample + 0.5f) * invsamples - 0.5f);
-            float w = levelweight[level] * lineweight[sample];
-            ok &= (this->*accumer) (s + pos * smajor, t + pos * tmajor,
-                                    lev, texturefile,
-                                    thread_info, options, w,
-                                    result, dresultds, dresultdt);
-            sumw += w;
+
+        float4 lw = levelweight[level];
+        r_sum += lw * r;
+        if (dresultds) {
+            drds_sum += lw * drds;
+            drdt_sum += lw * drdt;
         }
     }
 
-    if (sumw > 0) {
-       for (int c = 0;  c < options.nchannels;  ++c) {
-           result[c] /= sumw;
-           if (dresultds) dresultds[c] /= sumw;
-           if (dresultdt) dresultdt[c] /= sumw;
-       }
+    *(simd::float4 *)(result) = r_sum;
+    if (dresultds) {
+        *(simd::float4 *)(dresultds) = drds_sum;
+        *(simd::float4 *)(dresultdt) = drdt_sum;
     }
 
     // Update stats
@@ -1288,572 +1551,751 @@ TextureSystemImpl::fade_to_pole (float t, float *accum, float &weight,
 
 
 bool
-TextureSystemImpl::accum_sample_closest (float s, float t, int miplevel,
-                                 TextureFile &texturefile,
-                                 PerThreadInfo *thread_info,
-                                 TextureOpt &options,
-                                 float weight, float *accum, float *daccumds, float *daccumdt)
+TextureSystemImpl::sample_closest (int nsamples, const float *s_,
+                                   const float *t_, int miplevel,
+                                   TextureFile &texturefile,
+                                   PerThreadInfo *thread_info,
+                                   TextureOpt &options,
+                                   int nchannels_result, int actualchannels,
+                                   const float *weight_,
+                                   float4 *accum_, float4 *daccumds_, float4 *daccumdt_)
 {
+    bool allok = true;
     const ImageSpec &spec (texturefile.spec (options.subimage, miplevel));
     const ImageCacheFile::LevelInfo &levelinfo (texturefile.levelinfo(options.subimage,miplevel));
-    int stex, ttex;    // Texel coordintes
-    float sfrac, tfrac;
-    st_to_texel (s, t, texturefile, spec, stex, ttex, sfrac, tfrac);
+    wrap_impl swrap_func = wrap_functions[(int)options.swrap];
+    wrap_impl twrap_func = wrap_functions[(int)options.twrap];
+    float4 accum;
+    accum.clear();
+    float nonfill = 0.0f;
+    for (int sample = 0;  sample < nsamples;  ++sample) {
+        float s = s_[sample], t = t_[sample];
+        float weight = weight_[sample];
 
-    if (sfrac > 0.5f)
-        ++stex;
-    if (tfrac > 0.5f)
-        ++ttex;
+        int stex, ttex;    // Texel coordintes
+        float sfrac, tfrac;
+        st_to_texel (s, t, texturefile, spec, stex, ttex, sfrac, tfrac);
     
-    // Wrap
-    DASSERT (options.swrap_func != NULL && options.twrap_func != NULL);
-    bool svalid, tvalid;  // Valid texels?  false means black border
-    svalid = options.swrap_func (stex, spec.x, spec.width);
-    tvalid = options.twrap_func (ttex, spec.y, spec.height);
-    if (! levelinfo.full_pixel_range) {
-        svalid &= (stex >= spec.x && stex < (spec.x+spec.width)); // data window
-        tvalid &= (ttex >= spec.y && ttex < (spec.y+spec.height));
-    }
-    if (! (svalid & tvalid)) {
-        // All texels we need were out of range and using 'black' wrap.
-        return true;
+        if (sfrac > 0.5f)
+            ++stex;
+        if (tfrac > 0.5f)
+            ++ttex;
+        
+        // Wrap
+        bool svalid, tvalid;  // Valid texels?  false means black border
+        svalid = swrap_func (stex, spec.x, spec.width);
+        tvalid = twrap_func (ttex, spec.y, spec.height);
+        if (! levelinfo.full_pixel_range) {
+            svalid &= (stex >= spec.x && stex < (spec.x+spec.width)); // data window
+            tvalid &= (ttex >= spec.y && ttex < (spec.y+spec.height));
+        }
+        if (! (svalid & tvalid)) {
+            // All texels we need were out of range and using 'black' wrap.
+            nonfill += weight;
+            continue;
+        }
+    
+        int tile_s = (stex - spec.x) % spec.tile_width;
+        int tile_t = (ttex - spec.y) % spec.tile_height;
+        TileID id (texturefile, options.subimage, miplevel,
+                   stex - tile_s, ttex - tile_t, 0);
+        bool ok = find_tile (id, thread_info);
+        if (! ok)
+            error ("%s", m_imagecache->geterror().c_str());
+        TileRef &tile (thread_info->tile);
+        if (! tile  ||  ! ok) {
+            allok = false;
+            continue;
+        }
+        size_t channelsize = texturefile.channelsize(options.subimage);
+        int offset = spec.nchannels * (tile_t * spec.tile_width + tile_s) + options.firstchannel;
+        DASSERT ((size_t)offset < spec.nchannels*spec.tile_pixels());
+        simd::float4 texel_simd;
+        if (channelsize == 1) {
+            // special case for 8-bit tiles
+            texel_simd = uchar2float4 (tile->bytedata() + offset);
+        } else {
+            // General case for float tiles
+            texel_simd.load (tile->data() + offset);
+        }
+
+        accum += weight * texel_simd;
     }
 
-    int tile_s = (stex - spec.x) % spec.tile_width;
-    int tile_t = (ttex - spec.y) % spec.tile_height;
-    TileID id (texturefile, options.subimage, miplevel,
-               stex - tile_s, ttex - tile_t, 0);
-    bool ok = find_tile (id, thread_info);
-    if (! ok)
-        error ("%s", m_imagecache->geterror().c_str());
-    TileRef &tile (thread_info->tile);
-    if (! tile  ||  ! ok)
-        return false;
-    size_t channelsize = texturefile.channelsize(options.subimage);
-    int offset = spec.nchannels * (tile_t * spec.tile_width + tile_s) + options.firstchannel;
-    DASSERT ((size_t)offset < spec.nchannels*spec.tile_pixels());
-    if (channelsize == 1) {
-        // special case for 8-bit tiles
-        const unsigned char *texel = tile->bytedata() + offset;
-        for (int c = 0;  c < options.actualchannels;  ++c)
-            accum[c] += weight * uchar2float(texel[c]);
+    simd::mask4 channel_mask = channel_masks[actualchannels];
+    accum = blend0(accum, channel_mask);
+    if (nonfill < 1.0f && nchannels_result > actualchannels && options.fill) {
+        // Add the weighted fill color
+        accum += blend0not(float4((1.0f - nonfill) * options.fill), channel_mask);
+    }
+
+    *accum_ = accum;
+    if (daccumds_) {
+        daccumds_->clear();  // constant interp has 0 derivatives
+        daccumdt_->clear();
+    }
+    return allok;
+}
+
+
+
+// return the greatest integer <= x, for 4 values at once
+OIIO_FORCEINLINE int4 quick_floor (const float4& x) {
+#if 0
+    // Even on SSE 4.1, this is actually very slightly slower!
+    // Continue to test on future architectures.
+    return floori(x);
+#else
+    int4 b (x);  // truncates
+    int4 isneg = bitcast_to_int4 (x < float4::Zero());
+    return b + isneg;
+    // Trick here (thanks, Cycles, for letting me spy on your code): the
+    // comparison will return (int)-1 for components that are less than
+    // zero, and adding that is the same as subtracting one!
+#endif
+}
+
+
+// floatfrac for four sets of values at once.
+inline float4 floorfrac (const float4& x, int4 * i) {
+#if 0
+    float4 thefloor = floor(x);
+    *i = int4(thefloor);
+    return x-thefloor;
+#else
+    int4 thefloor = quick_floor (x);
+    *i = thefloor;
+    return x - float4(thefloor);
+#endif
+}
+
+
+
+/// Convert texture coordinates (s,t), which range on 0-1 for the "full"
+/// image boundary, to texel coordinates (i+ifrac,j+jfrac) where (i,j) is
+/// the texel to the immediate upper left of the sample position, and ifrac
+/// and jfrac are the fractional (0-1) portion of the way to the next texel
+/// to the right or down, respectively.  Do this for 4 s,t values at a time.
+inline void
+st_to_texel_simd (const float4& s_, const float4& t_, TextureSystemImpl::TextureFile &texturefile,
+                  const ImageSpec &spec, int4 &i, int4 &j,
+                  float4 &ifrac, float4 &jfrac)
+{
+	float4 s,t;
+    // As passed in, (s,t) map the texture to (0,1).  Remap to texel coords.
+    // Note that we have two modes, depending on the m_sample_border.
+    if (texturefile.sample_border() == 0) {
+        // texel samples are at 0.5/res, 1.5/res, ..., (res-0.5)/res,
+        s = s_ * float(spec.width)  + (spec.x - 0.5f);
+        t = t_ * float(spec.height) + (spec.y - 0.5f);
     } else {
-        // General case for float tiles
-        const float *texel = tile->data() + offset;
-        for (int c = 0;  c < options.actualchannels;  ++c)
-            accum[c] += weight * texel[c];
+        // first and last rows/columns are *exactly* on the boundary,
+        // so samples are at 0, 1/(res-1), ..., 1.
+        s = s_ * float(spec.width-1)  + float(spec.x);
+        t = t_ * float(spec.height-1) + float(spec.y);
     }
-
-    // Add appropriate amount of "fill" color to extra channels in
-    // non-"black"-wrapped regions.
-    if (options.nchannels > options.actualchannels && options.fill) {
-        float f = weight * options.fill;
-        for (int c = options.actualchannels;  c < options.nchannels;  ++c)
-            accum[c] += f;
-    }
-    return true;
+    ifrac = floorfrac (s, &i);
+    jfrac = floorfrac (t, &j);
+    // Now (i,j) are the integer coordinates of the texel to the
+    // immediate "upper left" of the lookup point, and (ifrac,jfrac) are
+    // the amount that the lookup point is actually offset from the
+    // texel center (with (1,1) being all the way to the next texel down
+    // and to the right).
 }
 
 
 
 bool
-TextureSystemImpl::accum_sample_bilinear (float s, float t, int miplevel,
-                                 TextureFile &texturefile,
-                                 PerThreadInfo *thread_info,
-                                 TextureOpt &options,
-                                 float weight, float *accum, float *daccumds, float *daccumdt)
+TextureSystemImpl::sample_bilinear (int nsamples, const float *s_,
+                                    const float *t_, int miplevel,
+                                    TextureFile &texturefile,
+                                    PerThreadInfo *thread_info,
+                                    TextureOpt &options,
+                                    int nchannels_result, int actualchannels,
+                                    const float *weight_,
+                                    float4 *accum_, float4 *daccumds_, float4 *daccumdt_)
 {
     const ImageSpec &spec (texturefile.spec (options.subimage, miplevel));
     const ImageCacheFile::LevelInfo &levelinfo (texturefile.levelinfo(options.subimage,miplevel));
-    int sint, tint;
-    float sfrac, tfrac;
-    st_to_texel (s, t, texturefile, spec, sint, tint, sfrac, tfrac);
-
-    // Wrap
-    DASSERT (options.swrap_func != NULL && options.twrap_func != NULL);
-    int stex[2], ttex[2];       // Texel coords
-    stex[0] = sint;  stex[1] = sint+1;
-    ttex[0] = tint;  ttex[1] = tint+1;
-//    bool svalid[2], tvalid[2];  // Valid texels?  false means black border
-    union { bool bvalid[4]; unsigned int ivalid; } valid_storage;
-    valid_storage.ivalid = 0;
-    DASSERT (sizeof(valid_storage) == 4*sizeof(bool));
-    const unsigned int none_valid = 0;
-    const unsigned int all_valid = 0x01010101;
-    bool *svalid = valid_storage.bvalid;
-    bool *tvalid = valid_storage.bvalid + 2;
-    svalid[0] = options.swrap_func (stex[0], spec.x, spec.width);
-    svalid[1] = options.swrap_func (stex[1], spec.x, spec.width);
-    tvalid[0] = options.twrap_func (ttex[0], spec.y, spec.height);
-    tvalid[1] = options.twrap_func (ttex[1], spec.y, spec.height);
-
-    // FIXME -- we've got crop windows all wrong
-
-    // Account for crop windows
-    if (! levelinfo.full_pixel_range) {
-        svalid[0] &= (stex[0] >= spec.x && stex[0] < spec.x+spec.width);
-        svalid[1] &= (stex[1] >= spec.x && stex[1] < spec.x+spec.width);
-        tvalid[0] &= (ttex[0] >= spec.y && ttex[0] < spec.y+spec.height);
-        tvalid[1] &= (ttex[1] >= spec.y && ttex[1] < spec.y+spec.height);
-    }
-//    if (! (svalid[0] | svalid[1] | tvalid[0] | tvalid[1]))
-    if (valid_storage.ivalid == none_valid)
-        return true; // All texels we need were out of range and using 'black' wrap
-
-    int tilewidthmask  = spec.tile_width  - 1;  // e.g. 63
-    int tileheightmask = spec.tile_height - 1;
-    const unsigned char *texel[2][2];
-    TileRef savetile[2][2];
-    static float black[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
-    int tile_s = (stex[0] - spec.x) % spec.tile_width;
-    int tile_t = (ttex[0] - spec.y) % spec.tile_height;
-    bool s_onetile = (tile_s != tilewidthmask) & (stex[0]+1 == stex[1]);
-    bool t_onetile = (tile_t != tileheightmask) & (ttex[0]+1 == ttex[1]);
-    bool onetile = (s_onetile & t_onetile);
+    wrap_impl swrap_func = wrap_functions[(int)options.swrap];
+    wrap_impl twrap_func = wrap_functions[(int)options.twrap];
+    wrap_impl_simd wrap_func = (swrap_func == twrap_func) ? wrap_functions_simd[(int)options.swrap] : NULL;
+    simd::int4 xy (spec.x, spec.y);
+    simd::int4 widthheight (spec.width, spec.height);
+    simd::int4 tilewh (spec.tile_width, spec.tile_height);
+    simd::int4 tilewhmask = tilewh - 1;
+    bool use_fill = (nchannels_result > actualchannels && options.fill);
+    bool tilepow2 = ispow2(spec.tile_width) && ispow2(spec.tile_height);
     size_t channelsize = texturefile.channelsize(options.subimage);
     size_t pixelsize = texturefile.pixelsize(options.subimage);
-    if (onetile &&
-//        (svalid[0] & svalid[1] & tvalid[0] & tvalid[1])) {
-        valid_storage.ivalid == all_valid) {
-        // Shortcut if all the texels we need are on the same tile
-        TileID id (texturefile, options.subimage, miplevel,
-                   stex[0] - tile_s, ttex[0] - tile_t, 0);
-        bool ok = find_tile (id, thread_info);
-        if (! ok)
-            error ("%s", m_imagecache->geterror().c_str());
-        TileRef &tile (thread_info->tile);
-        if (! tile->valid()) {
-#if 0
-            std::cerr << "found it\n";
-            std::cerr << "\trequested " << miplevel << ' ' << id.x() << ' ' << id.y() << ", res is " << texturefile.spec(miplevel).width << ' ' << texturefile.spec(miplevel).height << "\n";
-            std::cerr << "\tstex = " << stex[0] << ", tile_s = " << tile_s << ", ttex = " << ttex[0] << ", tile_t = " << tile_t << "\n";
-            std::cerr << "\torig " << orig_s << ' ' << orig_t << "\n";
-            std::cerr << "\ts,t = " << s << ' ' << t << "\n";
-            std::cerr << "\tsint,tint = " << sint << ' ' << tint << "\n";
-            std::cerr << "\tstfrac = " << sfrac << ' ' << tfrac << "\n";
-            std::cerr << "\tspec full size = " << texturefile.spec(miplevel).full_width << ' ' << texturefile.spec(miplevel).full_height << "\n";
-#endif
-            return false;
+    int firstchannel = options.firstchannel;
+    TileID id (texturefile, options.subimage, miplevel, 0, 0, 0);
+    float nonfill = 0.0f;  // The degree to which we DON'T need fill
+    // N.B. What's up with "nofill"? We need to consider fill only when we
+    // are inside the valid texture region. Outside, i.e. in the black wrap
+    // region, black takes precedence over fill. By keeping track of when
+    // we don't need to worry about fill, which is the comparitively rare
+    // case, we do a lot less math and have fewer rounding errors.
+
+    float4 accum, daccumds, daccumdt;
+    accum.clear();
+    if (daccumds_) {
+        daccumds.clear();
+        daccumdt.clear();
+    }
+    float4 s_simd, t_simd;
+    int4 sint_simd, tint_simd;
+    float4 sfrac_simd, tfrac_simd;
+    for (int sample = 0;  sample < nsamples;  ++sample) {
+        // To utilize SIMD ops in an inherently scalar loop, every fourth
+        // step, we compute the st_to_texel for the next four samples.
+        int sample4 = sample & 3;
+        if (sample4 == 0) {
+            s_simd.load (s_ + sample);
+            t_simd.load (t_ + sample);
+            st_to_texel_simd (s_simd, t_simd, texturefile, spec,
+                         sint_simd, tint_simd, sfrac_simd, tfrac_simd);
         }
-        // N.B. thread_info->tile will keep holding a ref-counted pointer
-        // to the tile for the duration that we're using the tile data.
-        int offset = pixelsize * (tile_t * spec.tile_width + tile_s);
-        texel[0][0] = tile->bytedata() + offset + channelsize * options.firstchannel;
-        texel[0][1] = texel[0][0] + pixelsize;
-        texel[1][0] = texel[0][0] + pixelsize * spec.tile_width;
-        texel[1][1] = texel[1][0] + pixelsize;
-    } else {
-        for (int j = 0;  j < 2;  ++j) {
-            for (int i = 0;  i < 2;  ++i) {
-                if (! (svalid[i] && tvalid[j])) {
-                    texel[j][i] = (unsigned char *)black;
+        int sint = sint_simd[sample4], tint = tint_simd[sample4];
+        float sfrac = sfrac_simd[sample4], tfrac = tfrac_simd[sample4];
+        float weight = weight_[sample];
+
+        // SIMD-ize the indices. We have four texels, fit them into one SIMD
+        // 4-vector as S0,S1,T0,T1.
+        enum { S0=0, S1=1, T0=2, T1=3 };
+    
+        simd::int4 sttex (sint, sint+1, tint, tint+1); // Texel coords: s0,s1,t0,t1
+        simd::mask4 stvalid;
+        if (wrap_func) {
+            // Both directions use the same wrap function, call in parallel.
+            stvalid = wrap_func (sttex, xy, widthheight);
+        } else {
+            stvalid.load (swrap_func (sttex[S0], spec.x, spec.width),
+                          swrap_func (sttex[S1], spec.x, spec.width),
+                          twrap_func (sttex[T0], spec.y, spec.height),
+                          twrap_func (sttex[T1], spec.y, spec.height));
+        }
+    
+        // Account for crop windows
+        if (! levelinfo.full_pixel_range) {
+            stvalid &= (sttex >= xy) & (sttex < (xy + widthheight));
+        }
+        if (none (stvalid)) {
+            nonfill += weight;
+            continue; // All texels we need were out of range and using 'black' wrap
+        }
+    
+        simd::float4 texel_simd[2][2];
+        simd::int4 tile_st = (simd::int4(simd::shuffle<S0,S0,T0,T0>(sttex)) - xy);
+        if (tilepow2)
+            tile_st &= tilewhmask;
+        else
+            tile_st %= tilewh;
+        bool s_onetile = (tile_st[S0] != tilewhmask[S0]) & (sttex[S0]+1 == sttex[S1]);
+        bool t_onetile = (tile_st[T0] != tilewhmask[T0]) & (sttex[T0]+1 == sttex[T1]);
+        bool onetile = (s_onetile & t_onetile);
+        if (onetile && all(stvalid)) {
+            // Shortcut if all the texels we need are on the same tile
+            id.xy (sttex[S0] - tile_st[S0], sttex[T0] - tile_st[T0]);
+            bool ok = find_tile (id, thread_info);
+            if (! ok)
+                error ("%s", m_imagecache->geterror().c_str());
+            TileRef &tile (thread_info->tile);
+            if (! tile->valid())
+                return false;
+            int offset = pixelsize * (tile_st[T0] * spec.tile_width + tile_st[S0]);
+            const unsigned char *p = tile->bytedata() + offset + channelsize * firstchannel;
+            if (channelsize == 1) {
+                texel_simd[0][0] = uchar2float4 (p);
+                texel_simd[0][1] = uchar2float4 (p+pixelsize);
+                p += pixelsize * spec.tile_width;
+                texel_simd[1][0] = uchar2float4 (p);
+                texel_simd[1][1] = uchar2float4 (p+pixelsize);
+            } else {
+                texel_simd[0][0].load ((const float *)p);
+                texel_simd[0][1].load ((const float *)(p+pixelsize));
+                p += pixelsize * spec.tile_width;
+                texel_simd[1][0].load ((const float *)p);
+                texel_simd[1][1].load ((const float *)(p+pixelsize));
+            }
+        } else {
+            bool noreusetile = (options.swrap == TextureOpt::WrapMirror);
+            simd::int4 tile_st = (sttex - xy) % tilewh;
+            simd::int4 tile_edge = sttex - tile_st;
+            for (int j = 0;  j < 2;  ++j) {
+                if (! stvalid[T0+j]) {
+                    texel_simd[j][0].clear();
+                    texel_simd[j][1].clear();
                     continue;
                 }
-                tile_s = (stex[i] - spec.x) % spec.tile_width;
-                tile_t = (ttex[j] - spec.y) % spec.tile_height;
-                TileID id (texturefile, options.subimage, miplevel,
-                           stex[i] - tile_s, ttex[j] - tile_t, 0);
-                bool ok = find_tile (id, thread_info);
-                if (! ok)
-                    error ("%s", m_imagecache->geterror().c_str());
-                TileRef &tile (thread_info->tile);
-                if (! tile->valid())
-                    return false;
-                savetile[j][i] = tile;
-                int offset = pixelsize * (tile_t * spec.tile_width + tile_s);
-                DASSERT ((size_t)offset < spec.tile_width*spec.tile_height*spec.tile_depth*pixelsize);
-                texel[j][i] = tile->bytedata() + offset + channelsize * options.firstchannel;
-                DASSERT (tile->id() == id);
+                int tile_t = tile_st[T0+j];
+                for (int i = 0;  i < 2;  ++i) {
+                    if (! stvalid[S0+i]) {
+                        texel_simd[j][i].clear();
+                        continue;
+                    }
+                    int tile_s = tile_st[S0+i];
+                    // Trick: we only need to find a tile if i == 0 or if we
+                    // just crossed a tile bouncary (if tile_s == 0).
+                    // Otherwise, we are still on the same tile as the last
+                    // iteration, as long as we aren't using mirror wrap mode!
+                    if (i == 0 || tile_s == 0 || noreusetile) {
+                        id.xy (tile_edge[S0+i], tile_edge[T0+j]);
+                        bool ok = find_tile (id, thread_info);
+                        if (! ok)
+                            error ("%s", m_imagecache->geterror().c_str());
+                        if (! thread_info->tile->valid()) {
+                            return false;
+                        }
+                        DASSERT (thread_info->tile->id() == id);
+                    }
+                    TileRef &tile (thread_info->tile);
+                    int offset = pixelsize * (tile_t * spec.tile_width + tile_s);
+                    DASSERT ((size_t)offset < spec.tile_width*spec.tile_height*spec.tile_depth*pixelsize);
+                    if (channelsize == 1)
+                        texel_simd[j][i] = uchar2float4 ((const unsigned char *)(tile->bytedata() + offset + channelsize * firstchannel));
+                    else
+                        texel_simd[j][i].load ((const float *)(tile->bytedata() + offset + channelsize * firstchannel));
+                }
             }
         }
-    }
-    // FIXME -- optimize the above loop by unrolling
-
-    int nc = options.actualchannels;
-
-    // When we're on the lowest res mipmap levels, it's more pleasing if
-    // we converge to a single pole color right at the pole.  Fade to
-    // the average color over the texel height right next to the pole.
-    if (options.envlayout == LayoutLatLong && levelinfo.onetile) {
-        float height = spec.height;
-        if (texturefile.m_sample_border)
-            height -= 1.0f;
-        float tt = t * height;
-        if (tt < 1.0f || tt > (height-1.0f))
-            fade_to_pole (tt, accum, weight, texturefile, thread_info,
-                          levelinfo, options, miplevel, nc);
-    }
-
-    if (channelsize == 1) {
-        // special case for 8-bit tiles
-        int c;
-        for (c = 0;  c < nc;  ++c)
-            accum[c] += weight * bilerp (uchar2float(texel[0][0][c]), uchar2float(texel[0][1][c]),
-                                         uchar2float(texel[1][0][c]), uchar2float(texel[1][1][c]),
-                                         sfrac, tfrac);
-        if (daccumds) {
-            float scalex = weight * spec.width;
-            float scaley = weight * spec.height;
-            for (c = 0;  c < nc;  ++c) {
-                daccumds[c] += scalex * Imath::lerp(
-                    uchar2float(texel[0][1][c]) - uchar2float(texel[0][0][c]),
-                    uchar2float(texel[1][1][c]) - uchar2float(texel[1][0][c]),
-                    tfrac
-                );
-                daccumdt[c] += scaley * Imath::lerp(
-                    uchar2float(texel[1][0][c]) - uchar2float(texel[0][0][c]),
-                    uchar2float(texel[1][1][c]) - uchar2float(texel[0][1][c]),
-                    sfrac
-                );
-            }
+    
+        // When we're on the lowest res mipmap levels, it's more pleasing if
+        // we converge to a single pole color right at the pole.  Fade to
+        // the average color over the texel height right next to the pole.
+        if (options.envlayout == LayoutLatLong && levelinfo.onetile) {
+            float height = spec.height;
+            if (texturefile.m_sample_border)
+                height -= 1.0f;
+            float tt = t_[sample] * height;
+            if (tt < 1.0f || tt > (height-1.0f))
+                fade_to_pole (tt, (float *)&accum, weight, texturefile, thread_info,
+                              levelinfo, options, miplevel, actualchannels);
         }
-    } else {
-        // General case for float tiles
-        bilerp_mad ((const float *)texel[0][0], (const float *)texel[0][1],
-                    (const float *)texel[1][0], (const float *)texel[1][1],
-                    sfrac, tfrac, weight, nc, accum);
-        if (daccumds) {
-            float scalex = weight * spec.width;
-            float scaley = weight * spec.height;
-            for (int c = 0;  c < nc;  ++c) {
-                daccumds[c] += scalex * Imath::lerp(
-                    ((const float *) texel[0][1])[c] - ((const float *) texel[0][0])[c],
-                    ((const float *) texel[1][1])[c] - ((const float *) texel[1][0])[c],
-                    tfrac
-                );
-                daccumdt[c] += scaley * Imath::lerp(
-                    ((const float *) texel[1][0])[c] - ((const float *) texel[0][0])[c],
-                    ((const float *) texel[1][1])[c] - ((const float *) texel[0][1])[c],
-                    sfrac
-                );
-            }
+    
+        simd::float4 weight_simd = weight;
+        accum += weight_simd * bilerp(texel_simd[0][0], texel_simd[0][1],
+                                       texel_simd[1][0], texel_simd[1][1],
+                                       sfrac, tfrac);
+        if (daccumds_) {
+            simd::float4 scalex = weight_simd * float(spec.width);
+            simd::float4 scaley = weight_simd * float(spec.height);
+            daccumds += scalex * lerp (texel_simd[0][1] - texel_simd[0][0],
+                                       texel_simd[1][1] - texel_simd[1][0],
+                                       tfrac);
+            daccumdt += scaley * lerp (texel_simd[1][0] - texel_simd[0][0],
+                                       texel_simd[1][1] - texel_simd[0][1],
+                                       sfrac);
+        }
+        if (use_fill && ! all (stvalid)) {
+            // Compute appropriate amount of "fill" color to extra channels in
+            // non-"black"-wrapped regions.
+            float f = bilerp (float(stvalid[S0]*stvalid[T0]), float(stvalid[S1]*stvalid[T0]),
+                              float(stvalid[S0]*stvalid[T1]), float(stvalid[S1]*stvalid[T1]),
+                              sfrac, tfrac);
+            nonfill += (1.0f - f) * weight;
         }
     }
 
-    // Add appropriate amount of "fill" color to extra channels in
-    // non-"black"-wrapped regions.
-    if (options.nchannels > options.actualchannels && options.fill) {
-        float f = bilerp (1.0f*svalid[0]*tvalid[0], 1.0f*svalid[1]*tvalid[0],
-                          1.0f*svalid[0]*tvalid[1], 1.0f*svalid[1]*tvalid[1],
-                          sfrac, tfrac);
-        f *= weight * options.fill;
-        for (int c = options.actualchannels;  c < options.nchannels;  ++c)
-            accum[c] += f;
+    simd::mask4 channel_mask = channel_masks[actualchannels];
+    accum = blend0(accum, channel_mask);
+    if (use_fill) {
+        // Add the weighted fill color
+        accum += blend0not(float4((1.0f - nonfill) * options.fill), channel_mask);
+    }
+
+    *accum_ = accum;
+    if (daccumds_) {
+        *daccumds_ = blend0(daccumds, channel_mask);
+        *daccumdt_ = blend0(daccumdt, channel_mask);
     }
     return true;
 }
+
 
 namespace {
 
+// Evaluate Bspline weights for both value and derivatives (if dw is not
+// NULL) into w[0..3] and dw[0..3]. This is the canonical version for
+// reference, but we don't actually call it, instead favoring the much
+// harder to read SIMD versions below.
 template <typename T>
-inline void evalBSplineWeights (T w[4], T fraction)
+inline void evalBSplineWeights_and_derivs (T *w, T fraction,
+                                           T *dw = NULL)
 {
-    T one_frac = 1 - fraction;
+    T one_frac = 1.0 - fraction;
     w[0] = T(1.0 / 6.0) * one_frac * one_frac * one_frac;
-    w[1] = T(2.0 / 3.0) - T(0.5) * fraction * fraction * (2 - fraction);
-    w[2] = T(2.0 / 3.0) - T(0.5) * one_frac * one_frac * (2 - one_frac);
+    w[1] = T(2.0 / 3.0) - T(0.5) * fraction * fraction * (T(2.0) - fraction);
+    w[2] = T(2.0 / 3.0) - T(0.5) * one_frac * one_frac * (T(2.0) - one_frac);
     w[3] = T(1.0 / 6.0) * fraction * fraction * fraction;
+    if (dw) {
+        dw[0] = T(-0.5) * one_frac * one_frac;
+        dw[1] = T( 0.5) * fraction * (T(3.0) * fraction - T(4.0));
+        dw[2] = T(-0.5) * one_frac * (T(3.0) * one_frac - T(4.0));
+        dw[3] = T( 0.5) * fraction * fraction;
+    }
 }
 
-template <typename T>
-inline void evalBSplineWeightDerivs (T dw[4], T fraction)
+// Evaluate the 4 Bspline weights (no derivs), returing them as a float4.
+// The fraction also comes in as a float4 (assuming the same value in all 4
+// slots).
+inline float4 evalBSplineWeights (const float4& fraction)
 {
-    T one_frac = 1 - fraction;
-    dw[0] = -T(0.5) * one_frac * one_frac;
-    dw[1] =  T(0.5) * fraction * (3 * fraction - 4);
-    dw[2] = -T(0.5) * one_frac * (3 * one_frac - 4);
-    dw[3] =  T(0.5) * fraction * fraction;
+#if 0
+    // Version that's easy to read and understand:
+    float one_frac = 1.0f - fraction;
+    float4 w;
+    w[0] = 0.0f          + (1.0f / 6.0f) * one_frac * one_frac * one_frac;
+    w[1] = (2.0f / 3.0f) + (-0.5f)       * fraction * fraction * (2.0f - fraction);
+    w[2] = (2.0f / 3.0f) + (-0.5f)       * one_frac * one_frac * (2.0f - one_frac);
+    w[3] = 0.0f          + (1.0f / 6.0f) * fraction * fraction * fraction;
+    return w;
+#else
+    // Not as clear, but fastest version I've been able to achieve:
+    static const OIIO_SIMD_ALIGN float A[4] = {0.0f, 2.0f/3.0f, 2.0f/3.0f, 0.0f};
+    static const OIIO_SIMD_ALIGN float B[4] = {1.0f / 6.0f, -0.5f, -0.5f, 1.0f / 6.0f};
+    static const OIIO_SIMD_ALIGN float om1m1o[4] = { 1.0f, -1.0f, -1.0f, 1.0f };
+    static const OIIO_SIMD_ALIGN float z22z[4] = { 0.0f, 2.0f, 2.0f, 0.0f };
+    simd::float4 one_frac = float4::One() - fraction;
+    simd::float4 ofof = AxBxAyBy (one_frac, fraction); // 1-frac, frac, 1-frac, frac
+    simd::float4 C = (*(float4*)&om1m1o) * ofof + (*(float4*)&z22z);
+    return (*(float4*)&A) + (*(float4*)&B) * ofof * ofof * C;
+#endif
 }
 
-} // anonymous namesace
+// Evaluate Bspline weights for both value and derivatives (if dw is not
+// NULL), returning the 4 coefficients for each as float4's.
+inline void evalBSplineWeights_and_derivs (simd::float4 *w, float fraction,
+                                           simd::float4 *dw = NULL)
+{
+#if 0
+    // Version that's easy to read and understand:
+    float one_frac = 1.0f - fraction;
+    (*w)[0] = 0.0f          + (1.0f / 6.0f) * one_frac * one_frac * one_frac;
+    (*w)[1] = (2.0f / 3.0f) + (-0.5f)       * fraction * fraction * (2.0f - fraction);
+    (*w)[2] = (2.0f / 3.0f) + (-0.5f)       * one_frac * one_frac * (2.0f - one_frac);
+    (*w)[3] = 0.0f          + (1.0f / 6.0f) * fraction * fraction * fraction;
+    if (dw) {
+        (*dw)[0] = -0.5f * one_frac * (1.0f * one_frac - 0.0f);
+        (*dw)[1] =  0.5f * fraction * (3.0f * fraction - 4.0f);
+        (*dw)[2] = -0.5f * one_frac * (3.0f * one_frac - 4.0f);
+        (*dw)[3] =  0.5f * fraction * (1.0f * fraction - 0.0f);
+    }
+#else
+    // Not as clear, but fastest version I've been able to achieve:
+    static const OIIO_SIMD_ALIGN float A[4] = {0.0f, 2.0f/3.0f, 2.0f/3.0f, 0.0f};
+    static const OIIO_SIMD_ALIGN float B[4] = {1.0f / 6.0f, -0.5f, -0.5f, 1.0f / 6.0f};
+    float one_frac = 1.0f - fraction;
+    simd::float4 ofof (one_frac, fraction, one_frac, fraction);
+    simd::float4 C (one_frac, 2.0f-fraction, 2.0f-one_frac, fraction);
+    *w = (*(float4*)&A) + (*(float4*)&B) * ofof * ofof * C;
+    if (dw) {
+        const simd::float4 D (-0.5f, 0.5f, -0.5f, 0.5f);
+        const simd::float4 E (1.0f, 3.0f, 3.0f, 1.0f);
+        const simd::float4 F (0.0f, 4.0f, 4.0f, 0.0f);
+        *dw = D * ofof * (E * ofof - F);
+    }
+#endif
+}
+
+} // anonymous namespace
+
+
 
 bool
-TextureSystemImpl::accum_sample_bicubic (float s, float t, int miplevel,
-                                 TextureFile &texturefile,
-                                 PerThreadInfo *thread_info,
-                                 TextureOpt &options,
-                                 float weight, float *accum, float *daccumds, float *daccumdt)
+TextureSystemImpl::sample_bicubic (int nsamples, const float *s_,
+                                   const float *t_, int miplevel,
+                                   TextureFile &texturefile,
+                                   PerThreadInfo *thread_info,
+                                   TextureOpt &options,
+                                   int nchannels_result, int actualchannels,
+                                   const float *weight_,
+                                   float4 *accum_, float4 *daccumds_, float4 *daccumdt_)
 {
     const ImageSpec &spec (texturefile.spec (options.subimage, miplevel));
     const ImageCacheFile::LevelInfo &levelinfo (texturefile.levelinfo(options.subimage,miplevel));
-    int sint, tint;
-    float sfrac, tfrac;
-    st_to_texel (s, t, texturefile, spec, sint, tint, sfrac, tfrac);
+    wrap_impl_simd swrap_func_simd = wrap_functions_simd[(int)options.swrap];
+    wrap_impl_simd twrap_func_simd = wrap_functions_simd[(int)options.twrap];
 
-    // We're gathering 4x4 samples and 4x weights.  Indices: texels 0,
-    // 1, 2, 3.  The sample lies between samples 1 and 2.
-
-    // Wrap
-    DASSERT (options.swrap_func != NULL && options.twrap_func != NULL);
-    bool svalid[4], tvalid[4];  // Valid texels?  false means black border
-    int stex[4], ttex[4];       // Texel coords
-    bool allvalid = true;
-    bool anyvalid = false;
-    for (int i = 0; i < 4;  ++i) {
-        bool v;
-        stex[i] = sint + i - 1;
-        v = options.swrap_func (stex[i], spec.x, spec.width);
-        svalid[i] = v;
-        allvalid &= v;
-        anyvalid |= v;
-        ttex[i] = tint + i - 1;
-        v = options.twrap_func (ttex[i], spec.y, spec.height);
-        tvalid[i] = v;
-        allvalid &= v;
-        anyvalid |= v;
-    }
-    if (anyvalid && ! levelinfo.full_pixel_range) {
-        // Handle case of crop windows or overscan
-        anyvalid = false;
-        for (int i = 0; i < 4;  ++i) {
-            bool v;
-            v = (stex[i] >= spec.x && stex[i] < (spec.x+spec.width));
-            svalid[i] &= v;
-            allvalid &= v;
-            anyvalid |= v;
-            v = (ttex[i] >= spec.y && ttex[i] < (spec.y+spec.height));
-            tvalid[i] &= v;
-            allvalid &= v;
-            anyvalid |= v;
-        }
-    }
-    if (! anyvalid) {
-        // All texels we need were out of range and using 'black' wrap.
-        return true;
-    }
-
-    const unsigned char *texel[4][4] = { {NULL, NULL, NULL, NULL}, {NULL, NULL, NULL, NULL},
-                                         {NULL, NULL, NULL, NULL}, {NULL, NULL, NULL, NULL} };
-    TileRef savetile[4][4];
-    static float black[4] = { 0, 0, 0, 0 };
+    int4 spec_x_simd (spec.x);
+    int4 spec_y_simd (spec.y);
+    int4 spec_width_simd (spec.width);
+    int4 spec_height_simd (spec.height);
+    int4 spec_x_plus_width_simd = spec_x_simd + spec_width_simd;
+    int4 spec_y_plus_height_simd = spec_y_simd + spec_height_simd;
+    bool use_fill = (nchannels_result > actualchannels && options.fill);
+    bool tilepow2 = ispow2(spec.tile_width) && ispow2(spec.tile_height);
     int tilewidthmask  = spec.tile_width  - 1;  // e.g. 63
     int tileheightmask = spec.tile_height - 1;
-    int tile_s = (stex[0] - spec.x) % spec.tile_width;
-    int tile_t = (ttex[0] - spec.y) % spec.tile_height;
-    bool s_onetile = (tile_s <= tilewidthmask-3);
-    bool t_onetile = (tile_t <= tileheightmask-3);
-    if (s_onetile && t_onetile) {
-        for (int i = 1; i < 4;  ++i) {
-            s_onetile &= (stex[i] == stex[0]+i);
-            t_onetile &= (ttex[i] == ttex[0]+i);
-        }
-    }
-    bool onetile = (s_onetile & t_onetile);
     size_t channelsize = texturefile.channelsize(options.subimage);
     size_t pixelsize = texturefile.pixelsize(options.subimage);
-    if (onetile & allvalid) {
-        // Shortcut if all the texels we need are on the same tile
-        TileID id (texturefile, options.subimage, miplevel,
-                   stex[0] - tile_s, ttex[0] - tile_t, 0);
-        bool ok = find_tile (id, thread_info);
-        if (! ok)
-            error ("%s", m_imagecache->geterror().c_str());
-        TileRef &tile (thread_info->tile);
-        if (! tile) {
-            return false;
+    int firstchannel = options.firstchannel;
+    int firstchannel_offset_bytes = channelsize * firstchannel;
+    float nonfill = 0.0f;  // The degree to which we DON'T need fill
+    // N.B. What's up with "nofill"? We need to consider fill only when we
+    // are inside the valid texture region. Outside, i.e. in the black wrap
+    // region, black takes precedence over fill. By keeping track of when
+    // we don't need to worry about fill, which is the comparitively rare
+    // case, we do a lot less math and have fewer rounding errors.
+
+    float4 accum, daccumds, daccumdt;
+    accum.clear();
+    if (daccumds_) {
+        daccumds.clear();
+        daccumdt.clear();
+    }
+
+    float4 s_simd, t_simd;
+    int4 sint_simd, tint_simd;
+    float4 sfrac_simd, tfrac_simd;
+    for (int sample = 0;  sample < nsamples;  ++sample) {
+        // To utilize SIMD ops in an inherently scalar loop, every fourth
+        // step, we compute the st_to_texel for the next four samples.
+        int sample4 = sample & 3;
+        if (sample4 == 0) {
+            s_simd.load (s_ + sample);
+            t_simd.load (t_ + sample);
+            st_to_texel_simd (s_simd, t_simd, texturefile, spec,
+                         sint_simd, tint_simd, sfrac_simd, tfrac_simd);
         }
-        // N.B. thread_info->tile will keep holding a ref-counted pointer
-        // to the tile for the duration that we're using the tile data.
-        int offset = pixelsize * (tile_t * spec.tile_width + tile_s);
-        const unsigned char *base = tile->bytedata() + offset + channelsize * options.firstchannel;
-        DASSERT (tile->data());
-        for (int j = 0;  j < 4;  ++j)
-            for (int i = 0;  i < 4;  ++i)
-                texel[j][i] = base + pixelsize * (i + j*spec.tile_width);
-    } else {
-        for (int j = 0;  j < 4;  ++j) {
-            for (int i = 0;  i < 4;  ++i) {
-                if (! (svalid[i] && tvalid[j])) {
-                    texel[j][i] = (unsigned char *) black;
+        int sint = sint_simd[sample4], tint = tint_simd[sample4];
+        float sfrac = sfrac_simd[sample4], tfrac = tfrac_simd[sample4];
+        float weight = weight_[sample];
+    
+        // We're gathering 4x4 samples and 4x weights.  Indices: texels 0,
+        // 1, 2, 3.  The sample lies between samples 1 and 2.
+    
+        static const OIIO_SIMD4_ALIGN int iota[4] = { 0, 1, 2, 3 };
+        static const OIIO_SIMD4_ALIGN int iota_1[4] = { -1, 0, 1, 2 };
+        simd::int4 stex, ttex;       // Texel coords for each row and column
+        stex = sint + (*(int4 *)iota_1);
+        ttex = tint + (*(int4 *)iota_1);
+        simd::mask4 svalid = swrap_func_simd (stex, spec_x_simd, spec_width_simd);
+        simd::mask4 tvalid = twrap_func_simd (ttex, spec_y_simd, spec_height_simd);
+        bool allvalid = reduce_and(svalid & tvalid);
+        bool anyvalid = reduce_or (svalid | tvalid);
+        if (! levelinfo.full_pixel_range && anyvalid) {
+            // Handle case of crop windows or overscan
+            svalid &= (stex >= spec_x_simd) & (stex < spec_x_plus_width_simd);
+            tvalid &= (ttex >= spec_y_simd) & (ttex < spec_y_plus_height_simd);
+            allvalid = reduce_and(svalid & tvalid);
+            anyvalid = reduce_or (svalid | tvalid);
+        }
+        if (! anyvalid) {
+            // All texels we need were out of range and using 'black' wrap.
+            nonfill += weight;
+            continue;
+        }
+    
+        simd::float4 texel_simd[4][4];
+        // int tile_s = (stex[0] - spec.x) % spec.tile_width;
+        // int tile_t = (ttex[0] - spec.y) % spec.tile_height;
+        int tile_s = (stex[0] - spec.x);
+        int tile_t = (ttex[0] - spec.y);
+        if (tilepow2) {
+            tile_s &= tilewidthmask;
+            tile_t &= tileheightmask;
+        } else {
+            tile_s %= spec.tile_width;
+            tile_t %= spec.tile_height;
+        }
+        bool s_onetile = (tile_s <= tilewidthmask-3);
+        bool t_onetile = (tile_t <= tileheightmask-3);
+        if (s_onetile & t_onetile) {
+            // If we thought it was one tile, realize that it isn't unless
+            // it's ascending.
+            s_onetile &= all (stex == (simd::shuffle<0>(stex)+(*(int4 *)iota)));
+            t_onetile &= all (ttex == (simd::shuffle<0>(ttex)+(*(int4 *)iota)));
+        }
+        bool onetile = (s_onetile & t_onetile);
+        if (onetile & allvalid) {
+            // Shortcut if all the texels we need are on the same tile
+            TileID id (texturefile, options.subimage, miplevel,
+                       stex[0] - tile_s, ttex[0] - tile_t, 0);
+            bool ok = find_tile (id, thread_info);
+            if (! ok)
+                error ("%s", m_imagecache->geterror().c_str());
+            TileRef &tile (thread_info->tile);
+            if (! tile) {
+                return false;
+            }
+            // N.B. thread_info->tile will keep holding a ref-counted pointer
+            // to the tile for the duration that we're using the tile data.
+            int offset = pixelsize * (tile_t * spec.tile_width + tile_s);
+            const unsigned char *base = tile->bytedata() + offset + firstchannel_offset_bytes;
+            DASSERT (tile->data());
+            if (channelsize == 1) {
+                for (int j = 0, j_offset = 0;  j < 4;  ++j, j_offset += pixelsize*spec.tile_width)
+                    for (int i = 0, i_offset = j_offset;  i < 4;  ++i, i_offset += pixelsize)
+                        texel_simd[j][i] = uchar2float4 (base + i_offset);
+            } else {
+                for (int j = 0, j_offset = 0;  j < 4;  ++j, j_offset += pixelsize*spec.tile_width)
+                    for (int i = 0, i_offset = j_offset;  i < 4;  ++i, i_offset += pixelsize)
+                        texel_simd[j][i].load ((const float *)(base + i_offset));
+            }
+        } else {
+            simd::int4 tile_s, tile_t;   // texel offset WITHIN its tile
+            simd::int4 tile_s_edge, tile_t_edge;  // coordinate of the tile edge
+            tile_s = (stex - spec_x_simd) % spec.tile_width;
+            tile_t = (ttex - spec_y_simd) % spec.tile_height;
+            tile_s_edge = stex - tile_s;
+            tile_t_edge = ttex - tile_t;
+            simd::int4 column_offset_bytes = tile_s * pixelsize + firstchannel_offset_bytes;
+            for (int j = 0;  j < 4;  ++j) {
+                if (! tvalid[j]) {
+                    for (int i = 0;  i < 4;  ++i)
+                        texel_simd[j][i].clear();
                     continue;
                 }
-                int stex_i = stex[i];
-                tile_s = (stex_i - spec.x) % spec.tile_width;
-                tile_t = (ttex[j] - spec.y) % spec.tile_height;
-                TileID id (texturefile, options.subimage, miplevel,
-                           stex_i - tile_s, ttex[j] - tile_t, 0);
-                bool ok = find_tile (id, thread_info);
-                if (! ok)
-                    error ("%s", m_imagecache->geterror().c_str());
-                TileRef &tile (thread_info->tile);
-                if (! tile->valid())
-                    return false;
-                savetile[j][i] = tile;
-                DASSERT (tile->id() == id);
-                int offset = pixelsize * (tile_t * spec.tile_width + tile_s);
-                DASSERT (tile->data());
-                texel[j][i] = tile->bytedata() + offset + channelsize * options.firstchannel;
+                int row_offset_bytes = tile_t[j] * (spec.tile_width * pixelsize);
+                for (int i = 0;  i < 4;  ++i) {
+                    if (! svalid[i]) {
+                        texel_simd[j][i].clear();
+                        continue;
+                    }
+                    // Trick: we only need to find a tile if i == 0 or if we
+                    // just crossed a tile boundary (if tile_s[i] == 0).
+                    // Otherwise, we are still on the same tile as the last
+                    // iteration, as long as we aren't using mirror wrap mode!
+                    if (i == 0 || tile_s[i] == 0 || options.swrap == TextureOpt::WrapMirror) {
+                        TileID id (texturefile, options.subimage, miplevel,
+                                   tile_s_edge[i], tile_t_edge[j], 0);
+                        bool ok = find_tile (id, thread_info);
+                        if (! ok)
+                            error ("%s", m_imagecache->geterror().c_str());
+                        DASSERT (thread_info->tile->id() == id);
+                        if (! thread_info->tile->valid())
+                            return false;
+                    }
+                    TileRef &tile (thread_info->tile);
+                    DASSERT (tile->data());
+                    int offset = row_offset_bytes + column_offset_bytes[i];
+                    // const unsigned char *pixelptr = tile->bytedata() + offset[i];
+                    if (channelsize == 1)
+                        texel_simd[j][i] = uchar2float4 (tile->bytedata() + offset);
+                    else
+                        texel_simd[j][i].load ((const float *)(tile->bytedata() + offset));
+                }
             }
         }
-    }
+    
+        // When we're on the lowest res mipmap levels, it's more pleasing if
+        // we converge to a single pole color right at the pole.  Fade to
+        // the average color over the texel height right next to the pole.
+        if (options.envlayout == LayoutLatLong && levelinfo.onetile) {
+            float height = spec.height;
+            if (texturefile.m_sample_border)
+                height -= 1.0f;
+            float tt = t_[sample] * height;
+            if (tt < 1.0f || tt > (height-1.0f))
+                fade_to_pole (tt, (float *)&accum, weight, texturefile, thread_info,
+                              levelinfo, options, miplevel, actualchannels);
+        }
+    
+        // We use a formulation of cubic B-spline evaluation that reduces to
+        // lerps.  It's tricky to follow, but the references are:
+        //   * Ruijters, Daniel et al, "Efficient GPU-Based Texture
+        //     Interpolation using Uniform B-Splines", Journal of Graphics
+        //     Tools 13(4), pp. 61-69, 2008.
+        //     http://jgt.akpeters.com/papers/RuijtersEtAl08/
+        //   * Sigg, Christian and Markus Hadwiger, "Fast Third-Order Texture 
+        //     Filtering", in GPU Gems 2 (Chapter 20), Pharr and Fernando, ed.
+        //     http://http.developer.nvidia.com/GPUGems2/gpugems2_chapter20.html
+        // We like this formulation because it's slightly faster than any of
+        // the other B-spline evaluation routines we tried, and also the lerp
+        // guarantees that the filtered results will be non-negative for
+        // non-negative texel values (which we had trouble with before due to
+        // numerical imprecision).
+        float4 wx, dwx;
+        float4 wy, dwy;
+        if (daccumds_) {
+            evalBSplineWeights_and_derivs (&wx, sfrac, &dwx);
+            evalBSplineWeights_and_derivs (&wy, tfrac, &dwy);
+        } else {
+            wx = evalBSplineWeights (float4(sfrac));
+            wy = evalBSplineWeights (float4(tfrac));
+        }
 
-    int nc = options.actualchannels;
-
-    // When we're on the lowest res mipmap levels, it's more pleasing if
-    // we converge to a single pole color right at the pole.  Fade to
-    // the average color over the texel height right next to the pole.
-    if (options.envlayout == LayoutLatLong && levelinfo.onetile) {
-        float height = spec.height;
-        if (texturefile.m_sample_border)
-            height -= 1.0f;
-        float tt = t * height;
-        if (tt < 1.0f || tt > (height-1.0f))
-            fade_to_pole (tt, accum, weight, texturefile, thread_info,
-                          levelinfo, options, miplevel, nc);
-    }
-
-    // We use a formulation of cubic B-spline evaluation that reduces to
-    // lerps.  It's tricky to follow, but the references are:
-    //   * Ruijters, Daniel et al, "Efficient GPU-Based Texture
-    //     Interpolation using Uniform B-Splines", Journal of Graphics
-    //     Tools 13(4), pp. 61-69, 2008.
-    //     http://jgt.akpeters.com/papers/RuijtersEtAl08/
-    //   * Sigg, Christian and Markus Hadwiger, "Fast Third-Order Texture 
-    //     Filtering", in GPU Gems 2 (Chapter 20), Pharr and Fernando, ed.
-    //     http://http.developer.nvidia.com/GPUGems2/gpugems2_chapter20.html
-    // We like this formulation because it's slightly faster than any of
-    // the other B-spline evaluation routines we tried, and also the lerp
-    // guarantees that the filtered results will be non-negative for
-    // non-negative texel values (which we had trouble with before due to
-    // numerical imprecision).
-    float wx[4]; evalBSplineWeights (wx, sfrac);
-    float wy[4]; evalBSplineWeights (wy, tfrac);
-    // figure out lerp weights so we can turn the filter into a sequence of lerp's
-    float g0x = wx[0] + wx[1]; float h0x = (wx[1] / g0x); 
-    float g1x = wx[2] + wx[3]; float h1x = (wx[3] / g1x); 
-    float g0y = wy[0] + wy[1]; float h0y = (wy[1] / g0y);
-    float g1y = wy[2] + wy[3]; float h1y = (wy[3] / g1y);
-
-    if (texturefile.eightbit(options.subimage)) {
-        for (int c = 0;  c < nc; ++c) {
+        // figure out lerp weights so we can turn the filter into a sequence of lerp's
+        // Here's the obvious scalar code:
+        //   float g0x = wx[0] + wx[1]; float h0x = (wx[1] / g0x);
+        //   float g1x = wx[2] + wx[3]; float h1x = (wx[3] / g1x);
+        //   float g0y = wy[0] + wy[1]; float h0y = (wy[1] / g0y);
+        //   float g1y = wy[2] + wy[3]; float h1y = (wy[3] / g1y);
+        // But instead, we convolutedly (but quickly!) compute the four g
+        // and four h values using SIMD ops:
+        float4 wx_0213 = simd::shuffle<0,2,1,3>(wx);
+        float4 wx_1302 = simd::shuffle<1,3,0,2>(wx);
+        float4 wx_01_23_01_23 = wx_0213 + wx_1302;  // wx[0]+wx[1] wx[2]+wx[3] ..
+        float4 wy_0213 = simd::shuffle<0,2,1,3>(wy);
+        float4 wy_1302 = simd::shuffle<1,3,0,2>(wy);
+        float4 wy_01_23_01_23 = wy_0213 + wy_1302;  // wy[0]+wy[1] wy[2]+wy[3] ..
+        float4 g = AxyBxy (wx_01_23_01_23, wy_01_23_01_23); // wx[0]+wx[1] wx[2]+wx[3] wy[0]+wy[1] wy[2]+wy[3]
+        float4 wx13_wy13 = AxyBxy (wx_1302, wy_1302);
+        float4 h = wx13_wy13 / g;  // [ h0x h1x h0y h1y ]
+    
+        simd::float4 col[4];
+        for (int j = 0;  j < 4; ++j) {
+            simd::float4 lx = lerp (texel_simd[j][0], texel_simd[j][1], shuffle<0>(h) /*h0x*/);
+            simd::float4 rx = lerp (texel_simd[j][2], texel_simd[j][3], shuffle<1>(h) /*h1x*/);
+            col[j] = lerp (lx, rx, shuffle<1>(g) /*g1x*/);
+        }
+        simd::float4 ly = lerp (col[0], col[1], shuffle<2>(h) /*h0y*/);
+        simd::float4 ry = lerp (col[2], col[3], shuffle<3>(h) /*h1y*/);
+        simd::float4 weight_simd = weight;
+        accum += weight_simd * lerp (ly, ry, shuffle<3>(g) /*g1y*/);
+        if (daccumds_) {
+            simd::float4 scalex = weight_simd * float(spec.width);
+            simd::float4 scaley = weight_simd * float(spec.height);
+            daccumds += scalex * (
+                dwx[0] * (wy[0] * texel_simd[0][0] + wy[1] * texel_simd[1][0] +
+                          wy[2] * texel_simd[2][0] + wy[3] * texel_simd[3][0]) +
+                dwx[1] * (wy[0] * texel_simd[0][1] + wy[1] * texel_simd[1][1] +
+                          wy[2] * texel_simd[2][1] + wy[3] * texel_simd[3][1]) +
+                dwx[2] * (wy[0] * texel_simd[0][2] + wy[1] * texel_simd[1][2] +
+                          wy[2] * texel_simd[2][2] + wy[3] * texel_simd[3][2]) +
+                dwx[3] * (wy[0] * texel_simd[0][3] + wy[1] * texel_simd[1][3] +
+                          wy[2] * texel_simd[2][3] + wy[3] * texel_simd[3][3])
+            );
+            daccumdt += scaley * (
+                dwy[0] * (wx[0] * texel_simd[0][0] + wx[1] * texel_simd[0][1] +
+                          wx[2] * texel_simd[0][2] + wx[3] * texel_simd[0][3]) +
+                dwy[1] * (wx[0] * texel_simd[1][0] + wx[1] * texel_simd[1][1] +
+                          wx[2] * texel_simd[1][2] + wx[3] * texel_simd[1][3]) +
+                dwy[2] * (wx[0] * texel_simd[2][0] + wx[1] * texel_simd[2][1] +
+                          wx[2] * texel_simd[2][2] + wx[3] * texel_simd[2][3]) +
+                dwy[3] * (wx[0] * texel_simd[3][0] + wx[1] * texel_simd[3][1] +
+                          wx[2] * texel_simd[3][2] + wx[3] * texel_simd[3][3])
+            );
+        }
+    
+        // Compute appropriate amount of "fill" color to extra channels in
+        // non-"black"-wrapped regions.
+        if (!allvalid && use_fill) {
             float col[4];
             for (int j = 0;  j < 4; ++j) {
-                float lx = Imath::lerp (uchar2float(texel[j][0][c]), uchar2float(texel[j][1][c]), h0x);
-                float rx = Imath::lerp (uchar2float(texel[j][2][c]), uchar2float(texel[j][3][c]), h1x);
-                col[j]   = Imath::lerp (lx, rx, g1x);
+                float lx = lerp (1.0f*tvalid[j]*svalid[0], 1.0f*tvalid[j]*svalid[1], extract<0>(h) /*h0x*/);
+                float rx = lerp (1.0f*tvalid[j]*svalid[2], 1.0f*tvalid[j]*svalid[3], extract<1>(h) /*h1x*/);
+                col[j]   = lerp (lx, rx, extract<1>(g) /*g1x*/);
             }
-            float ly = Imath::lerp (col[0], col[1], h0y);
-            float ry = Imath::lerp (col[2], col[3], h1y);
-            accum[c] += weight * Imath::lerp (ly, ry, g1y);
-        }
-        if (daccumds) {
-            float dwx[4]; evalBSplineWeightDerivs (dwx, sfrac);
-            float dwy[4]; evalBSplineWeightDerivs (dwy, tfrac);
-            float scalex = weight * spec.width;
-            float scaley = weight * spec.height;
-            for (int c = 0;  c < nc; ++c) {
-                daccumds[c] += scalex * (
-                    dwx[0] * (wy[0] * uchar2float(texel[0][0][c]) +
-                              wy[1] * uchar2float(texel[1][0][c]) +
-                              wy[2] * uchar2float(texel[2][0][c]) +
-                              wy[3] * uchar2float(texel[3][0][c])) +
-                    dwx[1] * (wy[0] * uchar2float(texel[0][1][c]) +
-                              wy[1] * uchar2float(texel[1][1][c]) +
-                              wy[2] * uchar2float(texel[2][1][c]) +
-                              wy[3] * uchar2float(texel[3][1][c])) +
-                    dwx[2] * (wy[0] * uchar2float(texel[0][2][c]) +
-                              wy[1] * uchar2float(texel[1][2][c]) +
-                              wy[2] * uchar2float(texel[2][2][c]) +
-                              wy[3] * uchar2float(texel[3][2][c])) +
-                    dwx[3] * (wy[0] * uchar2float(texel[0][3][c]) +
-                              wy[1] * uchar2float(texel[1][3][c]) +
-                              wy[2] * uchar2float(texel[2][3][c]) +
-                              wy[3] * uchar2float(texel[3][3][c]))
-                );
-                daccumdt[c] += scaley * (
-                    dwy[0] * (wx[0] * uchar2float(texel[0][0][c]) +
-                              wx[1] * uchar2float(texel[0][1][c]) +
-                              wx[2] * uchar2float(texel[0][2][c]) +
-                              wx[3] * uchar2float(texel[0][3][c])) +
-                    dwy[1] * (wx[0] * uchar2float(texel[1][0][c]) +
-                              wx[1] * uchar2float(texel[1][1][c]) +
-                              wx[2] * uchar2float(texel[1][2][c]) +
-                              wx[3] * uchar2float(texel[1][3][c])) +
-                    dwy[2] * (wx[0] * uchar2float(texel[2][0][c]) +
-                              wx[1] * uchar2float(texel[2][1][c]) +
-                              wx[2] * uchar2float(texel[2][2][c]) +
-                              wx[3] * uchar2float(texel[2][3][c])) +
-                    dwy[3] * (wx[0] * uchar2float(texel[3][0][c]) +
-                              wx[1] * uchar2float(texel[3][1][c]) +
-                              wx[2] * uchar2float(texel[3][2][c]) +
-                              wx[3] * uchar2float(texel[3][3][c]))
-                );
-            }
-        }
-    } else {
-        // float texels
-        for (int c = 0;  c < nc; ++c) {
-           float col[4];
-           for (int j = 0;  j < 4; ++j) {
-               float lx = Imath::lerp (((const float*)(texel[j][0]))[c], ((const float*)(texel[j][1]))[c], h0x);
-               float rx = Imath::lerp (((const float*)(texel[j][2]))[c], ((const float*)(texel[j][3]))[c], h1x);
-               col[j]   = Imath::lerp (lx, rx, g1x);
-           }
-           float ly = Imath::lerp (col[0], col[1], h0y);
-           float ry = Imath::lerp (col[2], col[3], h1y);
-           accum[c] += weight * Imath::lerp (ly, ry, g1y);
-        }
-        if (daccumds) {
-            float dwx[4]; evalBSplineWeightDerivs (dwx, sfrac);
-            float dwy[4]; evalBSplineWeightDerivs (dwy, tfrac);
-            float scalex = weight * spec.width;
-            float scaley = weight * spec.height;
-            for (int c = 0;  c < nc; ++c) {
-                daccumds[c] += scalex * (
-                    dwx[0] * (wy[0] * ((const float*)(texel[0][0]))[c] +
-                              wy[1] * ((const float*)(texel[1][0]))[c] +
-                              wy[2] * ((const float*)(texel[2][0]))[c] +
-                              wy[3] * ((const float*)(texel[3][0]))[c]) +
-                    dwx[1] * (wy[0] * ((const float*)(texel[0][1]))[c] +
-                              wy[1] * ((const float*)(texel[1][1]))[c] +
-                              wy[2] * ((const float*)(texel[2][1]))[c] +
-                              wy[3] * ((const float*)(texel[3][1]))[c]) +
-                    dwx[2] * (wy[0] * ((const float*)(texel[0][2]))[c] +
-                              wy[1] * ((const float*)(texel[1][2]))[c] +
-                              wy[2] * ((const float*)(texel[2][2]))[c] +
-                              wy[3] * ((const float*)(texel[3][2]))[c]) +
-                    dwx[3] * (wy[0] * ((const float*)(texel[0][3]))[c] +
-                              wy[1] * ((const float*)(texel[1][3]))[c] +
-                              wy[2] * ((const float*)(texel[2][3]))[c] +
-                              wy[3] * ((const float*)(texel[3][3]))[c])
-                );
-                daccumdt[c] += scaley * (
-                    dwy[0] * (wx[0] * ((const float*)(texel[0][0]))[c] +
-                              wx[1] * ((const float*)(texel[0][1]))[c] +
-                              wx[2] * ((const float*)(texel[0][2]))[c] +
-                              wx[3] * ((const float*)(texel[0][3]))[c]) +
-                    dwy[1] * (wx[0] * ((const float*)(texel[1][0]))[c] +
-                              wx[1] * ((const float*)(texel[1][1]))[c] +
-                              wx[2] * ((const float*)(texel[1][2]))[c] +
-                              wx[3] * ((const float*)(texel[1][3]))[c]) +
-                    dwy[2] * (wx[0] * ((const float*)(texel[2][0]))[c] +
-                              wx[1] * ((const float*)(texel[2][1]))[c] +
-                              wx[2] * ((const float*)(texel[2][2]))[c] +
-                              wx[3] * ((const float*)(texel[2][3]))[c]) +
-                    dwy[3] * (wx[0] * ((const float*)(texel[3][0]))[c] +
-                              wx[1] * ((const float*)(texel[3][1]))[c] +
-                              wx[2] * ((const float*)(texel[3][2]))[c] +
-                              wx[3] * ((const float*)(texel[3][3]))[c])
-                );
-            }
+            float ly = lerp (col[0], col[1], extract<2>(h) /*h0y*/);
+            float ry = lerp (col[2], col[3], extract<3>(h) /*h1y*/);
+            nonfill += weight * (1.0f - lerp (ly, ry, extract<3>(g) /*g1y*/));
         }
     }
 
-    // Add appropriate amount of "fill" color to extra channels in
-    // non-"black"-wrapped regions.
-    if (options.nchannels > options.actualchannels && options.fill) {
-        float col[4];
-        for (int j = 0;  j < 4; ++j) {
-            float lx = Imath::lerp (1.0f*tvalid[j]*svalid[0], 1.0f*tvalid[j]*svalid[1], h0x);
-            float rx = Imath::lerp (1.0f*tvalid[j]*svalid[2], 1.0f*tvalid[j]*svalid[3], h1x);
-            col[j]   = Imath::lerp (lx, rx, g1x);
-        }
-        float ly = Imath::lerp (col[0], col[1], h0y);
-        float ry = Imath::lerp (col[2], col[3], h1y);
-        float f = weight * Imath::lerp (ly, ry, g1y) * options.fill;
-        for (int c = options.actualchannels;  c < options.nchannels;  ++c)
-            accum[c] += f;
+    simd::mask4 channel_mask = channel_masks[actualchannels];
+    accum = blend0(accum, channel_mask);
+    if (use_fill) {
+        // Add the weighted fill color
+        accum += blend0not(float4((1.0f - nonfill) * options.fill), channel_mask);
     }
+
+    *accum_ = accum;
+    if (daccumds_) {
+        *daccumds_ = blend0(daccumds, channel_mask);
+        *daccumdt_ = blend0(daccumdt, channel_mask);
+     }
     return true;
 }
 

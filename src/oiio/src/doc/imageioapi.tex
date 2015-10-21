@@ -22,7 +22,7 @@ There are two kinds of data that are important to \product:
 Both internal and file data is stored in a particular \emph{data format}
 that describes the numerical encoding of the values.  \product
 understands several types of data encodings, and there is 
-a special type, \TypeDesc, that allows their enumeration and
+a special class, \TypeDesc, that allows their enumeration and
 is described in the header file {\cf OpenImageIO/typedesc.h}.
 A \TypeDesc describes a base data format type, aggregation into simple
 vector and matrix types, and an array length (if
@@ -157,6 +157,47 @@ Sections~\ref{sec:imageoutput:metadata}, \ref{sec:imageinput:metadata},
 and the documentation of individual ImageIO plugins for details).
 
 
+\section{Efficient unique strings: {\cf ustring}}
+\label{sec:ustring}
+\indexapi{ustring}
+
+A \ustring is an alternative to {\cf char*} or {\cf std::string} for storing
+strings, in which the character sequence is stored uniquely.  If there are
+many copies of the same \ustring, they all point to the same canonical
+characters, which themselves are stored only once. This allows \ustring's to
+be assigned to one another with only the copy of a pointer assignment (not
+allocation or copying of characters), and for {\cf ==} and {\cf !=}
+comparisons of two \ustring values for only the cost of comparing the
+pointers (not examining the characters).
+
+\OpenImageIO uses \ustring in a few select places, where string
+assignment/copy and equality/inequality are the dominant string operation
+and we want them to be the same low cost as a simple pointer assignment or
+comparison.  (This primarily comes into play for the \ImageCache and
+\TextureSystem, where we refer to images by their filenames and want
+very fast lookups.)
+
+Please consult the public header {\cf ustring.h} for details, especially if
+you want to use \ustring extensively in your own code. But here are the most
+important details to know if you are calling the \OpenImageIO functions that
+take \ustring parameters:
+
+\apiitem{{\ce ustring} (const char *chars) \\
+{\ce ustring} (const char *chars, size_t length) \\
+{\ce ustring} (const std::string \&str) \\
+{\ce ustring} (string\_view sref)}
+Constructs a \ustring from a C string ({\cf char*}), C++ {\cf std::string},
+or a \stringview.
+\apiend
+
+\apiitem{const char* ustring::{\ce c_str} () \\
+const std::string\& ustring::{\ce string()} \\
+string\_view ustring::{\ce operator string\_view}()}
+Convert a \ustring to a 0-terminated C string, a C++ {\cf std::string}, or
+a {\cf string_view}.  All of these are extremely inexpensive.
+\apiend
+
+
 \section{Non-owning string views: {\cf string_view}}
 \label{sec:stringview}
 \indexapi{string_view}
@@ -200,10 +241,10 @@ There are two important caveats to using this class:
    will incur extra expense to internally allocate a valid C string.
 \end{enumerate}
 
-\apiitem{string_view (const char *chars) \\
-string_view (const char *chars, size_t length) \\
-string_view (const std::string \&str) \\
-string_view (ustring ustr)}
+\apiitem{{\ce string_view} (const char *chars) \\
+{\ce string_view} (const char *chars, size_t length) \\
+{\ce string_view} (const std::string \&str) \\
+{\ce string_view} (ustring ustr)}
 Constructs a \stringview.  The \stringview doesn't have its own copy of the
 characters, so don't use the \stringview after the original string has been
 destroyed or altered.
@@ -238,45 +279,55 @@ header file for full details, if you wish to use \stringview in your own
 code.
 
 
-\section{Efficient unique strings: {\cf ustring}}
-\label{sec:ustring}
-\indexapi{ustring}
+\section{Non-owning array views: {\cf array_view}}
+\label{sec:arrayview}
+\indexapi{array_view}
 
-A \ustring is an alternative to {\cf char*} or {\cf std::string} for storing
-strings, in which the character sequence is stored uniquely.  If there are
-many copies of the same \ustring, they all point to the same canonical
-characters, which themselves are stored only once. This allows \ustring's to
-be assigned to one another with only the copy of a pointer assignment (not
-allocation or copying of characters), and for {\cf ==} and {\cf !=}
-comparisons of two \ustring values for only the cost of comparing the
-pointers (not examining the characters).
+A {\cf template array\_view<typename T>} is a non-owning, non-copying, non-
+allocating reference to an array.  It encapsulates both a pointer and a
+length, and thus is a safer way of passing pointers around (because the
+function called knows how long the array is). A function that might
+ordinarily take a {\cf T*} and a length could instead just take an {\cf
+array\_view<T>}.
 
-\OpenImageIO uses \ustring in a few select places, where string
-assignment/copy and equality/inequality are the dominant string operation
-and we want them to be the same low cost as a simple pointer assignment or
-comparison.  (This primarily comes into play for the \ImageCache and
-\TextureSystem, where we refer to images by their filenames and want
-very fast lookups.)
+An \arrayview may be initialized explicitly from a pointer and length, by
+initializing with a {\cf std::vector<T>}, or by initalizing with a constant
+(treated as an array of length 1). For all of these cases, no extra
+allocations are performed, and no extra copies of the array contents are
+made.
 
-Please consult the public header {\cf ustring.h} for details, especially if
-you want to use \ustring extensively in your own code. But here are the most
-important details to know if you are calling the \OpenImageIO functions that
-take \ustring parameters:
+Important caveat: The \arrayview merely refers to items owned by another
+array, so the \arrayview should not be used outside the lifetime of the
+array it refers to. Thus, \arrayview is great for parameter passing, but
+it's not a good idea to use a \arrayview to store strings in a data
+structure (unless you are really sure you know what you're doing).
 
-\apiitem{ustring (const char *chars) \\
-ustring (const char *chars, size_t length) \\
-ustring (const std::string \&str) \\
-ustring (string\_view sref)}
-Constructs a \ustring from a C string ({\cf char*}), C++ {\cf std::string},
-or a \stringview.
+\noindent Commonly used \arrayview methods include:
+
+\apiitem{{\ce array_view<T>} (T *data, size_t len) \\
+{\ce array_view<T>} (T \&data) \\
+{\ce array_view<T>} (T *begin, T *end) \\
+{\ce array_view<T>} (std::vector<T> \&vec)}
+Constructs a \arrayview.  The \arrayview doesn't have its own copy of the
+array elements, so don't use the \arrayview after the original array has been
+destroyed or altered.
 \apiend
 
-\apiitem{const char* ustring::{\ce c_str} () \\
-const std::string\& ustring::{\ce string()} \\
-string\_view ustring::{\ce operator string\_view}()}
-Convert a \ustring to a 0-terminated C string, a C++ {\cf std::string}, or
-a {\cf string_view}.  All of these are extremely inexpensive.
+\apiitem{T* array_view<T>::{\ce data} () \\
+size_t array_view<T>::{\ce size} ()}
+The raw pointer to the array, and its length.
 \apiend
+
+\apiitem{T\& array_view<T>::operator{\ce []} (size_t pos)}
+References a single element of the \arrayview.
+\apiend
+
+\smallskip
+\noindent Please consult the public {\cf array_view.h}
+header file for full details, if you wish to use \arrayview in your own
+code.
+
+
 
 
 \section{Image Specification: {\cf ImageSpec}}
@@ -537,21 +588,30 @@ Shortcuts for passing attributes comprised of a single integer,
 floating-point value, or string.
 \apiend
 
+\apiitem{void {\ce erase_attribute} (string_view name,\\
+\bigspc\bigspc                   TypeDesc searchtype=UNKNOWN,\\
+\bigspc\bigspc                   bool casesensitive=false)}
+
+Searches {\cf extra_attribs} for an attribute matching {\cf name},
+and if it exists, remove it entirely from {\cf extra_attribs}.
+If {\cf searchtype} is anything other than {\cf TypeDesc::UNKNOWN},
+matches will be restricted only to attributes with the given type.
+The name comparison will be exact if {\cf casesensitive} is true, otherwise
+in a case-insensitive manner if {\cf caseinsensitive} is false.
+\apiend
+
 \apiitem{ImageIOParameter * {\ce find_attribute} (string_view name,\\
-\bigspc\bigspc\spc                           TypeDesc searchtype=UNKNOWN,\\
-\bigspc\bigspc\spc                           bool casesensitive=false)\\
+\bigspc\bigspc\bigspc                        TypeDesc searchtype=UNKNOWN,\\
+\bigspc\bigspc\bigspc                        bool casesensitive=false)\\
 const ImageIOParameter * {\ce find_attribute} (string_view name,\\
-\bigspc\bigspc\spc                           TypeDesc searchtype=UNKNOWN,\\
-\bigspc\bigspc\spc                           bool casesensitive=false) const
-\\
-}
+\bigspc\bigspc\bigspc\spc                     TypeDesc searchtype=UNKNOWN,\\
+\bigspc\bigspc\bigspc\spc                     bool casesensitive=false) const}
 
 Searches {\cf extra_attribs} for an attribute matching {\cf name},
 returning a pointer to the attribute record, or NULL if there was no
-match.  If {\cf searchtype} is {\cf TypeDesc::UNKNOWN}, the search will be made
-regardless of the data type, whereas other values of {\cf searchtype}
-will reject a matching name if the data type does not also match.  The
-name comparison will be exact if {\cf casesensitive} is true, otherwise
+match.  If {\cf searchtype} is anything other than {\cf TypeDesc::UNKNOWN},
+matches will be restricted only to attributes with the given type.
+The name comparison will be exact if {\cf casesensitive} is true, otherwise
 in a case-insensitive manner if {\cf caseinsensitive} is false.
 \apiend
 
@@ -564,8 +624,7 @@ exists.  This is a convenience function for when you know you are just
 looking for a simple integer value.
 \apiend
 
-\apiitem{float {\ce get_float_attribute} (string_view name,\\
-\bigspc\bigspc float defaultval=0) const}
+\apiitem{float {\ce get_float_attribute} (string_view name, float defaultval=0) const}
 Gets a float metadata attribute (silently converting to {\cf float} even
 if the data is really half or double), simply substituting the supplied
 default value if no such metadata exists.  This is a convenience
@@ -573,7 +632,7 @@ function for when you know you are just looking for a simple float value.
 \apiend
 
 \apiitem{string_view {\ce get_string_attribute} (string_view name, \\
-\bigspc\bigspc  string_view defaultval = string_view()) const}
+\bigspc\bigspc\bigspc  string_view defaultval = "") const}
 Gets a string metadata attribute, simply substituting the supplied
 default value if no such metadata exists.  This is a convenience
 function for when you know you are just looking for a simple string value.
@@ -629,7 +688,7 @@ example, \product 1.2.3 would return a value of 10203.
 \index{error checking}
 \indexapi{geterror}
 Returns any error string describing what went wrong if 
-{\cf ImageInput::create()} or {\cf ImageOutput::create()} failed
+{\cf ImageInput::create()} or \\ {\cf ImageOutput::create()} failed
 (since in such cases, the \ImageInput or \ImageOutput itself does 
 not exist to have its own {\cf geterror()} function called).
 This function returns the last error

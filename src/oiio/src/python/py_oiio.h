@@ -57,6 +57,7 @@ void declare_imageinput();
 void declare_imageoutput();
 void declare_typedesc();
 void declare_roi();
+void declare_deepdata();
 void declare_imagecache();
 void declare_imagebuf();
 void declare_imagebufalgo();
@@ -127,6 +128,18 @@ object C_to_val_or_tuple (const T *vals, TypeDesc type, FUNC f)
 
 
 
+// Helper class to release the GIL, allowing other Python threads to
+// proceed, then re-acquire it again when the scope ends.
+class ScopedGILRelease {
+public:
+    ScopedGILRelease () : m_thread_state(PyEval_SaveThread()) { }
+    ~ScopedGILRelease () { PyEval_RestoreThread (m_thread_state); }
+private:
+    PyThreadState *m_thread_state;
+};
+
+
+
 class ImageInputWrap {
 private:
     /// Friend declaration for ImageOutputWrap::copy_image
@@ -155,6 +168,11 @@ public:
     object read_tiles (int xbegin, int xend, int ybegin, int yend,
                        int zbegin, int zend, int chbegin, int chend,
                        TypeDesc format);
+    object read_native_deep_scanlines (int ybegin, int yend, int z,
+                                       int chbegin, int chend);
+    object read_native_deep_tiles (int xbegin, int xend, int ybegin, int yend,
+                                   int zbegin, int zend, int chbegin, int chend);
+    object read_native_deep_image ();
     std::string geterror() const;
 };
 
@@ -203,6 +221,11 @@ public:
                          stride_t xstride=AutoStride,
                          stride_t ystride=AutoStride,
                          stride_t zstride=AutoStride);
+    bool write_deep_scanlines (int ybegin, int yend, int z,
+                               const DeepData &deepdata);
+    bool write_deep_tiles (int xbegin, int xend, int ybegin, int yend,
+                           int zbegin, int zend, const DeepData &deepdata);
+    bool write_deep_image (const DeepData &deepdata);
     bool copy_image (ImageInputWrap *iiw);
     const char *format_name () const;
     bool supports (const std::string&) const;
@@ -231,7 +254,8 @@ public:
     bool getattribute_char(const std::string&, char**);    
     bool getattribute_string(const std::string&, std::string&);
     std::string resolve_filename (const std::string&);
-    bool get_image_info (ustring, ustring, TypeDesc, void*);
+    bool get_image_info_old (ustring, ustring, TypeDesc, void*);
+    bool get_image_info (ustring, int, int, ustring, TypeDesc, void*);
     bool get_imagespec(ustring, ImageSpec&, int);
     bool get_pixels (ustring, int, int, int, int, int, int, 
                      int, int, TypeDesc, void*);

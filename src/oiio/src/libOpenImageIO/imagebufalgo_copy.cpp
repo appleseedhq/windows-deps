@@ -456,7 +456,7 @@ bool
 ImageBufAlgo::reorient (ImageBuf &dst, const ImageBuf &src, int nthreads)
 {
     ImageBuf tmp;
-    bool ok;
+    bool ok = false;
     switch (src.orientation()) {
     case 1:
         ok = dst.copy (src);
@@ -644,8 +644,10 @@ ImageBufAlgo::channels (ImageBuf &dst, const ImageBuf &src,
     ImageSpec newspec = src.spec();
     newspec.nchannels = nchannels;
     newspec.default_channel_names ();
+    newspec.channelformats.clear();
     newspec.alpha_channel = -1;
     newspec.z_channel = -1;
+    bool all_same_type = true;
     for (int c = 0; c < nchannels;  ++c) {
         int csrc = channelorder[c];
         // If the user gave an explicit name for this channel, use it...
@@ -660,6 +662,10 @@ ImageBufAlgo::channels (ImageBuf &dst, const ImageBuf &src,
         else if (csrc >= 0 && csrc < src.spec().nchannels) {
             newspec.channelnames[c] = src.spec().channelnames[csrc];
         }
+        TypeDesc type = src.spec().channelformat(csrc);
+        newspec.channelformats.push_back (type);
+        if (type != newspec.channelformats.front())
+            all_same_type = false;
         // Use the names (or designation of the src image, if
         // shuffle_channel_names is true) to deduce the alpha and z channels.
         if ((shuffle_channel_names && csrc == src.spec().alpha_channel) ||
@@ -670,9 +676,49 @@ ImageBufAlgo::channels (ImageBuf &dst, const ImageBuf &src,
               Strutil::iequals (newspec.channelnames[c], "Z"))
             newspec.z_channel = c;
     }
+    if (all_same_type)                      // clear per-chan formats if
+        newspec.channelformats.clear();     // they're all the same
 
     // Update the image (realloc with the new spec)
-    dst.alloc (newspec);
+    dst.reset (newspec);
+
+    if (dst.deep()) {
+        // Deep case:
+        ASSERT (src.deep() && src.deepdata() && dst.deepdata());
+        const DeepData &srcdata (*src.deepdata());
+        DeepData &dstdata (*dst.deepdata());
+        // The earlier dst.alloc() already called dstdata.init()
+        dstdata.nsamples = srcdata.nsamples;
+        dst.deep_alloc ();
+        for (int p = 0, npels = (int)newspec.image_pixels(); p < npels; ++p) {
+            if (! dstdata.nsamples[p])
+                continue;   // no samples for this pixel
+            for (int c = 0;  c < newspec.nchannels;  ++c) {
+                int csrc = channelorder[c];
+                if (csrc < 0) {
+                    // Replacing the channel with a new value
+                    float val = channelvalues ? channelvalues[c] : 0.0f;
+                    for (int s = 0, ns = dstdata.nsamples[p]; s < ns; ++s)
+                        dstdata.set_deep_value (p, c, s, val);
+                } else if (dstdata.channeltypes[c] == srcdata.channeltypes[csrc]) {
+                    // Same channel types -- copy all samples at once
+                    memcpy (dstdata.channel_ptr(p,c), srcdata.channel_ptr(p,csrc),
+                            dstdata.nsamples[p] * srcdata.channeltypes[csrc].size());
+                } else {
+                    if (dstdata.channeltypes[c] == TypeDesc::UINT)
+                        for (int s = 0, ns = dstdata.nsamples[p]; s < ns; ++s)
+                            dstdata.set_deep_value_uint (p, c, s,
+                                          srcdata.deep_value_uint(p,csrc,s));
+                    else
+                        for (int s = 0, ns = dstdata.nsamples[p]; s < ns; ++s)
+                            dstdata.set_deep_value (p, c, s,
+                                          srcdata.deep_value(p,csrc,s));
+                }
+            }
+        }
+        return true;
+    }
+    // Below is the non-deep case
 
     // Copy the channels individually
     stride_t dstxstride = AutoStride, dstystride = AutoStride, dstzstride = AutoStride;

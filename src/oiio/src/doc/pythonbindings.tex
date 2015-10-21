@@ -89,11 +89,15 @@ Construct a {\cf TypeDesc} object.
 \apiitem{TypeDesc.TypeFloat() \\
 TypeDesc.TypeInt() \\
 TypeDesc.TypeString() \\
+TypeDesc.TypeHalf() \\
 TypeDesc.TypeColor() \\
 TypeDesc.TypePoint() \\
 TypeDesc.TypeVector() \\
 TypeDesc.TypeNormal() \\
-TypeDesc.TypeMatrix()}
+TypeDesc.TypeMatrix() \\
+TypeDesc.TypeTimeCode() \\
+TypeDesc.TypeKeyCode() \\
+TypeDesc.TypeFloat4()}
 Pre-constructed \TypeDesc objects for some common types.
 
 \noindent Example:
@@ -402,6 +406,12 @@ Returns the number of pixels in a tile or the full image, respectively
 Section~\ref{sec:ImageSpecMemberFuncs} for details.)
 \apiend
 
+\apiitem{ImageSpec.{\ce erase_attribute} (name, searchtype=TypeDesc(TypeDesc.UNKNOWN),\\
+\bigspc\bigspc\spc casesensitive=False)}
+Remove the specified attribute from the list of extra_attribs. If not found,
+do nothing.
+\apiend
+
 \apiitem{ImageSpec.{\ce attribute} (name, int) \\
 ImageSpec.{\ce attribute} (name, float) \\
 ImageSpec.{\ce attribute} (name, string) \\
@@ -565,6 +575,62 @@ def poor_mans_iinfo (filename) :
         break  # no more MIP levels or subimages
     input.close ()
 \end{tinycode}
+
+
+\section{DeepData}
+\label{sec:pythondeepdata}
+\NEW % 1.6
+
+The \DeepData class describing ``deep'' image data (multiple depth
+sample per pixel), which is explained in deail in
+Section~\ref{sec:imageinput:deepdata}, is replicated for Python.
+
+\apiitem{{\ce DeepData} ()}
+Constructs a \DeepData object. It needs to have its {\cf init()} and
+{\cf alloc()} methods called before it can hold any meaningful data.
+\apiend
+
+\apiitem{DeepData.{\ce init} (npixels, nchannels, pixeltypes)}
+Initializes this \DeepData to hold {\cf npixels} total pixels, with
+{\cf nchannels} color channels. The data types of the channels are
+described by {\cf pixeltypes}, a tuple of \TypeDesc values (one per
+channel). After calling {\cf init}, you still need to set the number of
+samples for each pixel (using {\cf set_nsamples}) and then call {\cf alloc()}
+to actually allocate the sample memory.
+\apiend
+
+\apiitem{DeepData.{\ce set_nsamples} (pixel, nsamples) \\
+int DeepData.{\ce get_nsamples} (pixel)}
+Set or get the number of samples for a given pixel (specified by integer
+index).
+\apiend
+
+\apiitem{DeepData.{\ce alloc()}}
+After {\cf set_nsamples} has been called for each pixel, {\cf alloc()}
+is called to allocate the sample data.
+\apiend
+
+\apiitem{DeepData.{\ce set_deep_value} (pixel, channel, sample, value) \\
+float DeepData.{\ce deep_value} (pixel, channel, sample)}
+Set or retrieve the specific float value of a given pixel, channel, and
+sample index.
+\apiend
+
+\apiitem{DeepData.{\ce set_deep_value_uint} (pixel, channel, sample, value) \\
+int DeepData.{\ce deep_value_uint} (pixel, channel, sample)}
+Set or retrieve the specific unsigned integer value of a given pixel,
+channel, and sample index.
+\apiend
+
+\apiitem{DeepData.{\ce npixels}}
+This {\cf int} field constains the total number of pixels in this
+collection of deep data.
+\apiend
+
+\apiitem{DeepData.{\ce nchannels}}
+This {\cf int} field constains the number of channels.
+\apiend
+
 
 
 \section{ImageInput}
@@ -751,6 +817,15 @@ a subset of channels.
                                    spec.z, spec.z+spec.depth,
                                    0, spec.nchannels, oiio.FLOAT)
 \end{code}
+\apiend
+
+\apiitem{DeepData ImageInput.{\ce read_native_deep_scanlines} (ybegin, yend, z, chbegin, chend) \\
+DeepData ImageInput.{\ce read_native_deep_tiles} (xbegin, xend, ybegin, yend, zbegin, zend, chbegin, chend) \\
+DeepData ImageInput.{\ce read_native_deep_image} (chbegin, chend)}
+\NEW % 1.6
+Read a collection of scanlines, tiles, or an entire image of ``deep'' pixel
+data. The begin/end coordinates are all integer values. The value returned
+will be a \DeepData if the read succeeds, or {\cf None} if the read fails.
 \apiend
 
 \apiitem{str ImageInput.{\ce geterror} ()}
@@ -978,7 +1053,7 @@ Write one or many tiles to the currently open file.
         for y in range(spec.y, spec.y+spec.height, spec.tile_height) :
             for x in range(spec.x, spec.x+spec.width, spec.tile_width) :
                 pixels = input.read_tile (x, y, z, oiio.FLOAT)
-                output.read_tile (x, y, z, oiio.FLOAT, pixels)
+                output.write_tile (x, y, z, oiio.FLOAT, pixels)
     output.close ()
     input.close ()
 
@@ -989,11 +1064,20 @@ Write one or many tiles to the currently open file.
             pixels = input.read_tiles (spec.x, spec.x+spec.width,
                                        y, y+tile_width,
                                        z, z+tile_width, oiio.FLOAT)
-            output.read_tile (spec.x, spec.x+spec.width,
-                              y, y+tile_width, z, z+tile_width,
-                              oiio.FLOAT, pixels)
+            output.write_tiles (spec.x, spec.x+spec.width,
+                               y, y+tile_width, z, z+tile_width,
+                               oiio.FLOAT, pixels)
     ...
 \end{code}
+\apiend
+
+\apiitem{bool ImageOutput.{\ce write_deep_scanlines} (ybegin, yend, z, deepdata) \\
+bool ImageOutput.{\ce write_deep_tiles} (xbegin, xend, ybegin, yend, zbegin, zend, deepdata) \\
+bool ImageOutput.{\ce write_deep_image} (deepdata)}
+\NEW % 1.6
+Write a collection of scanlines, tiles, or an entire image of ``deep''
+pixel data. The begin/end coordinates are all integer values, and
+{\cf deepdata} should be a \DeepData.
 \apiend
 
 \apiitem{bool ImageOutput.{\ce copy_image} (imageinput)}
@@ -1086,15 +1170,18 @@ Return the \ImageBuf to its pristine, uninitialized state.
 
     # The following two commands are equivalent:
     buf = ImageBuf()     # 1 - assign a new blank ImageBuf
-    buf.clear()               # 2 - clear the existing ImageBuf
+    buf.clear()          # 2 - clear the existing ImageBuf
 \end{code}
 \apiend
 
-\apiitem{ImageBuf.{\ce reset} (filename) \\
-ImageBuf.{\ce reset} (filename, subimage, miplevel) \\
-ImageBuf.{\ce reset} (imagespec)}
-Restore the \ImageBuf to its newly-constructed state, either to read from
-a filename (optionally specifying a subimage and MIP level) or a writeable
+\apiitem{ImageBuf.{\ce reset} (filename, subimage=0, miplevel=0, config=ImageSpec())}
+Restore the \ImageBuf to a newly-constructed state, to read from
+a filename (optionally specifying a subimage, MIP level, and/or 
+a ``configuration'' \ImageSpec).
+\apiend
+
+\apiitem{ImageBuf.{\ce reset} (imagespec)}
+Restore the \ImageBuf to the newly-constructed state of a blank, writeable
 \ImageBuf specified by an \ImageSpec.
 \apiend
 
@@ -1350,8 +1437,10 @@ window (and may be: {\cf WrapBlack, WrapClamp, WrapPeriodic, WrapMirror}).
 \end{code}
 \apiend
 
-\apiitem{tuple ImageBuf.{\ce interppixel} (x, y, wrap=oiio.WrapBlack)}
-Interpolates the image value at coordinates $(x,y)$ and return it as a tuple
+\apiitem{tuple ImageBuf.{\ce interppixel} (x, y, wrap=oiio.WrapBlack) \\
+tuple ImageBuf.{\ce interppixel_bicubic} (x, y, wrap=oiio.WrapBlack)}
+Interpolates the image value (bilinearly or bicubically)
+at coordinates $(x,y)$ and return it as a tuple
 of {\cf float} values, one for each color channel.  The {\cf x, y} values
 are continuous {\cf float} coordinates in ``pixel space.''   The optional
 {\cf wrap} parameter describes what should happen if the coordinates are
@@ -1369,9 +1458,11 @@ WrapPeriodic, WrapMirror}).
 \end{code}
 \apiend
 
-\apiitem{tuple ImageBuf.{\ce interppixel_NDC_full} (x, y, wrap=oiio.WrapBlack)}
+\apiitem{tuple ImageBuf.{\ce interppixel_NDC} (x, y, wrap=oiio.WrapBlack) \\
+tuple ImageBuf.{\ce interppixel_bicubic_NDC} (x, y, wrap=oiio.WrapBlack)}
 
-Interpolates the image value at coordinates $(x,y)$ and return it as a tuple
+Interpolates the image value (bilinearly or bicubically)
+at coordinates $(x,y)$ and return it as a tuple
 of {\cf float} values, one for each color channel.  The {\cf x, y} values
 are continuous, normalized {\cf float} coordinates in ``NDC space,'' where
 {\cf (0,0)} is the upper left corner of the full (a.k.a.\ ``display'')
@@ -1383,7 +1474,7 @@ WrapClamp, WrapPeriodic, WrapMirror}).
 \noindent Example:
 \begin{code}
     buf = ImageBuf ("tahoe.jpg")
-    p = buf.interpixel_NDC_full (0.5, 0.5)
+    p = buf.interpixel_NDC (0.5, 0.5)
     # Now p is the interpolated value from right in the center of
     # the display window
 \end{code}

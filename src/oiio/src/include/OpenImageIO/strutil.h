@@ -241,6 +241,26 @@ std::string OIIO_API join (const std::vector<std::string> &seq,
 
 
 
+// Helper template to test if a string is a generic type
+template<typename T>
+inline bool string_is (string_view s) {
+    return false; // Generic: assume there is an explicit specialization
+}
+// Special case for int
+template <> inline bool string_is<int> (string_view s) {
+    char *endptr = 0;
+    strtol (s.data(), &endptr, 10);
+    return (s.data() + s.size() == endptr);
+}
+// Special case for float
+template <> inline bool string_is<float> (string_view s) {
+    char *endptr = 0;
+    strtod (s.data(), &endptr);
+    return (s.data() + s.size() == endptr);
+}
+
+
+
 // Helper template to convert from generic type to string
 template<typename T>
 inline T from_string (string_view s) {
@@ -418,12 +438,18 @@ bool OIIO_API parse_int (string_view &str, int &val, bool eat=true);
 /// str.
 bool OIIO_API parse_float (string_view &str, float &val, bool eat=true);
 
+enum QuoteBehavior { DeleteQuotes, KeepQuotes };
 /// If str's first non-whitespace characters form a valid string (either a
-/// single word weparated by whitespace or anything inside a double-quoted
+/// single word separated by whitespace or anything inside a double-quoted
 /// string (""), return true, place the string's value (not including
 /// surrounding double quotes) in val, and additionally modify str to skip
 /// over the parsed string if eat is also true. Otherwise, if no string is
 /// found at the beginning of str, return false and don't modify val or str.
+/// If keep_quotes is true, the surrounding double quotes (if present)
+/// will be kept in val.
+bool OIIO_API parse_string (string_view &str, string_view &val, bool eat/*=true*/,
+                            QuoteBehavior keep_quotes/*=DeleteQuotes*/);
+// DEPRECATED (1.5)
 bool OIIO_API parse_string (string_view &str, string_view &val, bool eat=true);
 
 /// Return the first "word" (set of contiguous alphabetical characters) in

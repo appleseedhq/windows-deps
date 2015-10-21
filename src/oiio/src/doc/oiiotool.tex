@@ -375,14 +375,21 @@ Convert a gamma-corrected image (with gamma = 2.2) to linear values.
     oiiotool original.tif --resize 1024x768 -o specific.tif
 \end{code}
 
-Resize by a known scale factor:
+\noindent Resize both dimensions by a known scale factor:
 
 \begin{code}
     oiiotool original.tif --resize 200% -o big.tif
     oiiotool original.tif --resize 25% -o small.tif
 \end{code}
 
-Resize to a known resolution in one dimension, with the other dimension
+\noindent Resize each dimension, independently, by known scale factors:
+
+\begin{code}
+    oiiotool original.tif --resize 300%x200% -o big.tif
+    oiiotool original.tif --resize 100%x25% -o small.tif
+\end{code}
+
+\noindent Resize to a known resolution in one dimension, with the other dimension
 automatically computed to preserve aspect ratio (just specify 0 as the
 resolution in the dimension to be automatically computed):
 
@@ -446,12 +453,12 @@ yielding RGB only:
 
 \noindent Zero out the red and green channels:
 \begin{code}
-    oiiotool rgb.tif --ch =0,=0,B -o justblue.tif
+    oiiotool rgb.tif --ch R=0,G=0,B -o justblue.tif
 \end{code}
 
 \noindent Swap the red and blue channels from an RGBA image:
 \begin{code}
-    oiiotool rgba.tif --ch 2,1,0,3 -o bgra.tif
+    oiiotool rgba.tif --ch R=B,G,B=R,A -o bgra.tif
 \end{code}
 
 \noindent Extract just the named channels from a complicted many-channel
@@ -469,7 +476,7 @@ and naming it ``A'' so it will be recognized as an alpha channel:
 \noindent Add an alpha channel to an RGB image, setting it to be the same
 as the R channel and naming it ``A'' so it will be recognized as an alpha channel:
 \begin{code}
-    oiiotool rgb.tif --ch R,G,B,R --chnames ",,,A" -o rgba.tif
+    oiiotool rgb.tif --ch R,G,B,A=R -o rgba.tif
 \end{code}
 
 \noindent Add a $z$ channel to an RGBA image, setting it to 3.0 everywhere,
@@ -759,6 +766,25 @@ to use if you are using oiiotool to combine images that may have different
 orientations.
 \apiend
 
+\apiitem{--native}
+\NEW  % 1.5
+
+Normally, all image reads into an \ImageBuf will be performed via an
+underlying \ImageCache. But since an \ImageCache does not support all
+possible data formats, some lesser-used formats may be auto-converted upon
+being read into the cache, and therefore lose precision or range compared to
+what the equivalent {\cf ImageInput::read_image} is capable of. (An example
+would be a rare file of {\cf uint32} or {\cf double} pixels, which would
+lose data when read into an \ImageCache whose ``biggest'' data type is
+{\cf float}.)
+
+The {\cf --native} option is used for the small set of cases where this is
+problematic in practice. It causes subsequent image loads to bypass the
+\ImageCache and instead do an immediate read of the file that preserves its
+native format (if it's not a format that can use the ImageCache without a
+loss of precision).
+\apiend
+
 \apiitem{-o \rm \emph{filename}}
 Outputs the current image to the named file.  This does not remove the
 current image, it merely saves a copy of it.
@@ -1046,23 +1072,30 @@ If the current image has multiple subimages, replace the current image
 with a new image consisting of only the given subimage.
 \apiend
 
-\apiitem{--siappend {\rm \emph{n}}}
-Replaces the two two images on the stack with a new image comprised of the
+\apiitem{--siappend}
+Replaces the top two images on the stack with a new image comprised of the
 subimages of both images appended together.
 \apiend
 
 \apiitem{--ch {\rm \emph{channellist}}}
-Replaces the top image with a new copy whose channels have been 
+Replaces the top image with a new image whose channels have been
 reordered as given by the \emph{channellist}.  The {\cf channellist}
-is a comma-separated list of channel names and/or numbers (e.g., 
-\qkw{R,G,B}, \qkw{A}, \qkw{B,G,R}, \qkw{4,5,6,A}).  Channel numbers outside
-the valid range of input channels, or unknown names, will be replaced
-by black channels.
+is a comma-separated list of channel designations, each of which may be
+(a) an integer channel index of the channel to copy,
+(b) the name of a channel to copy,
+(c) \emph{newname}{\cf =}\emph{oldname}, which copies a named channel and
+also renames it,
+(d) {\cf =}\emph{float}, which will set the channel to a constant value,
+or
+(e) \emph{newname}{\cf =}\emph{float},
+which sets the channel to a constant value as well as names the new channel.
+Examples include:  \qkw{R,G,B}, \qkw{R=0.0,G,B,A=1.0}, \qkw{R=B,G,B=R},
+\qkw{4,5,6,A}.
 
-A channel designation beginning with the {\cf =} character and followed
-by a number is a \emph{literal value} that will be used to fill that
-channel.  If the \emph{channellist} is shorter than the number of
-channels in the source image, unspecified channels will be omitted.
+Channel numbers outside the valid range of input channels, or unknown names,
+will be replaced by black channels. If the \emph{channellist} is shorter
+than the number of channels in the source image, unspecified channels will
+be omitted.
 \apiend
 
 \apiitem{--chappend}
@@ -1513,6 +1546,7 @@ given pixel data resolution rapidly, but at a low quality, by simply
 copying the ``closest'' pixel.  The \emph{size} is in the form 
 \\ \spc\spc \emph{width}\,{\cf x}\,\emph{height}
 \\ or~~~~ \spc \emph{scale}{\verb|%|} \\
+\\ or~~~~ \spc \emph{wscale}{\verb|%|}\,{\cf x}\,\emph{hscale}{\verb|%|} \\
 
 \noindent if {\cf width} or {\cf height} is 0, that dimension will be
 automatically computed so as to preserve the original aspect ratio.
@@ -1533,6 +1567,7 @@ Replace the current image with a new image that is resized to the
 given pixel data resolution.  The \emph{size} is in the form 
 \\ \spc\spc \emph{width}\,{\cf x}\,\emph{height}
 \\ or~~~~ \spc \emph{scale}{\verb|%|} \\
+\\ or~~~~ \spc \emph{wscale}{\verb|%|}\,{\cf x}\,\emph{hscale}{\verb|%|} \\
 
 \noindent if {\cf width} or {\cf height} is 0, that dimension will be
 automatically computed so as to preserve the original aspect ratio.

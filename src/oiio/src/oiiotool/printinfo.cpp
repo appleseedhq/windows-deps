@@ -43,6 +43,7 @@
 
 #include "OpenImageIO/argparse.h"
 #include "OpenImageIO/strutil.h"
+#include "OpenImageIO/sysutil.h"
 #include "OpenImageIO/imageio.h"
 #include "OpenImageIO/imagebuf.h"
 #include "OpenImageIO/imagebufalgo.h"
@@ -124,9 +125,13 @@ dump_data (ImageInput *input, const print_info_options &opt)
                     for (int s = 0;  s < nsamples;  ++s) {
                         if (s)
                             std::cout << " / ";
-                        for (int c = 0;  c < nc;  ++c)
-                            std::cout << " " << spec.channelnames[c] << "="
-                                      << dd.deep_value (pixel, c, s);
+                        for (int c = 0;  c < nc;  ++c) {
+                            std::cout << " " << spec.channelnames[c] << "=";
+                            if (dd.channeltypes[c] == TypeDesc::UINT)
+                                std::cout << ((uint32_t *)dd.pointers[pixel*dd.nchannels+c])[s];
+                            else
+                                std::cout << dd.deep_value (pixel, c, s);
+                        }
                     }
                     std::cout << "\n";
                 }
@@ -336,6 +341,7 @@ print_stats (Oiiotool &ot,
         int yend = originalspec.y + originalspec.height;
         int zend = originalspec.z + originalspec.depth;
         size_t p = 0;
+        std::vector<size_t> nsamples_histogram;
         for (int z = originalspec.z; z < zend; ++z) {
             for (int y = originalspec.y; y < yend; ++y) {
                 for (int x = originalspec.x; x < xend; ++x, ++p) {
@@ -352,6 +358,9 @@ print_stats (Oiiotool &ot,
                         minsamples = c;
                     if (c == 0)
                         ++emptypixels;
+                    if (c >= nsamples_histogram.size())
+                        nsamples_histogram.resize (c+1, 0);
+                    nsamples_histogram[c] += 1;
                     if (depthchannel >= 0) {
                         for (unsigned int s = 0;  s < c;  ++s) {
                             float d = input.deep_value (x, y, z, depthchannel, s);
@@ -380,10 +389,32 @@ print_stats (Oiiotool &ot,
         printf ("%sTotal deep samples in all pixels: %llu\n", indent, (unsigned long long)totalsamples);
         printf ("%sPixels with deep samples   : %llu\n", indent, (unsigned long long)(npixels-emptypixels));
         printf ("%sPixels with no deep samples: %llu\n", indent, (unsigned long long)emptypixels);
-        printf ("%sMinimum depth was %g at (%d, %d)\n", indent, mindepth,
-                mindepth_pixel.x, mindepth_pixel.y);
-        printf ("%sMaximum depth was %g at (%d, %d)\n", indent, maxdepth,
-                maxdepth_pixel.x, maxdepth_pixel.y);
+        printf ("%sSamples/pixel histogram:\n", indent);
+        size_t grandtotal = 0;
+        for (size_t i = 0, e = nsamples_histogram.size();  i < e;  ++i)
+            grandtotal += nsamples_histogram[i];
+        size_t binstart = 0, bintotal = 0;
+        for (size_t i = 0, e = nsamples_histogram.size();  i < e;  ++i) {
+            bintotal += nsamples_histogram[i];
+            if (i < 8 || i == (e-1) || OIIO::ispow2(i+1)) {
+                // batch by powers of 2, unless it's a small number
+                if (i == binstart)
+                    printf ("%s  %3lld    ", indent, (long long)i);
+                else
+                    printf ("%s  %3lld-%3lld", indent,
+                            (long long)binstart, (long long)i);
+                printf (" : %8lld (%4.1f%%)\n", (long long)bintotal,
+                        (100.0*bintotal)/grandtotal);
+                binstart = i+1;
+                bintotal = 0;
+            }
+        }
+        if (depthchannel >= 0) {
+            printf ("%sMinimum depth was %g at (%d, %d)\n", indent, mindepth,
+                    mindepth_pixel.x, mindepth_pixel.y);
+            printf ("%sMaximum depth was %g at (%d, %d)\n", indent, maxdepth,
+                    maxdepth_pixel.x, maxdepth_pixel.y);
+        }
     } else {
         std::vector<float> constantValues(input.spec().nchannels);
         if (isConstantColor(input, &constantValues[0])) {
@@ -722,6 +753,7 @@ OiioTool::print_info (Oiiotool &ot,
         printf ("\n");
     }
 
+    int movie = spec.get_int_attribute ("oiio:Movie");
     if (opt.verbose && num_of_subimages != 1) {
         // info about num of subimages and their resolutions
         printf ("    %d subimages: ", num_of_subimages);
@@ -731,6 +763,8 @@ OiioTool::print_info (Oiiotool &ot,
                 printf ("%dx%dx%d ", spec.width, spec.height, spec.depth);
             else
                 printf ("%dx%d ", spec.width, spec.height);
+            if (movie)
+                break;
         }
         printf ("\n");
     }
