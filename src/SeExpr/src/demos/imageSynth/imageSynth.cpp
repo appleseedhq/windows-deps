@@ -17,6 +17,7 @@
 /**
    @file imageSynth.cpp
 */
+#include <algorithm>
 #include <map>
 #include <vector>
 #include <cstdlib>
