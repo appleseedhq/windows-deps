@@ -45,15 +45,28 @@ if [%qt_qmake_path%] == [] goto syntax
 if [%python_include_dir%] == [] goto syntax
 if [%python_library%] == [] goto syntax
 
-goto start
+if [%generator%] == ["Visual Studio 12 2013 Win64"] (
+    set pdb_file=vc120.pdb
+    goto start
+)
+
+if [%generator%] == ["Visual Studio 14 2015 Win64"] (
+    set pdb_file=vc140.pdb
+    goto start
+)
 
 :syntax
 
 echo Syntax:
 echo   %~n0%~x0 ^<cmake-generator^> ^<boost-root^> ^<qmake-executable-path^> ^<python-include-dir^> ^<python-library^>
 echo.
+echo Supported values for ^<cmake-generator^>:
+echo.
+echo   "Visual Studio 12 2013 Win64"
+echo   "Visual Studio 14 2015 Win64"
+echo.
 echo Example:
-echo   %~n0%~x0 "Visual Studio 12 Win64" C:\dev\boost_1_55_0 C:\dev\qt-everywhere-opensource-src-4.8.6\bin\qmake.exe C:\Python27\include C:\Python27\libs\python27.lib
+echo   %~n0%~x0 "Visual Studio 12 2013 Win64" C:\dev\boost_1_55_0 C:\dev\qt-everywhere-opensource-src-4.8.6\bin\qmake.exe C:\Python27\include C:\Python27\libs\python27.lib
 goto end
 
 :start
@@ -88,7 +101,7 @@ echo ===========================================================================
             cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_REQUIRES_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\llvm-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv llvm.sln /build Debug /project INSTALL > buildlog.txt
-            copy lib\Transforms\IPO\LLVMipo.dir\Debug\vc120.pdb %root%stage\llvm-debug\lib
+            copy lib\Transforms\IPO\LLVMipo.dir\Debug\%pdb_file% %root%stage\llvm-debug\lib
         cd ..
 
         mkdir build-release 2>nul
@@ -110,7 +123,7 @@ echo ===========================================================================
             echo Compiling, messages are redirected to buildlog.txt...
             devenv zlib.sln /build Debug /project INSTALL > buildlog.txt
             devenv zlib.sln /build Release /project INSTALL >> buildlog.txt
-            copy zlibstatic.dir\Debug\vc120.pdb %root%stage\zlib\lib
+            copy zlibstatic.dir\Debug\%pdb_file% %root%stage\zlib\lib
         cd ..
     cd ..
 
@@ -124,7 +137,7 @@ echo ===========================================================================
             cmake -Wno-dev -G %generator% -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\libpng-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv libpng.sln /build Debug /project INSTALL > buildlog.txt
-            copy png16_static.dir\Debug\vc120.pdb %root%stage\libpng-debug\lib
+            copy png16_static.dir\Debug\%pdb_file% %root%stage\libpng-debug\lib
         cd ..
 
         mkdir build-release 2>nul
@@ -145,7 +158,7 @@ echo ===========================================================================
             cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DWITH_SIMD=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\libjpeg-turbo-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv libjpeg-turbo.sln /build Debug /project INSTALL > buildlog.txt
-            copy jpeg-static.dir\Debug\vc120.pdb %root%stage\libjpeg-turbo-debug\lib
+            copy jpeg-static.dir\Debug\%pdb_file% %root%stage\libjpeg-turbo-debug\lib
         cd ..
 
         mkdir build-release 2>nul
@@ -187,7 +200,7 @@ echo ===========================================================================
             cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\ilmbase-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv ilmbase.sln /build Debug /project INSTALL > buildlog.txt
-            copy Half\Half.dir\Debug\vc120.pdb %root%stage\ilmbase-debug\lib
+            copy Half\Half.dir\Debug\%pdb_file% %root%stage\ilmbase-debug\lib
         cd ..
 
         mkdir build-release 2>nul
@@ -208,7 +221,7 @@ echo ===========================================================================
             cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DILMBASE_PACKAGE_PREFIX=%root%stage\ilmbase-debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\openexr-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv openexr.sln /build Debug /project INSTALL > buildlog.txt
-            copy IlmImf\IlmImf.dir\Debug\vc120.pdb %root%stage\openexr-debug\lib
+            copy IlmImf\IlmImf.dir\Debug\%pdb_file% %root%stage\openexr-debug\lib
         cd ..
 
         mkdir build-release 2>nul
@@ -229,7 +242,7 @@ echo ===========================================================================
             cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\ilmbase-debug -DOPENEXR_HOME=%root%stage\openexr-debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\libpng-debug\include -DPNG_LIBRARY=%root%stage\libpng-debug\lib\libpng16_staticd.lib -DJPEG_INCLUDE_DIR=%root%stage\libjpeg-turbo-debug\include -DJPEG_LIBRARY=%root%stage\libjpeg-turbo-debug\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\libtiff-debug\include -DTIFF_LIBRARY=%root%stage\libtiff-debug\lib\libtiff.lib -DPYTHON_INCLUDE_DIR=%python_include_dir% -DPYTHON_LIBRARY=%python_library% -DCMAKE_INSTALL_PREFIX=%root%stage\oiio-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv OpenImageIO.sln /build Debug /project INSTALL > buildlog.txt
-            copy src\libOpenImageIO\OpenImageIO.dir\Debug\vc120.pdb %root%stage\oiio-debug\lib
+            copy src\libOpenImageIO\OpenImageIO.dir\Debug\%pdb_file% %root%stage\oiio-debug\lib
         cd ..
 
         mkdir build-release 2>nul
@@ -254,7 +267,7 @@ echo ===========================================================================
             cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DOSL_BUILD_TESTS=OFF -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DENABLERTTI=ON -DLLVM_STATIC=ON -DILMBASE_HOME=%root%stage\ilmbase-debug -DILMBASE_CUSTOM=ON -DILMBASE_CUSTOM_LIBRARIES="Half Iex-2_2 IexMath-2_2 IlmThread-2_2 Imath-2_2" -DOPENIMAGEIOHOME=%root%stage\oiio-debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DEXTRA_CPP_ARGS="/DOIIO_STATIC_BUILD /DTINYFORMAT_ALLOW_WCHAR_STRINGS" -DCMAKE_INSTALL_PREFIX=%root%stage\osl-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv osl.sln /build Debug /project INSTALL > buildlog.txt
-            copy src\liboslcomp\oslcomp.dir\Debug\vc120.pdb %root%stage\osl-debug\lib
+            copy src\liboslcomp\oslcomp.dir\Debug\%pdb_file% %root%stage\osl-debug\lib
         cd ..
 
         mkdir build-release 2>nul
@@ -280,7 +293,7 @@ echo ===========================================================================
             cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\libpng-debug\include -DPNG_LIBRARY=%root%stage\libpng-debug\lib\libpng16_staticd.lib -DQT_QMAKE_EXECUTABLE=%qt_qmake_path% -DCMAKE_INSTALL_PREFIX=%root%stage\SeExpr-debug ..
             echo Compiling, messages are redirected to buildlog.txt...
             devenv SeExpr.sln /build Debug /project INSTALL > buildlog.txt
-            copy src\SeExpr\SeExpr-static.dir\Debug\vc120.pdb %root%stage\SeExpr-debug\lib
+            copy src\SeExpr\SeExpr-static.dir\Debug\%pdb_file% %root%stage\SeExpr-debug\lib
         cd ..
 
         mkdir build-release 2>nul
