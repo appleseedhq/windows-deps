@@ -45,13 +45,21 @@ if [%qt_qmake_path%] == [] goto syntax
 if [%python_include_dir%] == [] goto syntax
 if [%python_library%] == [] goto syntax
 
+if [%generator%] == ["Visual Studio 11 2012 Win64"] (
+    set pdb_file=vc110.pdb
+    set xercesc_project_dir=VC11.appleseed
+    goto start
+)
+
 if [%generator%] == ["Visual Studio 12 2013 Win64"] (
     set pdb_file=vc120.pdb
+    set xercesc_project_dir=VC12.appleseed
     goto start
 )
 
 if [%generator%] == ["Visual Studio 14 2015 Win64"] (
     set pdb_file=vc140.pdb
+    set xercesc_project_dir=VC12.appleseed
     goto start
 )
 
@@ -62,6 +70,7 @@ echo   %~n0%~x0 ^<cmake-generator^> ^<boost-root^> ^<qmake-executable-path^> ^<p
 echo.
 echo Supported values for ^<cmake-generator^>:
 echo.
+echo   "Visual Studio 11 2012 Win64"
 echo   "Visual Studio 12 2013 Win64"
 echo   "Visual Studio 14 2015 Win64"
 echo.
@@ -79,7 +88,7 @@ echo ===========================================================================
 
     cd xerces-c
         echo Compiling, messages are redirected to buildlog.txt...
-        pushd Projects\Win32\VC12.appleseed\xerces-all
+        pushd Projects\Win32\%xercesc_project_dir%\xerces-all
         mkdir build 2>nul
         devenv xerces-all.sln /build "Static Debug" /project all > build\buildlog.txt
         devenv xerces-all.sln /build "Static Release" /project all >> build\buildlog.txt
