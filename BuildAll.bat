@@ -46,20 +46,23 @@ if [%python_include_dir%] == [] goto syntax
 if [%python_library%] == [] goto syntax
 
 if [%generator%] == ["Visual Studio 11 2012 Win64"] (
+    set platform=vc11
     set pdb_file=vc110.pdb
     set xercesc_project_dir=VC11.appleseed
     goto start
 )
 
 if [%generator%] == ["Visual Studio 12 2013 Win64"] (
+    set platform=vc12
     set pdb_file=vc120.pdb
     set xercesc_project_dir=VC12.appleseed
     goto start
 )
 
 if [%generator%] == ["Visual Studio 14 2015 Win64"] (
+    set platform=vc14
     set pdb_file=vc140.pdb
-    set xercesc_project_dir=VC12.appleseed
+    set xercesc_project_dir=VC14.appleseed
     goto start
 )
 
@@ -80,250 +83,243 @@ goto end
 
 :start
 
-cd src
+set src=%cd%\src
+set redirect=^>^> BUILDLOG.txt 2^>^&1
 
-echo ===============================================================================
-echo Building Xerces-C...
-echo ===============================================================================
+REM ===============================================================================
 
-    cd xerces-c
-        echo Compiling, messages are redirected to buildlog.txt...
-        pushd Projects\Win32\%xercesc_project_dir%\xerces-all
-        mkdir build 2>nul
-        devenv xerces-all.sln /build "Static Debug" /project all > build\buildlog.txt
-        devenv xerces-all.sln /build "Static Release" /project all >> build\buildlog.txt
-        popd
+:xercesc
+echo [ 1/11] Building Xerces-C...
 
-        pushd src
-        xcopy /E /Q /Y *.hpp %root%stage\xerces-c\include\
-        xcopy /E /Q /Y *.c %root%stage\xerces-c\include\
-        popd
-    cd ..
+    pushd %src%\xerces-c\Projects\Win32\%xercesc_project_dir%\xerces-all
+        type NUL > BUILDLOG.txt
+        devenv xerces-all.sln /build "Static Debug" /project all %redirect%
+        devenv xerces-all.sln /build "Static Release" /project all %redirect%
+        xcopy /E /Q /Y %src%\xerces-c\src\*.hpp %root%stage\%platform%\xerces-c\include\ %redirect%
+        xcopy /E /Q /Y %src%\xerces-c\src\*.c %root%stage\%platform%\xerces-c\include\ %redirect%
+    popd
 
-echo ===============================================================================
-echo Building LLVM...
-echo ===============================================================================
+REM ===============================================================================
 
-    cd llvm
-        mkdir build-debug 2>nul
-        cd build-debug
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_REQUIRES_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\llvm-debug ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv llvm.sln /build Debug /project INSTALL > buildlog.txt
-            copy lib\Transforms\IPO\LLVMipo.dir\Debug\%pdb_file% %root%stage\llvm-debug\lib
-        cd ..
+:llvm
+echo [ 2/11] Building LLVM...
 
-        mkdir build-release 2>nul
-        cd build-release
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_REQUIRES_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\llvm-release ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv llvm.sln /build Release /project INSTALL > buildlog.txt
-        cd ..
-    cd ..
+    mkdir %root%build\%platform%\llvm-debug 2>nul
+    pushd %root%build\%platform%\llvm-debug
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_REQUIRES_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\llvm-debug %src%\llvm %redirect%
+        devenv llvm.sln /build Debug /project INSTALL %redirect%
+        copy lib\Transforms\IPO\LLVMipo.dir\Debug\%pdb_file% %root%stage\%platform%\llvm-debug\lib %redirect%
+    popd
 
-echo ===============================================================================
-echo Building zlib...
-echo ===============================================================================
+    mkdir %root%build\%platform%\llvm-release 2>nul
+    pushd %root%build\%platform%\llvm-release
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_REQUIRES_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\llvm-release %src%\llvm %redirect%
+        devenv llvm.sln /build Release /project INSTALL %redirect%
+    popd
 
-    cd zlib
-        mkdir build 2>nul
-        cd build
-            cmake -Wno-dev -G %generator% -DCMAKE_INSTALL_PREFIX=%root%stage\zlib ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv zlib.sln /build Debug /project INSTALL > buildlog.txt
-            devenv zlib.sln /build Release /project INSTALL >> buildlog.txt
-            copy zlibstatic.dir\Debug\%pdb_file% %root%stage\zlib\lib
-        cd ..
-    cd ..
+REM ===============================================================================
 
-echo ===============================================================================
-echo Building libpng...
-echo ===============================================================================
+:zlib
+echo [ 3/11] Building zlib...
 
-    cd libpng
-        mkdir build-debug 2>nul
-        cd build-debug
-            cmake -Wno-dev -G %generator% -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\libpng-debug ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv libpng.sln /build Debug /project INSTALL > buildlog.txt
-            copy png16_static.dir\Debug\%pdb_file% %root%stage\libpng-debug\lib
-        cd ..
+    mkdir %root%build\%platform%\zlib 2>nul
+    pushd %root%build\%platform%\zlib
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\zlib %src%\zlib %redirect%
+        devenv zlib.sln /build Debug /project INSTALL %redirect%
+        devenv zlib.sln /build Release /project INSTALL %redirect%
+        copy zlibstatic.dir\Debug\%pdb_file% %root%stage\%platform%\zlib\lib %redirect%
+    popd
 
-        mkdir build-release 2>nul
-        cd build-release
-            cmake -Wno-dev -G %generator% -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstatic.lib -DCMAKE_INSTALL_PREFIX=%root%stage\libpng-release ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv libpng.sln /build Release /project INSTALL > buildlog.txt
-        cd ..
-    cd ..
+REM ===============================================================================
 
-echo ===============================================================================
-echo Building libjpeg-turbo...
-echo ===============================================================================
+:libpng
+echo [ 4/11] Building libpng...
 
-    cd libjpeg-turbo
-        mkdir build-debug 2>nul
-        cd build-debug
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DWITH_SIMD=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\libjpeg-turbo-debug ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv libjpeg-turbo.sln /build Debug /project INSTALL > buildlog.txt
-            copy jpeg-static.dir\Debug\%pdb_file% %root%stage\libjpeg-turbo-debug\lib
-        cd ..
+    mkdir %root%build\%platform%\libpng-debug 2>nul
+    pushd %root%build\%platform%\libpng-debug
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libpng-debug %src%\libpng %redirect%
+        devenv libpng.sln /build Debug /project INSTALL %redirect%
+        copy png16_static.dir\Debug\%pdb_file% %root%stage\%platform%\libpng-debug\lib %redirect%
+    popd
 
-        mkdir build-release 2>nul
-        cd build-release
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DWITH_SIMD=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\libjpeg-turbo-release ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv libjpeg-turbo.sln /build Release /project INSTALL > buildlog.txt
-        cd ..
-    cd ..
+    mkdir %root%build\%platform%\libpng-release 2>nul
+    pushd %root%build\%platform%\libpng-release
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstatic.lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libpng-release %src%\libpng %redirect%
+        devenv libpng.sln /build Release /project INSTALL %redirect%
+    popd
 
-echo ===============================================================================
-echo Building libtiff...
-echo ===============================================================================
+REM ===============================================================================
 
-    cd libtiff-debug
-        nmake -f Makefile.vc
-        mkdir %root%stage\libtiff-debug\lib 2>nul
-        mkdir %root%stage\libtiff-debug\include 2>nul
-        copy libtiff\libtiff.lib %root%stage\libtiff-debug\lib
-        copy libtiff\libtiff.pdb %root%stage\libtiff-debug\lib
-        copy libtiff\*.h %root%stage\libtiff-debug\include
-    cd ..
+:libjpeg
+echo [ 5/11] Building libjpeg-turbo...
 
-    cd libtiff-release
-        nmake -f Makefile.vc
-        mkdir %root%stage\libtiff-release\lib 2>nul
-        mkdir %root%stage\libtiff-release\include 2>nul
-        copy libtiff\libtiff.lib %root%stage\libtiff-release\lib
-        copy libtiff\*.h %root%stage\libtiff-release\include
-    cd ..
+    mkdir build\%platform%\libjpeg-turbo-debug 2>nul
+    pushd build\%platform%\libjpeg-turbo-debug
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DWITH_SIMD=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libjpeg-turbo-debug %src%\libjpeg-turbo %redirect%
+        devenv libjpeg-turbo.sln /build Debug /project INSTALL %redirect%
+        copy jpeg-static.dir\Debug\%pdb_file% %root%stage\%platform%\libjpeg-turbo-debug\lib %redirect%
+    popd
 
-echo ===============================================================================
-echo Building ilmbase...
-echo ===============================================================================
+    mkdir build\%platform%\libjpeg-turbo-release 2>nul
+    pushd build\%platform%\libjpeg-turbo-release
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DWITH_SIMD=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libjpeg-turbo-release %src%\libjpeg-turbo %redirect%
+        devenv libjpeg-turbo.sln /build Release /project INSTALL %redirect%
+    popd
 
-    cd ilmbase
-        mkdir build-debug 2>nul
-        cd build-debug
-            cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\ilmbase-debug ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv ilmbase.sln /build Debug /project INSTALL > buildlog.txt
-            copy Half\Half.dir\Debug\%pdb_file% %root%stage\ilmbase-debug\lib
-        cd ..
+REM ===============================================================================
 
-        mkdir build-release 2>nul
-        cd build-release
-            cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\ilmbase-release ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv ilmbase.sln /build Release /project INSTALL > buildlog.txt
-        cd ..
-    cd ..
+:libtiff
+echo [ 6/11] Building libtiff...
 
-echo ===============================================================================
-echo Building OpenEXR...
-echo ===============================================================================
+    mkdir %root%build\%platform%\libtiff-debug 2>nul
+    pushd %root%build\%platform%\libtiff-debug
+        type NUL > BUILDLOG.txt
+        xcopy /E /Q /Y %src%\libtiff\*.* . %redirect%
+        copy /Y nmake-debug.opt nmake.opt %redirect%
+        nmake -f Makefile.vc %redirect%
+        mkdir %root%stage\%platform%\libtiff-debug\lib %redirect%
+        mkdir %root%stage\%platform%\libtiff-debug\include %redirect%
+        copy libtiff\libtiff.lib %root%stage\%platform%\libtiff-debug\lib %redirect%
+        copy libtiff\libtiff.pdb %root%stage\%platform%\libtiff-debug\lib %redirect%
+        copy libtiff\*.h %root%stage\%platform%\libtiff-debug\include %redirect%
+    popd
 
-    cd openexr
-        mkdir build-debug 2>nul
-        cd build-debug
-            cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DILMBASE_PACKAGE_PREFIX=%root%stage\ilmbase-debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\openexr-debug ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv openexr.sln /build Debug /project INSTALL > buildlog.txt
-            copy IlmImf\IlmImf.dir\Debug\%pdb_file% %root%stage\openexr-debug\lib
-        cd ..
+    mkdir %root%build\%platform%\libtiff-release 2>nul
+    pushd %root%build\%platform%\libtiff-release
+        type NUL > BUILDLOG.txt
+        xcopy /E /Q /Y %src%\libtiff\*.* . %redirect%
+        copy /Y nmake-release.opt nmake.opt %redirect%
+        nmake -f Makefile.vc %redirect%
+        mkdir %root%stage\%platform%\libtiff-release\lib %redirect%
+        mkdir %root%stage\%platform%\libtiff-release\include %redirect%
+        copy libtiff\libtiff.lib %root%stage\%platform%\libtiff-release\lib %redirect%
+        copy libtiff\*.h %root%stage\%platform%\libtiff-release\include %redirect%
+    popd
 
-        mkdir build-release 2>nul
-        cd build-release
-            cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DILMBASE_PACKAGE_PREFIX=%root%stage\ilmbase-release -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstatic.lib -DCMAKE_INSTALL_PREFIX=%root%stage\openexr-release ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv openexr.sln /build Release /project INSTALL > buildlog.txt
-        cd ..
-    cd ..
+REM ===============================================================================
 
-echo ===============================================================================
-echo Building OIIO...
-echo ===============================================================================
+:ilmbase
+echo [ 7/11] Building ilmbase...
 
-    cd oiio
-        mkdir build-debug 2>nul
-        cd build-debug
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\ilmbase-debug -DOPENEXR_HOME=%root%stage\openexr-debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\libpng-debug\include -DPNG_LIBRARY=%root%stage\libpng-debug\lib\libpng16_staticd.lib -DJPEG_INCLUDE_DIR=%root%stage\libjpeg-turbo-debug\include -DJPEG_LIBRARY=%root%stage\libjpeg-turbo-debug\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\libtiff-debug\include -DTIFF_LIBRARY=%root%stage\libtiff-debug\lib\libtiff.lib -DPYTHON_INCLUDE_DIR=%python_include_dir% -DPYTHON_LIBRARY=%python_library% -DCMAKE_INSTALL_PREFIX=%root%stage\oiio-debug ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv OpenImageIO.sln /build Debug /project INSTALL > buildlog.txt
-            copy src\libOpenImageIO\OpenImageIO.dir\Debug\%pdb_file% %root%stage\oiio-debug\lib
-        cd ..
+    mkdir %root%build\%platform%\ilmbase-debug 2>nul
+    pushd %root%build\%platform%\ilmbase-debug
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ilmbase-debug %src%\ilmbase %redirect%
+        devenv ilmbase.sln /build Debug /project INSTALL %redirect%
+        copy Half\Half.dir\Debug\%pdb_file% %root%stage\%platform%\ilmbase-debug\lib %redirect%
+    popd
 
-        mkdir build-release 2>nul
-        cd build-release
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\ilmbase-release -DOPENEXR_HOME=%root%stage\openexr-release -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\libpng-debug\include -DPNG_LIBRARY=%root%stage\libpng-release\lib\libpng16_static.lib -DJPEG_INCLUDE_DIR=%root%stage\libjpeg-turbo-release\include -DJPEG_LIBRARY=%root%stage\libjpeg-turbo-release\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\libtiff-release\include -DTIFF_LIBRARY=%root%stage\libtiff-release\lib\libtiff.lib -DPYTHON_INCLUDE_DIR=%python_include_dir% -DPYTHON_LIBRARY=%python_library% -DCMAKE_INSTALL_PREFIX=%root%stage\oiio-release ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv OpenImageIO.sln /build Release /project INSTALL > buildlog.txt
-        cd ..
-    cd ..
+    mkdir %root%build\%platform%\ilmbase-release 2>nul
+    pushd %root%build\%platform%\ilmbase-release
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ilmbase-release %src%\ilmbase %redirect%
+        devenv ilmbase.sln /build Release /project INSTALL %redirect%
+    popd
 
-echo ===============================================================================
-echo Building OSL...
-echo ===============================================================================
+REM ===============================================================================
 
-    cd osl
-        set PATH=%root%tools\FlexBison\bin;%PATH%
-        set PATHSAVE=%PATH%
+:openexr
+echo [ 8/11] Building OpenEXR...
 
-        mkdir build-debug 2>nul
-        cd build-debug
-            set PATH=%root%stage\llvm-debug\bin;%PATHSAVE%
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DOSL_BUILD_TESTS=OFF -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DENABLERTTI=ON -DLLVM_STATIC=ON -DILMBASE_HOME=%root%stage\ilmbase-debug -DILMBASE_CUSTOM=ON -DILMBASE_CUSTOM_LIBRARIES="Half Iex-2_2 IexMath-2_2 IlmThread-2_2 Imath-2_2" -DOPENIMAGEIOHOME=%root%stage\oiio-debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DEXTRA_CPP_ARGS="/DOIIO_STATIC_BUILD /DTINYFORMAT_ALLOW_WCHAR_STRINGS" -DCMAKE_INSTALL_PREFIX=%root%stage\osl-debug ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv osl.sln /build Debug /project INSTALL > buildlog.txt
-            copy src\liboslcomp\oslcomp.dir\Debug\%pdb_file% %root%stage\osl-debug\lib
-        cd ..
+    mkdir %root%build\%platform%\openexr-debug 2>nul
+    pushd %root%build\%platform%\openexr-debug
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DILMBASE_PACKAGE_PREFIX=%root%stage\%platform%\ilmbase-debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\openexr-debug %src%\openexr %redirect%
+        devenv openexr.sln /build Debug /project INSTALL %redirect%
+        copy IlmImf\IlmImf.dir\Debug\%pdb_file% %root%stage\%platform%\openexr-debug\lib %redirect%
+    popd
 
-        mkdir build-release 2>nul
-        cd build-release
-            set PATH=%root%stage\llvm-release\bin;%PATHSAVE%
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DOSL_BUILD_TESTS=OFF -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DENABLERTTI=ON -DLLVM_STATIC=ON -DILMBASE_HOME=%root%stage\ilmbase-release -DILMBASE_CUSTOM=ON -DILMBASE_CUSTOM_LIBRARIES="Half Iex-2_2 IexMath-2_2 IlmThread-2_2 Imath-2_2" -DOPENIMAGEIOHOME=%root%stage\oiio-release -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstatic.lib -DEXTRA_CPP_ARGS="/DOIIO_STATIC_BUILD /DTINYFORMAT_ALLOW_WCHAR_STRINGS" -DCMAKE_INSTALL_PREFIX=%root%stage\osl-release ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv osl.sln /build Release /project INSTALL > buildlog.txt
-        cd ..
-    cd ..
+    mkdir %root%build\%platform%\openexr-release 2>nul
+    pushd %root%build\%platform%\openexr-release
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DILMBASE_PACKAGE_PREFIX=%root%stage\%platform%\ilmbase-release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstatic.lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\openexr-release %src%\openexr %redirect%
+        devenv openexr.sln /build Release /project INSTALL %redirect%
+    popd
 
-echo ===============================================================================
-echo Building SeExpr...
-echo ===============================================================================
+REM ===============================================================================
 
-    cd SeExpr
-        mkdir build-debug 2>nul
-        cd build-debug
-            mkdir src\SeExpr\generated 2>nul
-            mkdir src\SeExprEditor\generated 2>nul
-            copy ..\windows7\SeExpr\generated\*.* src\SeExpr\generated
-            copy ..\windows7\SeExprEditor\generated\*.* src\SeExprEditor\generated
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\libpng-debug\include -DPNG_LIBRARY=%root%stage\libpng-debug\lib\libpng16_staticd.lib -DQT_QMAKE_EXECUTABLE=%qt_qmake_path% -DCMAKE_INSTALL_PREFIX=%root%stage\SeExpr-debug ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv SeExpr.sln /build Debug /project INSTALL > buildlog.txt
-            copy src\SeExpr\SeExpr-static.dir\Debug\%pdb_file% %root%stage\SeExpr-debug\lib
-        cd ..
+:oiio
+echo [ 9/11] Building OIIO...
 
-        mkdir build-release 2>nul
-        cd build-release
-            mkdir src\SeExpr\generated 2>nul
-            mkdir src\SeExprEditor\generated 2>nul
-            copy ..\windows7\SeExpr\generated\*.* src\SeExpr\generated
-            copy ..\windows7\SeExprEditor\generated\*.* src\SeExprEditor\generated
-            cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DZLIB_INCLUDE_DIR=%root%stage\zlib\include -DZLIB_LIBRARY=%root%stage\zlib\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\libpng-release\include -DPNG_LIBRARY=%root%stage\libpng-release\lib\libpng16_static.lib -DQT_QMAKE_EXECUTABLE=%qt_qmake_path% -DCMAKE_INSTALL_PREFIX=%root%stage\SeExpr-release ..
-            echo Compiling, messages are redirected to buildlog.txt...
-            devenv SeExpr.sln /build Release /project INSTALL > buildlog.txt
-        cd ..
-    cd ..
+    mkdir %root%build\%platform%\oiio-debug 2>nul
+    pushd %root%build\%platform%\oiio-debug
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\%platform%\ilmbase-debug -DOPENEXR_HOME=%root%stage\%platform%\openexr-debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-debug\lib\libpng16_staticd.lib -DJPEG_INCLUDE_DIR=%root%stage\%platform%\libjpeg-turbo-debug\include -DJPEG_LIBRARY=%root%stage\%platform%\libjpeg-turbo-debug\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\%platform%\libtiff-debug\include -DTIFF_LIBRARY=%root%stage\%platform%\libtiff-debug\lib\libtiff.lib -DPYTHON_INCLUDE_DIR=%python_include_dir% -DPYTHON_LIBRARY=%python_library% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\oiio-debug %src%\oiio %redirect%
+        devenv OpenImageIO.sln /build Debug /project INSTALL %redirect%
+        copy src\libOpenImageIO\OpenImageIO.dir\Debug\%pdb_file% %root%stage\%platform%\oiio-debug\lib %redirect%
+    popd
+
+    mkdir %root%build\%platform%\oiio-release 2>nul
+    pushd %root%build\%platform%\oiio-release
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\%platform%\ilmbase-release -DOPENEXR_HOME=%root%stage\%platform%\openexr-release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-release\lib\libpng16_static.lib -DJPEG_INCLUDE_DIR=%root%stage\%platform%\libjpeg-turbo-release\include -DJPEG_LIBRARY=%root%stage\%platform%\libjpeg-turbo-release\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\%platform%\libtiff-release\include -DTIFF_LIBRARY=%root%stage\%platform%\libtiff-release\lib\libtiff.lib -DPYTHON_INCLUDE_DIR=%python_include_dir% -DPYTHON_LIBRARY=%python_library% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\oiio-release %src%\oiio %redirect%
+        devenv OpenImageIO.sln /build Release /project INSTALL %redirect%
+    popd
+
+REM ===============================================================================
+
+:osl
+echo [10/11] Building OSL...
+
+    set PATHSAVE=%PATH%
+
+    mkdir %root%build\%platform%\osl-debug 2>nul
+    pushd %root%build\%platform%\osl-debug
+        type NUL > BUILDLOG.txt
+        set PATH=%root%tools\FlexBison\bin;%root%stage\%platform%\llvm-debug\bin;%PATHSAVE%
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DOSL_BUILD_TESTS=OFF -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DENABLERTTI=ON -DLLVM_STATIC=ON -DILMBASE_HOME=%root%stage\%platform%\ilmbase-debug -DILMBASE_CUSTOM=ON -DILMBASE_CUSTOM_LIBRARIES="Half Iex-2_2 IexMath-2_2 IlmThread-2_2 Imath-2_2" -DOPENIMAGEIOHOME=%root%stage\%platform%\oiio-debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstaticd.lib -DEXTRA_CPP_ARGS="/DOIIO_STATIC_BUILD /DTINYFORMAT_ALLOW_WCHAR_STRINGS" -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\osl-debug %src%\osl %redirect%
+        devenv osl.sln /build Debug /project INSTALL %redirect%
+        copy src\liboslcomp\oslcomp.dir\Debug\%pdb_file% %root%stage\%platform%\osl-debug\lib %redirect%
+    popd
+
+    mkdir %root%build\%platform%\osl-release 2>nul
+    pushd %root%build\%platform%\osl-release
+        type NUL > BUILDLOG.txt
+        set PATH=%root%tools\FlexBison\bin;%root%stage\%platform%\llvm-release\bin;%PATHSAVE%
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DOSL_BUILD_TESTS=OFF -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DENABLERTTI=ON -DLLVM_STATIC=ON -DILMBASE_HOME=%root%stage\%platform%\ilmbase-release -DILMBASE_CUSTOM=ON -DILMBASE_CUSTOM_LIBRARIES="Half Iex-2_2 IexMath-2_2 IlmThread-2_2 Imath-2_2" -DOPENIMAGEIOHOME=%root%stage\%platform%\oiio-release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstatic.lib -DEXTRA_CPP_ARGS="/DOIIO_STATIC_BUILD /DTINYFORMAT_ALLOW_WCHAR_STRINGS" -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\osl-release %src%\osl %redirect%
+        devenv osl.sln /build Release /project INSTALL %redirect%
+    popd
+
+    set PATH=%PATHSAVE%
+
+REM ===============================================================================
+
+:seexpr
+echo [11/11] Building SeExpr...
+
+    mkdir %root%build\%platform%\seexpr-debug 2>nul
+    pushd %root%build\%platform%\seexpr-debug
+        type NUL > BUILDLOG.txt
+        mkdir src\SeExpr\generated %redirect%
+        mkdir src\SeExprEditor\generated %redirect%
+        copy %src%\seexpr\windows7\SeExpr\generated\*.* src\SeExpr\generated %redirect%
+        copy %src%\seexpr\windows7\SeExprEditor\generated\*.* src\SeExprEditor\generated %redirect%
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-debug\lib\libpng16_staticd.lib -DQT_QMAKE_EXECUTABLE=%qt_qmake_path% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\seexpr-debug %src%\seexpr %redirect%
+        devenv SeExpr.sln /build Debug /project INSTALL %redirect%
+        copy src\SeExpr\SeExpr-static.dir\Debug\%pdb_file% %root%stage\%platform%\seexpr-debug\lib %redirect%
+    popd
+
+    mkdir %root%build\%platform%\seexpr-release 2>nul
+    pushd %root%build\%platform%\seexpr-release
+        type NUL > BUILDLOG.txt
+        mkdir src\SeExpr\generated %redirect%
+        mkdir src\SeExprEditor\generated %redirect%
+        copy %src%\seexpr\windows7\SeExpr\generated\*.* src\SeExpr\generated %redirect%
+        copy %src%\seexpr\windows7\SeExprEditor\generated\*.* src\SeExprEditor\generated %redirect%
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-release\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-release\lib\libpng16_static.lib -DQT_QMAKE_EXECUTABLE=%qt_qmake_path% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\seexpr-release %src%\seexpr %redirect%
+        devenv SeExpr.sln /build Release /project INSTALL %redirect%
+    popd
 
 :done
 
-cd ..
-
-echo ===============================================================================
 echo Done.
-echo ===============================================================================
 echo.
 
 :end
