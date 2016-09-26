@@ -6,7 +6,7 @@ REM Visit http://appleseedhq.net/ for additional information and resources.
 REM
 REM This software is released under the MIT license.
 REM
-REM Copyright (c) 2014-2015 Francois Beaune, The appleseedhq Organization
+REM Copyright (c) 2014-2016 Francois Beaune, The appleseedhq Organization
 REM
 REM Permission is hereby granted, free of charge, to any person obtaining a copy
 REM of this software and associated documentation files (the "Software"), to deal
@@ -136,6 +136,7 @@ echo [ 3/11] Building zlib...
         cmake -Wno-dev -G %generator% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\zlib %src%\zlib %redirect%
         devenv zlib.sln /build Debug /project INSTALL %redirect%
         devenv zlib.sln /build Release /project INSTALL %redirect%
+        ren %src%\zlib\zconf.h.included zconf.h
         copy zlibstatic.dir\Debug\%pdb_file% %root%stage\%platform%\zlib\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
