@@ -4267,7 +4267,7 @@ main (int argc, char *argv[])
 {
 // When Visual Studio is used float values in scientific format are printed 
 // with three digit exponent. We change this behavior to fit the Linux way.
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && _MSC_VER < 1900
     _set_output_format (_TWO_DIGIT_EXPONENT);
 #endif
 
