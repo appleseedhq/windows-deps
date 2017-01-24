@@ -226,8 +226,7 @@ convention is dictated by OpenEXR.
 */
 
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
     using namespace pvt;
     using namespace simd;
 
@@ -362,8 +361,8 @@ TextureSystemImpl::environment (TextureHandle *texture_handle_,
         return true;
     }
 
-    PerThreadInfo *thread_info = (PerThreadInfo *)thread_info_;
-    TextureFile *texturefile = (TextureFile *)texture_handle_;
+    PerThreadInfo *thread_info = m_imagecache->get_perthread_info((PerThreadInfo *)thread_info_);
+    TextureFile *texturefile = verify_texturefile ((TextureFile *)texture_handle_, thread_info);
     ImageCacheStatistics &stats (thread_info->m_stats);
     ++stats.environment_batches;
     ++stats.environment_queries;
@@ -404,8 +403,8 @@ TextureSystemImpl::environment (TextureHandle *texture_handle_,
     Imath::V3f Rx = _R + _dRdx;  Rx.normalize();  // x axis of the ellipse
     Imath::V3f Ry = _R + _dRdy;  Ry.normalize();  // y axis of the ellipse
     // angles formed by the ellipse axes.
-    float xfilt_noblur = std::max (safe_acosf(R.dot(Rx)), 1e-8f);
-    float yfilt_noblur = std::max (safe_acosf(R.dot(Ry)), 1e-8f);
+    float xfilt_noblur = std::max (safe_acos(R.dot(Rx)), 1e-8f);
+    float yfilt_noblur = std::max (safe_acos(R.dot(Ry)), 1e-8f);
     int naturalres = int((float)M_PI / std::min (xfilt_noblur, yfilt_noblur));
     // FIXME -- figure naturalres sepearately for s and t
     // FIXME -- ick, why is it x and y at all, shouldn't it be s and t?
@@ -499,7 +498,7 @@ TextureSystemImpl::environment (TextureHandle *texture_handle_,
             if (filtwidth_ras <= 1) {
                 miplevel[0] = m-1;
                 miplevel[1] = m;
-                levelblend = Imath::clamp (2.0f - 1.0f/filtwidth_ras, 0.0f, 1.0f);
+                levelblend = Imath::clamp (2.0f*filtwidth_ras - 1.0f, 0.0f, 1.0f);
                 break;
             }
         }
@@ -580,5 +579,4 @@ TextureSystemImpl::environment (TextureHandle *texture_handle_,
 
 }  // end namespace pvt
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END

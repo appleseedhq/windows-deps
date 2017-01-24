@@ -58,8 +58,7 @@
 #include "string_view.h"
 
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
 
 /////////////////////////////////////////////////////////////////////////////
 /// A TypeDesc describes simple data types.
@@ -86,7 +85,7 @@ struct OIIO_API TypeDesc {
                     HALF, FLOAT, DOUBLE, STRING, PTR, LASTBASE };
     /// AGGREGATE describes whether our type is a simple scalar of
     /// one of the BASETYPE's, or one of several simple aggregates.
-    enum AGGREGATE { SCALAR=1, VEC2=2, VEC3=3, VEC4=4, MATRIX44=16 };
+    enum AGGREGATE { SCALAR=1, VEC2=2, VEC3=3, VEC4=4, MATRIX33=9, MATRIX44=16 };
     /// VECSEMANTICS gives hints about what the data represent (for
     /// example, if a spatial vector, whether it should transform as
     /// a point, direction vector, or surface normal).
@@ -145,7 +144,6 @@ struct OIIO_API TypeDesc {
     /// Construct from a string (e.g., "float[3]").  If no valid
     /// type could be assembled, set base to UNKNOWN.
     TypeDesc (string_view typestring);
-    TypeDesc (const char *typestring);   // DEPRECATED (1.6)
 
     /// Copy constructor.
     TypeDesc (const TypeDesc &t)
@@ -219,12 +217,20 @@ struct OIIO_API TypeDesc {
     /// integral type or something else like a string).
     bool is_floating_point () const;
 
+    /// True if it's a signed type that allows for negative values.
+    bool is_signed () const;
+
+    /// Shortcut: is it UNKNOWN?
+    bool is_unknown () const { return (basetype == UNKNOWN); }
+
+    /// if (typespec) is the same as asking whether it's not UNKNOWN.
+    operator bool () const { return (basetype != UNKNOWN); }
+
     /// Set *this to the type described in the string.  Return the
     /// length of the part of the string that describes the type.  If
     /// no valid type could be assembled, return 0 and do not modify
     /// *this.
     size_t fromstring (string_view typestring);
-    size_t fromstring (const char *typestring);   // DEPRECATED (1.6)
 
     /// Compare two TypeDesc values for equality.
     ///
@@ -296,6 +302,8 @@ struct OIIO_API TypeDesc {
     static const TypeDesc TypeVector;
     static const TypeDesc TypeNormal;
     static const TypeDesc TypeMatrix;
+    static const TypeDesc TypeMatrix33;
+    static const TypeDesc TypeMatrix44;
     static const TypeDesc TypeTimeCode;
     static const TypeDesc TypeKeyCode;
     static const TypeDesc TypeFloat4;
@@ -352,7 +360,6 @@ template<> struct CType<(int)TypeDesc::FLOAT> { typedef float type; };
 template<> struct CType<(int)TypeDesc::DOUBLE> { typedef double type; };
 
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END
 
 #endif /* !defined(OPENIMAGEIO_TYPEDESC_H) */

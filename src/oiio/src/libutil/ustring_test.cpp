@@ -35,11 +35,14 @@
 #include "OpenImageIO/thread.h"
 #include "OpenImageIO/ustring.h"
 #include "OpenImageIO/strutil.h"
+#include "OpenImageIO/sysutil.h"
 #include "OpenImageIO/timer.h"
 #include "OpenImageIO/argparse.h"
 
 #include "OpenImageIO/unittest.h"
 
+#include <boost/thread.hpp>
+  
 
 OIIO_NAMESPACE_USING;
 
@@ -124,7 +127,7 @@ int main (int argc, char *argv[])
     ustring foo ("foo");
     OIIO_CHECK_ASSERT (foo.string() == "foo");
 
-    std::cout << "hw threads = " << boost::thread::hardware_concurrency() << "\n";
+    std::cout << "hw threads = " << Sysutil::hardware_concurrency() << "\n";
     std::cout << "threads\ttime (best of " << ntrials << ")\n";
     std::cout << "-------\t----------\n";
 

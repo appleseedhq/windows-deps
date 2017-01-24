@@ -32,21 +32,24 @@
 #include <iostream>
 
 #include <boost/regex.hpp>
-#include <boost/tokenizer.hpp>
 
 #include "OpenImageIO/thread.h"
 #include "OpenImageIO/strutil.h"
 #include "OpenImageIO/fmath.h"
 #include "OpenImageIO/imageio.h"
-#include "OpenImageIO/pugixml.hpp"
+
+#if USE_EXTERNAL_PUGIXML
+# include "pugixml.hpp"
+#else
+# include "OpenImageIO/pugixml.hpp"
+#endif
 
 #define DEBUG_XMP_READ  0
 #define DEBUG_XMP_WRITE 0
 
 #define MY_ENCODING "ISO-8859-1"
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
 
 namespace {  // anonymous
 
@@ -592,6 +595,5 @@ encode_xmp (const ImageSpec &spec, bool minimal)
 }
 
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END
 

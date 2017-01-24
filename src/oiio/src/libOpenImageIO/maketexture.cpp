@@ -38,7 +38,6 @@
 
 #include <boost/version.hpp>
 #include <boost/regex.hpp>
-#include <boost/shared_ptr.hpp>
 
 #include <OpenEXR/ImathMatrix.h>
 #include <OpenEXR/half.h>
@@ -56,6 +55,7 @@
 #include "OpenImageIO/imagebufalgo_util.h"
 #include "OpenImageIO/thread.h"
 #include "OpenImageIO/filter.h"
+#include "OpenImageIO/refcnt.h"
 
 OIIO_NAMESPACE_USING
 
@@ -159,40 +159,6 @@ datestring (time_t t)
     return Strutil::format ("%4d:%02d:%02d %2d:%02d:%02d",
                             mytm.tm_year+1900, mytm.tm_mon+1, mytm.tm_mday,
                             mytm.tm_hour, mytm.tm_min, mytm.tm_sec);
-}
-
-
-
-// Copy src into dst, but only for the range [x0,x1) x [y0,y1).
-template<typename SRCTYPE>
-static bool
-copy_block_ (ImageBuf &dst, const ImageBuf &src, ROI roi=ROI())
-{
-    int nchannels = dst.spec().nchannels;
-    ASSERT (src.spec().nchannels == nchannels);
-    ROI image_roi = get_roi (dst.spec());
-    if (roi.defined())
-        image_roi = roi_intersection (image_roi, roi);
-    ImageBuf::Iterator<float> d (dst, image_roi);
-    ImageBuf::ConstIterator<SRCTYPE> s (src, image_roi, ImageBuf::WrapBlack);
-    for (  ; ! d.done();  ++d, ++s) {
-        for (int c = 0;  c < nchannels;  ++c)
-            d[c] = s[c];
-    }
-    return true;
-}
-
-
-
-// Copy src into dst, but only for the range [x0,x1) x [y0,y1).
-static bool
-copy_block (ImageBuf &dst, const ImageBuf &src, ROI roi)
-{
-    ASSERT (dst.spec().format == TypeDesc::TypeFloat);
-    bool ok;
-    OIIO_DISPATCH_TYPES (ok, "copy_block", copy_block_, src.spec().format,
-                         dst, src, roi);
-    return ok;
 }
 
 
@@ -435,8 +401,8 @@ lightprobe_to_envlatl (ImageBuf &dst, const ImageBuf &src, bool y_is_up,
     if (nthreads != 1 && roi.npixels() >= 1000) {
         // Lots of pixels and request for multi threads? Parallelize.
         ImageBufAlgo::parallel_image (
-            boost::bind(lightprobe_to_envlatl, boost::ref(dst),
-                        boost::cref(src), y_is_up,
+            OIIO::bind(lightprobe_to_envlatl, OIIO::ref(dst),
+                        OIIO::cref(src), y_is_up,
                         _1 /*roi*/, 1 /*nthreads*/),
             roi, nthreads);
         return true;
@@ -545,7 +511,7 @@ maketx_merge_spec (ImageSpec &dstspec, const ImageSpec &srcspec)
 
 static bool
 write_mipmap (ImageBufAlgo::MakeTextureMode mode,
-              boost::shared_ptr<ImageBuf> &img,
+              OIIO::shared_ptr<ImageBuf> &img,
               const ImageSpec &outspec_template,
               std::string outputfilename, ImageOutput *out,
               TypeDesc outputdatatype, bool mipmap,
@@ -611,7 +577,7 @@ write_mipmap (ImageBufAlgo::MakeTextureMode mode,
     bool verbose = configspec.get_int_attribute ("maketx:verbose") != 0;
     if (verbose) {
         outstream << "  Writing file: " << outputfilename << std::endl;
-        outstream << "  Filter \"" << filtername << "\n";
+        outstream << "  Filter \"" << filtername << "\"\n";
         outstream << "  Top level is " << formatres(outspec) << std::endl;
     }
 
@@ -634,7 +600,7 @@ write_mipmap (ImageBufAlgo::MakeTextureMode mode,
             Strutil::split (mipimages_unsplit, mipimages, ";");
         bool allow_shift = configspec.get_int_attribute("maketx:allow_pixel_shift") != 0;
         
-        boost::shared_ptr<ImageBuf> small (new ImageBuf);
+        OIIO::shared_ptr<ImageBuf> small (new ImageBuf);
         while (outspec.width > 1 || outspec.height > 1) {
             Timer miptimer;
             ImageSpec smallspec;
@@ -647,7 +613,7 @@ write_mipmap (ImageBufAlgo::MakeTextureMode mode,
                 if (smallspec.nchannels != outspec.nchannels) {
                     outstream << "WARNING: Custom mip level \"" << mipimages[0]
                               << " had the wrong number of channels.\n";
-                    boost::shared_ptr<ImageBuf> t (new ImageBuf (smallspec));
+                    OIIO::shared_ptr<ImageBuf> t (new ImageBuf (smallspec));
                     ImageBufAlgo::channels(*t, *small, outspec.nchannels,
                                            NULL, NULL, NULL, true);
                     std::swap (t, small);
@@ -690,12 +656,12 @@ write_mipmap (ImageBufAlgo::MakeTextureMode mode,
                                img->yend(), img->zbegin(), img->zend());
 
                 if (filtername == "box" && !orig_was_overscan && sharpen <= 0.0f) {
-                    ImageBufAlgo::parallel_image (boost::bind(resize_block, boost::ref(*small), boost::cref(*img), _1, envlatlmode, allow_shift),
+                    ImageBufAlgo::parallel_image (OIIO::bind(resize_block, OIIO::ref(*small), OIIO::cref(*img), _1, envlatlmode, allow_shift),
                                                   OIIO::get_roi(small->spec()));
                 } else {
                     Filter2D *filter = setup_filter (small->spec(), img->spec(), filtername);
                     if (! filter) {
-                        outstream << "maketx ERROR: could not make filter '" << filtername << "\n";
+                        outstream << "maketx ERROR: could not make filter \"" << filtername << "\"\n";
                         return false;
                     }
                     if (verbose) {
@@ -712,7 +678,7 @@ write_mipmap (ImageBufAlgo::MakeTextureMode mode,
                     if (do_highlight_compensation)
                         ImageBufAlgo::rangecompress (*img, *img);
                     if (sharpen > 0.0f && sharpen_first) {
-                        boost::shared_ptr<ImageBuf> sharp (new ImageBuf);
+                        OIIO::shared_ptr<ImageBuf> sharp (new ImageBuf);
                         bool uok = ImageBufAlgo::unsharp_mask (*sharp, *img,
                                                     sharpenfilt, 3.0, sharpen, 0.0f);
                         if (! uok)
@@ -721,7 +687,7 @@ write_mipmap (ImageBufAlgo::MakeTextureMode mode,
                     }
                     ImageBufAlgo::resize (*small, *img, filter);
                     if (sharpen > 0.0f && ! sharpen_first) {
-                        boost::shared_ptr<ImageBuf> sharp (new ImageBuf);
+                        OIIO::shared_ptr<ImageBuf> sharp (new ImageBuf);
                         bool uok = ImageBufAlgo::unsharp_mask (*sharp, *small,
                                                     sharpenfilt, 3.0, sharpen, 0.0f);
                         if (! uok)
@@ -828,7 +794,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
         return false;
     }
 
-    boost::shared_ptr<ImageBuf> src;
+    OIIO::shared_ptr<ImageBuf> src;
     if (input == NULL) {
         // No buffer supplied -- create one to read the file
         src.reset (new ImageBuf(filename));
@@ -862,21 +828,33 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
     // chance a crash during texture conversion will leave behind a
     // partially formed tx with incomplete mipmaps levels which happesn to
     // be extremely slow to use in a raytracer.
+    // We also force a unique filename to protect against multiple maketx
+    // processes running at the same time on the same file.
     std::string extension = Filesystem::extension(outputfilename);
-    std::string tmpfilename = Filesystem::replace_extension (outputfilename, ".temp"+extension);
+    std::string tmpfilename = Filesystem::replace_extension (outputfilename, ".%%%%%%%%.temp"+extension);
+    tmpfilename = Filesystem::unique_path(tmpfilename);
 
     // When was the input file last modified?
     // This is only used when we're reading from a filename
     std::time_t in_time;
-    time (&in_time);  // make it look initialized
-    bool updatemode = configspec.get_int_attribute ("maketx:updatemode") != 0;
-    if (from_filename) {
-        // When in update mode, skip making the texture if the output
-        // already exists and has the same file modification time as the
-        // input file.
+    if (from_filename)
         in_time = Filesystem::last_write_time (src->name());
-        if (updatemode && Filesystem::exists (outputfilename) &&
-            (in_time == Filesystem::last_write_time (outputfilename))) {
+    else
+        time (&in_time);  // make it look initialized
+
+    // When in update mode, skip making the texture if the output already
+    // exists and has the same file modification time as the input file and
+    // was created with identical command line arguments.
+    bool updatemode = configspec.get_int_attribute ("maketx:updatemode");
+    if (updatemode && from_filename && Filesystem::exists(outputfilename) &&
+        in_time == Filesystem::last_write_time (outputfilename)) {
+        std::string lastcmdline;
+        if (ImageInput *in = ImageInput::open (outputfilename)) {
+            lastcmdline = in->spec().get_string_attribute ("Software");
+            ImageInput::destroy (in);
+        }
+        std::string newcmdline = configspec.get_string_attribute("maketx:full_command_line");
+        if (lastcmdline.size() && lastcmdline == newcmdline) {
             outstream << "maketx: no update required for \"" 
                       << outputfilename << "\"\n";
             return true;
@@ -945,7 +923,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
         newspec.height = newspec.full_height = src->spec().height/2;
         newspec.tile_width = newspec.tile_height = 0;
         newspec.format = TypeDesc::FLOAT;
-        boost::shared_ptr<ImageBuf> latlong (new ImageBuf(newspec));
+        OIIO::shared_ptr<ImageBuf> latlong (new ImageBuf(newspec));
         // Now lightprobe holds the original lightprobe, src is a blank
         // image that will be the unwrapped latlong version of it.
         lightprobe_to_envlatl (*latlong, *src, true);
@@ -1007,7 +985,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
           pixel_stats.max[src->spec().alpha_channel] == 1.0f) {
         if (verbose)
             outstream << "  Alpha==1 image detected. Dropping the alpha channel.\n";
-        boost::shared_ptr<ImageBuf> newsrc (new ImageBuf(src->spec()));
+        OIIO::shared_ptr<ImageBuf> newsrc (new ImageBuf(src->spec()));
         ImageBufAlgo::channels (*newsrc, *src, src->nchannels()-1,
                                 NULL, NULL, NULL, true);
         std::swap (src, newsrc);   // N.B. the old src will delete
@@ -1020,7 +998,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
           ImageBufAlgo::isMonochrome(*src)) {
         if (verbose)
             outstream << "  Monochrome image detected. Converting to single channel texture.\n";
-        boost::shared_ptr<ImageBuf> newsrc (new ImageBuf(src->spec()));
+        OIIO::shared_ptr<ImageBuf> newsrc (new ImageBuf(src->spec()));
         ImageBufAlgo::channels (*newsrc, *src, 1, NULL, NULL, NULL, true);
         std::swap (src, newsrc);
     }
@@ -1030,7 +1008,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
     if ((nchannels > 0) && (nchannels != src->nchannels())) {
         if (verbose)
             outstream << "  Overriding number of channels to " << nchannels << "\n";
-        boost::shared_ptr<ImageBuf> newsrc (new ImageBuf(src->spec()));
+        OIIO::shared_ptr<ImageBuf> newsrc (new ImageBuf(src->spec()));
         ImageBufAlgo::channels (*newsrc, *src, nchannels, NULL, NULL, NULL, true);
         std::swap (src, newsrc);
     }
@@ -1219,7 +1197,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
                      srcspec.format.basetype == TypeDesc::HALF ||
                      srcspec.format.basetype == TypeDesc::DOUBLE)) {
         int found_nonfinite = 0;
-        ImageBufAlgo::parallel_image (boost::bind(check_nan_block, boost::ref(*src), _1, boost::ref(found_nonfinite)),
+        ImageBufAlgo::parallel_image (OIIO::bind(check_nan_block, OIIO::ref(*src), _1, OIIO::ref(found_nonfinite)),
                                       OIIO::get_roi(srcspec));
         if (found_nonfinite) {
             if (found_nonfinite > 3)
@@ -1245,7 +1223,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
 
         // Buffer for the color-corrected version. Start by making it just
         // another pointer to the original source.
-        boost::shared_ptr<ImageBuf> ccSrc (src);  // color-corrected buffer
+        OIIO::shared_ptr<ImageBuf> ccSrc (src);  // color-corrected buffer
 
         if (src->spec().format != TypeDesc::FLOAT) {
             // If the original src buffer isn't float, make a scratch space
@@ -1346,7 +1324,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
     double misc_time_3 = alltime.lap(); 
     STATUS ("misc3", misc_time_3);
 
-    boost::shared_ptr<ImageBuf> toplevel;  // Ptr to top level of mipmap
+    OIIO::shared_ptr<ImageBuf> toplevel;  // Ptr to top level of mipmap
     if (! do_resize && dstspec.format == src->spec().format) {
         // No resize needed, no format conversion needed -- just stick to
         // the image we've already got
@@ -1354,8 +1332,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
     } else  if (! do_resize) {
         // Need format conversion, but no resize -- just copy the pixels
         toplevel.reset (new ImageBuf (dstspec));
-        ImageBufAlgo::parallel_image (boost::bind(copy_block,boost::ref(*toplevel),boost::cref(*src),_1),
-                                      OIIO::get_roi(dstspec));
+        toplevel->copy_pixels (*src);
     } else {
         // Resize
         if (verbose)
@@ -1367,7 +1344,7 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
         toplevel.reset (new ImageBuf (dstspec));
         if ((resize_filter == "box" || resize_filter == "triangle")
             && !orig_was_overscan) {
-            ImageBufAlgo::parallel_image (boost::bind(resize_block, boost::ref(*toplevel), boost::cref(*src), _1, envlatlmode, allow_shift),
+            ImageBufAlgo::parallel_image (OIIO::bind(resize_block, OIIO::ref(*toplevel), OIIO::cref(*src), _1, envlatlmode, allow_shift),
                                           OIIO::get_roi(dstspec));
         } else {
             Filter2D *filter = setup_filter (toplevel->spec(), src->spec(), resize_filter);
@@ -1516,7 +1493,8 @@ make_texture_impl (ImageBufAlgo::MakeTextureMode mode,
     if (! ok)
         Filesystem::remove (tmpfilename);
 
-    if (verbose || configspec.get_int_attribute("maketx:stats")) {
+    if (verbose || configspec.get_int_attribute("maketx:runstats")
+                || configspec.get_int_attribute("maketx:stats")) {
         double all = alltime();
         outstream << Strutil::format ("maketx run time (seconds): %5.2f\n", all);;
 

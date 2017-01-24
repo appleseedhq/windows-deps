@@ -81,7 +81,7 @@ void test_timeintervalformat ()
 
 void test_get_rest_arguments ()
 {
-    int ret;
+    bool ret;
     std::map <std::string, std::string> result;
     std::string base;
     std::string url = "someplace?arg1=value1&arg2=value2";
@@ -265,6 +265,10 @@ void test_split ()
     OIIO_CHECK_EQUAL (splits.size(), 2);
     OIIO_CHECK_EQUAL (splits[0], "Now\nis");
     OIIO_CHECK_EQUAL (splits[1], "the  time!");
+
+    Strutil::split ("blah", splits, "!");
+    OIIO_CHECK_EQUAL (splits.size(), 1);
+    OIIO_CHECK_EQUAL (splits[0], "blah");
 }
 
 
@@ -278,6 +282,40 @@ void test_join ()
     seq.push_back ("time");
     OIIO_CHECK_EQUAL (Strutil::join (seq, ". "),
                       "Now. is. the. time");
+}
+
+
+
+void test_repeat ()
+{
+    std::cout << "Testing repeat\n";
+    OIIO_CHECK_EQUAL (Strutil::repeat("foo",3), "foofoofoo");
+    OIIO_CHECK_EQUAL (Strutil::repeat("foo",1), "foo");
+    OIIO_CHECK_EQUAL (Strutil::repeat("foo",0), "");
+    OIIO_CHECK_EQUAL (Strutil::repeat("foo",-1), "");
+}
+
+
+
+void test_replace ()
+{
+    std::cout << "Testing replace\n";
+    std::string pattern ("Red rose, red rose, end.");
+    // Replace start
+    OIIO_CHECK_EQUAL (Strutil::replace(pattern, "Red", "foo"),
+                      "foo rose, red rose, end.");
+    // Replace end
+    OIIO_CHECK_EQUAL (Strutil::replace(pattern, "end.", "foo"),
+                      "Red rose, red rose, foo");
+    // Pattern not found
+    OIIO_CHECK_EQUAL (Strutil::replace(pattern, "bar", "foo"),
+                      pattern);
+    // One replacement
+    OIIO_CHECK_EQUAL (Strutil::replace(pattern, "rose", "foo"),
+                      "Red foo, red rose, end.");
+    // Global replacement
+    OIIO_CHECK_EQUAL (Strutil::replace(pattern, "rose", "foo", true),
+                      "Red foo, red foo, end.");
 }
 
 
@@ -345,6 +383,14 @@ void test_extract ()
     OIIO_CHECK_EQUAL (vals[1], -1);
     OIIO_CHECK_EQUAL (vals[2], -1);
     OIIO_CHECK_EQUAL (n, 0);
+
+    vals.clear();
+    n = Strutil::extract_from_list_string (vals, "1,3,5");
+    OIIO_CHECK_EQUAL (vals.size(), 3);
+    OIIO_CHECK_EQUAL (vals[0], 1);
+    OIIO_CHECK_EQUAL (vals[1], 3);
+    OIIO_CHECK_EQUAL (vals[2], 5);
+    OIIO_CHECK_EQUAL (n, 3);
 }
 
 
@@ -498,6 +544,11 @@ void test_parse ()
     OIIO_CHECK_ASSERT (ss == "foo;bar" && s == " blow");
     s = "foo;bar blow"; ss = parse_until (s, "/");
     OIIO_CHECK_ASSERT (ss == "foo;bar blow" && s == "");
+
+    s = "[a([b]c)]x]"; ss = parse_nested (s);
+    OIIO_CHECK_EQUAL (ss, "[a([b]c)]"); OIIO_CHECK_EQUAL (s, "x]");
+    s = "[a([b]c)]x]"; ss = parse_nested (s, false);
+    OIIO_CHECK_EQUAL (ss, "[a([b]c)]"); OIIO_CHECK_EQUAL (s, "[a([b]c)]x]");
 }
 
 
@@ -546,6 +597,8 @@ main (int argc, char *argv[])
     test_strip ();
     test_split ();
     test_join ();
+    test_repeat ();
+    test_replace ();
     test_conversion ();
     test_extract ();
     test_safe_strcpy ();

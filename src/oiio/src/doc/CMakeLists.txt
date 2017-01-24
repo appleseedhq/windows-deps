@@ -3,7 +3,7 @@ project(documentation)
 set (public_docs
      openimageio.pdf
      "${OpenImageIO_SOURCE_DIR}/LICENSE"
-     "${OpenImageIO_SOURCE_DIR}/CHANGES"
+     "${OpenImageIO_SOURCE_DIR}/CHANGES.md"
 )
 
 if (INSTALL_DOCS)
@@ -18,7 +18,9 @@ find_package(PythonInterp)
 if (UNIX AND TXT2MAN AND PYTHONINTERP_FOUND)
     message (STATUS "Unix man page documentation will be generated")
     set (cli_tools oiiotool iinfo maketx idiff igrep iconvert)
-    if (USE_QT)
+
+    find_program (IV_FOUND iv)
+    if (IV_FOUND)
         list (APPEND cli_tools iv)
     endif()
 

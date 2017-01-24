@@ -27,7 +27,7 @@ to a file:
         out->open (filename, spec);
         out->write_image (TypeDesc::UINT8, pixels);
         out->close ();
-        delete out;
+        ImageOutput::destroy (out);
 \end{code}
 
 \noindent This little bit of code does a surprising amount of useful work:  
@@ -62,7 +62,7 @@ to a file:
   the plugin.
   \begin{code}
         out->close ();
-        delete out;
+        ImageOutput::destroy (out);
   \end{code}
 \end{itemize}
 
@@ -854,7 +854,7 @@ completed.  Here is an example:
         if (subimages > 1 &&  (! out->supports("multiimage") ||
                                ! out->supports("appendsubimage"))) {
             std::cerr << "Does not support appending of subimages\n";
-            delete out;
+            ImageOutput::destroy (out);
             return;
         }
 
@@ -869,7 +869,7 @@ completed.  Here is an example:
             appendmode = ImageOutput::AppendSubimage;
         }
         out->close ();
-        delete out;
+        ImageOutput::destroy (out);
 \end{code}
 
 
@@ -897,7 +897,7 @@ specification of the subimages at the time you first open the file.
         // Be sure we can support subimages
         if (subimages > 1 && ! out->supports ("multiimage")) {
             std::cerr << "Cannot write multiple subimages\n";
-            delete out;
+            ImageOutput::destroy (out);
             return;
         }
 
@@ -911,7 +911,7 @@ specification of the subimages at the time you first open the file.
             out->write_image (TypeDesc::UINT8, pixels[s]);
         }
         out->close ();
-        delete out;
+        ImageOutput::destroy (out);
 \end{code}
 
 In both of these examples, we have used \writeimage, but of course
@@ -959,7 +959,7 @@ used for texture mapping):
         // Be sure we can support either mipmaps or subimages
         if (! out->supports ("mipmap") && ! out->supports ("multiimage")) {
             std::cerr << "Cannot write a MIP-map\n";
-            delete out;
+            ImageOutput::destroy (out);
             return;
         }
         // Set up spec for the highest resolution
@@ -988,7 +988,7 @@ used for texture mapping):
                 appendmode = ImageOutput::AppendSubimage;
         }
         out->close ();
-        delete out;
+        ImageOutput::destroy (out);
 \end{code}
 
 In this example, we have used \writeimage, but of course \writescanline,
@@ -1028,7 +1028,7 @@ a Z channel in {\cf float}:
 
         // Double check that this format accepts per-channel formats
         if (! out->supports("channelformats")) {
-            delete out;
+            ImageOutput::destroy (out);
             return;
         }
 
@@ -1081,35 +1081,9 @@ only for writing deep data:
 It is only possible to write ``native'' data types to deep files; that
 is, there is no automatic translation into arbitrary data types as there
 is for ordinary images.  All three of these functions are passed
-deep data in a special {\cf DeepData} structure, defined in
-{\cf imageio.h} as follows:
+deep data in a special {\cf DeepData} structure, described in
+detail in Section~\ref{sec:deepdata}.
 
-\begin{code}
-    struct DeepData {
-        int npixels, nchannels;
-        std::vector<TypeDesc> channeltypes;  // for each channel [c]
-        std::vector<unsigned int> nsamples;// for each pixel [z][y][x]
-        std::vector<void *> pointers;    // for each channel per pixel [z][y][x][c]
-        std::vector<char> data;          // for each sample [z][y][x][c][s]
-
-        DeepData ();
-        // Set the size and allocate the nsamples[] vector.
-        void init (int npix, int nchan,
-                   const TypeDesc *chbegin, const TypeDesc *chend);
-        // After nsamples[] has been filled in, allocate enough scratch space
-        // for data and set up all the pointers.
-        void alloc ();
-        // Clear the vectors and reset size to 0.
-        void clear ();
-        // Deallocate all space in the vectors
-        void free ();
-        // Retrieve the pointer to the first sample of the given pixel and
-        // channel. Return NULL if there are no samples for that pixel.
-        void *channel_ptr (int pixel, int channel) const;
-        // Retrieve sample value within a pixel, cast to a float.
-        float deep_value (int pixel, int channel, int sample) const;
-    };
-\end{code}
 
 \noindent Here is an example of using these methods to write a deep image:
 
@@ -1126,27 +1100,17 @@ deep data in a special {\cf DeepData} structure, defined in
 
     // Prepare the data (sorry, complicated, but need to show the gist)
     DeepData deepdata;
-    deepdata.init (xres*yres, 5, channeltypes+0, channeltypes+nchannels);
+    deepdata.init (spec);
     for (int y = 0;  y < yres;  ++y)
         for (int x = 0;  x < xres;  ++x)
-            deepdata.nsamples[y*xres+x] = ...num samples for that pixel...;
+            deepdata.set_samples(y*xres+x, ...samples for that pixel...);
     deepdata.alloc ();  // allocate pointers and data
     int pixel = 0;
     for (int y = 0;  y < yres;  ++y)
         for (int x = 0;  x < xres;  ++x, ++pixel)
-            for (int chan = 0;  chan < nchannels;  ++chan) {
-                void *ptr = deepdata.pointers[pixel*nchannels + c];
-                if (chan < 4) {  // RGBA -- it's HALF data
-                    for (int samp = 0; samp < deepdata.nsamples[pixel]; ++samp)
-                        ((half *)ptr)[samp] = ...value...;
-                } else {
-                    // z channel -- FLOAT data
-                    for (int samp = 0; samp < deepdata.nsamples[pixel]; ++samp)
-                        ((float *)ptr)[samp] = ...value...;
-                }
-            }
-        }
-    }
+            for (int chan = 0;  chan < nchannels;  ++chan)
+                for (int samp = 0; samp < deepdata.samples(pixel); ++samp)
+                    deepdata.set_deep_value (pixel, chan, samp, ...value...);
 
 
     // Create the output
@@ -1161,7 +1125,7 @@ deep data in a special {\cf DeepData} structure, defined in
     out->open (filename, spec);
     out->write_deep_image (deepdata);
     out->close ();
-    delete out;
+    ImageOutput::destroy (out);
 \end{code}
 
 
@@ -1214,9 +1178,9 @@ without alteration while modifying the image description metadata:
 
     // Clean up
     out->close ();
-    delete out;
+    ImageOutput::destroy (out);
     in->close ();
-    delete in;
+    ImageInput::destroy (in);
 \end{code}
 
 
@@ -1300,25 +1264,25 @@ elaborated with error checking and reporting:
         if (! out->open (filename, spec)) {
             std::cerr << "Could not open " << filename 
                       << ", error = " << out->geterror() << "\n";
-            delete out;
+            ImageOutput::destroy (out);
             return;
         }
 
         if (! out->write_image (TypeDesc::UINT8, pixels)) {
             std::cerr << "Could not write pixels to " << filename 
                       << ", error = " << out->geterror() << "\n";
-            delete out;
+            ImageOutput::destroy (out);
             return;
         }
 
         if (! out->close ()) {
             std::cerr << "Error closing " << filename 
                       << ", error = " << out->geterror() << "\n";
-            delete out;
+            ImageOutput::destroy (out);
             return;
         }
 
-        delete out;
+        ImageOutput::destroy (out);
 \end{code}
 
 
@@ -1335,7 +1299,15 @@ returned, and the plugin that contains its methods) is inferred from the
 extension of the file name.  The {\kw plugin_searchpath} parameter is a
 colon-separated list of directories to search for \product plugin
 DSO/DLL's.
+\apiend
 
+\apiitem{void {\ce destroy} (ImageOutput *Output)}
+Destroy an \ImageOutput that was created by {\cf create()}.
+The {\cf destroy()} method is just a wrapper around operator {\cf delete},
+but by being implemented within the \product DLL, it can ensure that the
+memory deallocation is done in the same DLL arena as where it was originally
+allocated. This is considered safer than a bare {\cf delete} when
+used inside ``plug-ins,'' especially on Windows systems.
 \apiend
 
 \apiitem{const char * {\ce format_name} ()}
@@ -1343,11 +1315,14 @@ Returns the canonical name of the format that this \ImageOutput
 instance is capable of writing.
 \apiend
 
-\apiitem{bool {\ce supports} (const std::string \&feature)}
+\apiitem{int {\ce supports} (string_view feature) const}
 \label{sec:supportsfeaturelist}
-Given the name of a \emph{feature}, tells if this \ImageOutput 
-instance supports that feature.  The following features are recognized
-by this query:
+Given the name of a \emph{feature}, tells if this \ImageOutput  instance
+supports that feature.  Most queries will simply return 0 for ``doesn't
+support the feature'' and nonzero for ``supports the feature,'' but it is
+acceptable to have queries return other nonzero integers to indicate varying
+degrees of support or limits (but those queries should be clearly documented
+as such). The following features are recognized by this query:
 \begin{description}
 \item[\spc] \spc 
 \item[\rm \qkw{tiles}] Is this plugin able to write tiled images?
@@ -1667,6 +1642,21 @@ This is currently undefined and is reserved for future use.
 \apiitem{int {\ce send_to_client} (const char *format, ...)}
 General message passing between client and image output server.
 This is currently undefined and is reserved for future use.
+\apiend
+
+\apiitem{void {\ce threads} (int n) \\
+int {\ce threads} () const}
+\index{threads}
+Get or set the threading policy for this \ImageOutput, controlling the
+maximum amount of parallelizing thread ``fan-out'' that might occur during
+large write operations. The default of 0 means that the global
+{\cf attribute("threads")} value should be used (which itself defaults to
+using as many threads as cores; see Section~\ref{sec:attribute:threads}).
+
+The main reason to change this value is to set it to 1 to indicate that the
+calling thread should do all the work rather than spawning new threads. That
+is probably the desired behavior in situations where the calling application
+has already spawned multiple worker threads.
 \apiend
 
 \apiitem{std::string {\ce geterror} ()}

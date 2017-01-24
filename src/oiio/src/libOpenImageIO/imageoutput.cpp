@@ -43,14 +43,29 @@
 #include "OpenImageIO/strutil.h"
 
 #include "OpenImageIO/imageio.h"
+#include "OpenImageIO/deepdata.h"
 #include "imageio_pvt.h"
 
 #include <boost/scoped_array.hpp>
 
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
     using namespace pvt;
+
+
+
+ImageOutput::ImageOutput ()
+    : m_threads(0)
+{
+}
+
+
+
+ImageOutput::~ImageOutput ()
+{
+}
+
+
 
 bool
 ImageOutput::write_scanline (int y, int z, TypeDesc format,
@@ -284,6 +299,12 @@ ImageOutput::to_native_rectangle (int xbegin, int xend, int ybegin, int yend,
     // native_data is true if the user is passing data in the native format
     bool native_data = (format == TypeDesc::UNKNOWN ||
                         (format == m_spec.format && !perchanfile));
+    stride_t input_pixel_bytes = native_data ? native_pixel_bytes
+                                             : stride_t(format.size()*m_spec.nchannels);
+    // If user is passing native data and it's all one type, go ahead and
+    // set format correctly.
+    if (format == TypeDesc::UNKNOWN && !perchanfile)
+        format = m_spec.format;
     // If the user is passing native data and they've left xstride set
     // to Auto, then we know it's the native pixel size.
     if (native_data && xstride == AutoStride)
@@ -319,7 +340,7 @@ ImageOutput::to_native_rectangle (int xbegin, int xend, int ybegin, int yend,
 
     imagesize_t rectangle_pixels = width * height * depth;
     imagesize_t rectangle_values = rectangle_pixels * m_spec.nchannels;
-    imagesize_t rectangle_bytes = rectangle_pixels * native_pixel_bytes;
+    imagesize_t native_rectangle_bytes = rectangle_pixels * native_pixel_bytes;
 
     // Cases to handle:
     // 1. File has per-channel data, user passes native data -- this has
@@ -337,7 +358,7 @@ ImageOutput::to_native_rectangle (int xbegin, int xend, int ybegin, int yend,
         }
         ASSERT (format != TypeDesc::UNKNOWN);
         ASSERT (m_spec.channelformats.size() == (size_t)m_spec.nchannels);
-        scratch.resize (rectangle_bytes);
+        scratch.resize (native_rectangle_bytes);
         size_t offset = 0;
         for (int c = 0;  c < m_spec.nchannels;  ++c) {
             TypeDesc chanformat = m_spec.channelformats[c];
@@ -356,11 +377,13 @@ ImageOutput::to_native_rectangle (int xbegin, int xend, int ybegin, int yend,
     // The remaining code is where all channels in the file have the
     // same data type, which may or may not be what the user passed in
     // (cases #3 and #4 above).
-    imagesize_t contiguoussize = contiguous ? 0 : rectangle_values * native_pixel_bytes;
+    imagesize_t contiguoussize = contiguous ? 0 : rectangle_values * input_pixel_bytes;
     contiguoussize = (contiguoussize+3) & (~3); // Round up to 4-byte boundary
     DASSERT ((contiguoussize & 3) == 0);
     imagesize_t floatsize = rectangle_values * sizeof(float);
-    scratch.resize (contiguoussize + floatsize + rectangle_bytes);
+    bool do_dither = (dither && format.is_floating_point() &&
+                      m_spec.format.basetype == TypeDesc::UINT8);
+    scratch.resize (contiguoussize + floatsize + native_rectangle_bytes);
 
     // Force contiguity if not already present
     if (! contiguous) {
@@ -373,27 +396,24 @@ ImageOutput::to_native_rectangle (int xbegin, int xend, int ybegin, int yend,
     // will always preserve enough precision.
     const float *buf;
     if (format == TypeDesc::FLOAT) {
-        // Already in float format -- leave it as-is.
-        buf = (float *)data;
+        if (! do_dither) {
+            // Already in float format and no dither -- leave it as-is.
+            buf = (float *)data;
+        } else {
+            // Need to make a copy, even though it's already float, so the
+            // dither doesn't overwrite the caller's data.
+            buf = (float *)&scratch[contiguoussize];
+            memcpy ((float *)buf, data, floatsize);
+        }
     } else {
         // Convert from 'format' to float.
         buf = convert_to_float (data, (float *)&scratch[contiguoussize],
-                                rectangle_values, format);
+                                (int)rectangle_values, format);
     }
 
-    if (dither && format.is_floating_point() &&
-            m_spec.format.basetype == TypeDesc::UINT8) {
-        float *ditherarea = (float *)&scratch[contiguoussize];
+    if (do_dither) {
         stride_t pixelsize = m_spec.nchannels * sizeof(float);
-        if (buf != ditherarea) {
-            // Need to make a copy for dither so we don't destroy user's data.
-            OIIO::copy_image (m_spec.nchannels, width, height, depth,
-                              buf, pixelsize, pixelsize, pixelsize*width,
-                              pixelsize*width*height, ditherarea,
-                              pixelsize, pixelsize*width, pixelsize*width*height);
-            buf = ditherarea;
-        }
-        OIIO::add_dither (m_spec.nchannels, width, height, depth, ditherarea,
+        OIIO::add_dither (m_spec.nchannels, width, height, depth, (float *)buf,
                           pixelsize, pixelsize*width, pixelsize*width*height,
                           1.0f/255.0f, m_spec.alpha_channel, m_spec.z_channel,
                           dither, 0, xorigin, yorigin, zorigin);
@@ -524,59 +544,80 @@ ImageOutput::copy_image (ImageInput *in)
 
 
 bool
-ImageOutput::copy_tile_to_image_buffer (int x, int y, int z, TypeDesc format,
-                                        const void *data, stride_t xstride,
-                                        stride_t ystride, stride_t zstride,
-                                        void *image_buffer)
+ImageOutput::copy_to_image_buffer (int xbegin, int xend, int ybegin, int yend,
+                                   int zbegin, int zend, TypeDesc format,
+                                   const void *data, stride_t xstride,
+                                   stride_t ystride, stride_t zstride,
+                                   void *image_buffer, TypeDesc buf_format)
 {
-    if (! m_spec.tile_width || ! m_spec.tile_height) {
-        error ("Called write_tile for non-tiled image.");
-        return false;
-    }
-
     const ImageSpec &spec (this->spec());
+    if (buf_format == TypeDesc::UNKNOWN)
+        buf_format = spec.format;
     spec.auto_stride (xstride, ystride, zstride, format, spec.nchannels,
-                        spec.tile_width, spec.tile_height);
-    stride_t buf_xstride = spec.pixel_bytes();
-    stride_t buf_ystride = spec.scanline_bytes();
-    stride_t buf_zstride = spec.scanline_bytes() * spec.height;
-    stride_t offset = (x-spec.x)*buf_xstride 
-                    + (y-spec.y)*buf_ystride
-                    + (z-spec.z)*buf_zstride;
-    int xend = std::min (x+spec.tile_width,  spec.x+spec.width);
-    int yend = std::min (y+spec.tile_height, spec.y+spec.height);
-    int zend = std::min (z+spec.tile_depth,  spec.z+spec.depth);
-    int width = xend-x, height = yend-y, depth = zend-z;
+                      spec.width, spec.height);
+    stride_t buf_xstride = spec.nchannels * buf_format.size();
+    stride_t buf_ystride = buf_xstride * spec.width;
+    stride_t buf_zstride = buf_ystride * spec.height;
+    stride_t offset = (xbegin-spec.x)*buf_xstride
+                    + (ybegin-spec.y)*buf_ystride
+                    + (zbegin-spec.z)*buf_zstride;
+    int width = xend-xbegin, height = yend-ybegin, depth = zend-zbegin;
+    imagesize_t npixels = imagesize_t(width) * imagesize_t(height) * imagesize_t(depth);
 
     // Add dither if requested -- requires making a temporary staging area
     boost::scoped_array<float> ditherarea;
     unsigned int dither = spec.get_int_attribute ("oiio:dither", 0);
     if (dither && format.is_floating_point() &&
-            spec.format.basetype == TypeDesc::UINT8) {
+            buf_format.basetype == TypeDesc::UINT8) {
         stride_t pixelsize = spec.nchannels * sizeof(float);
-        ditherarea.reset (new float [pixelsize * spec.tile_pixels()]);
+        ditherarea.reset (new float [pixelsize * npixels]);
         OIIO::convert_image (spec.nchannels, width, height, depth,
                              data, format, xstride, ystride, zstride,
                              ditherarea.get(), TypeDesc::FLOAT,
-                             pixelsize, pixelsize*spec.tile_width,
-                             pixelsize*spec.tile_width*spec.tile_height);
+                             pixelsize, pixelsize*width,
+                             pixelsize*width*height);
         data = ditherarea.get();
         format = TypeDesc::FLOAT;
         xstride = pixelsize;
-        ystride = xstride * spec.tile_width;
-        zstride = ystride * spec.tile_height;
+        ystride = xstride * width;
+        zstride = ystride * height;
+        float ditheramp = spec.get_float_attribute ("oiio:ditheramplitude", 1.0f/255.0f);
         OIIO::add_dither (spec.nchannels, width, height, depth, (float *)data,
                           pixelsize, pixelsize*width, pixelsize*width*height,
-                          1.0f/255.0f, spec.alpha_channel, spec.z_channel,
-                          dither, 0, x, y, z);
+                          ditheramp, spec.alpha_channel, spec.z_channel,
+                          dither, 0, xbegin, ybegin, zbegin);
     }
 
     return OIIO::convert_image (spec.nchannels, width, height, depth,
                                 data, format, xstride, ystride, zstride,
-                                (char *)image_buffer + offset, spec.format,
+                                (char *)image_buffer + offset, buf_format,
                                 buf_xstride, buf_ystride, buf_zstride);
 }
 
 
+
+bool
+ImageOutput::copy_tile_to_image_buffer (int x, int y, int z, TypeDesc format,
+                                        const void *data, stride_t xstride,
+                                        stride_t ystride, stride_t zstride,
+                                        void *image_buffer,
+                                        TypeDesc buf_format)
+{
+    if (! m_spec.tile_width || ! m_spec.tile_height) {
+        error ("Called write_tile for non-tiled image.");
+        return false;
+    }
+    const ImageSpec &spec (this->spec());
+    spec.auto_stride (xstride, ystride, zstride, format, spec.nchannels,
+                      spec.tile_width, spec.tile_height);
+    int xend = std::min (x+spec.tile_width,  spec.x+spec.width);
+    int yend = std::min (y+spec.tile_height, spec.y+spec.height);
+    int zend = std::min (z+spec.tile_depth,  spec.z+spec.depth);
+    return copy_to_image_buffer (x, xend, y, yend, z, zend,
+                                 format, data, xstride, ystride, zstride,
+                                 image_buffer, buf_format);
 }
-OIIO_NAMESPACE_EXIT
+
+
+
+OIIO_NAMESPACE_END

@@ -87,7 +87,7 @@ void test_zero_fill ()
     ImageBuf A (spec);
     
     // Set a pixel to an odd value, make sure it takes
-    const float arbitrary1[CHANNELS] = { 0.2, 0.3, 0.4, 0.5 };
+    const float arbitrary1[CHANNELS] = { 0.2f, 0.3f, 0.4f, 0.5f };
     A.setpixel (1, 1, arbitrary1);
     float pixel[CHANNELS];   // test pixel
     A.getpixel (1, 1, pixel);
@@ -106,7 +106,7 @@ void test_zero_fill ()
     }
 
     // Test fill of whole image
-    const float arbitrary2[CHANNELS] = { 0.6, 0.7, 0.3, 0.9 };
+    const float arbitrary2[CHANNELS] = { 0.6f, 0.7f, 0.3f, 0.9f };
     ImageBufAlgo::fill (A, arbitrary2);
     for (int j = 0;  j < HEIGHT;  ++j) {
         for (int i = 0;  i < WIDTH;  ++i) {
@@ -118,7 +118,7 @@ void test_zero_fill ()
     }
 
     // Test fill of partial image
-    const float arbitrary3[CHANNELS] = { 0.42, 0.43, 0.44, 0.45 };
+    const float arbitrary3[CHANNELS] = { 0.42f, 0.43f, 0.44f, 0.45f };
     {
         const int xbegin = 3, xend = 5, ybegin = 0, yend = 4;
         ImageBufAlgo::fill (A, arbitrary3, ROI(xbegin, xend, ybegin, yend));
@@ -153,10 +153,10 @@ void test_crop ()
     A.reset (spec);
     B.reset (spec);
     float arbitrary1[4];
-    arbitrary1[0] = 0.2;
-    arbitrary1[1] = 0.3;
-    arbitrary1[2] = 0.4;
-    arbitrary1[3] = 0.5;
+    arbitrary1[0] = 0.2f;
+    arbitrary1[1] = 0.3f;
+    arbitrary1[2] = 0.4f;
+    arbitrary1[3] = 0.5f;
     ImageBufAlgo::fill (A, arbitrary1);
 
     // Test CUT crop
@@ -251,11 +251,8 @@ void test_channel_append ()
 void test_add ()
 {
     std::cout << "test add\n";
-    const int WIDTH = 8;
-    const int HEIGHT = 8;
-    const int CHANNELS = 4;
+    const int WIDTH = 4, HEIGHT = 4, CHANNELS = 4;
     ImageSpec spec (WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
-    spec.alpha_channel = 3;
 
     // Create buffers
     ImageBuf A (spec);
@@ -265,17 +262,123 @@ void test_add ()
     const float Bval[CHANNELS] = { 0.01, 0.02, 0.03, 0.04 };
     ImageBufAlgo::fill (B, Bval);
 
-    ImageBuf C (spec);
-    ImageBufAlgo::add (C, A, B);
+    // Test addition of images
+    ImageBuf R (spec);
+    ImageBufAlgo::add (R, A, B);
+    for (int j = 0;  j < spec.height;  ++j)
+        for (int i = 0;  i < spec.width;  ++i)
+            for (int c = 0;  c < spec.nchannels;  ++c)
+                OIIO_CHECK_EQUAL (R.getchannel (i, j, 0, c), Aval[c] + Bval[c]);
 
-    for (int j = 0;  j < HEIGHT;  ++j) {
-        for (int i = 0;  i < WIDTH;  ++i) {
-            float pixel[CHANNELS];
-            C.getpixel (i, j, pixel);
-            for (int c = 0;  c < CHANNELS;  ++c)
-                OIIO_CHECK_EQUAL (pixel[c], Aval[c]+Bval[c]);
-        }
-    }
+    // Test addition of image and constant color
+    ImageBuf D (spec);
+    ImageBufAlgo::add (D, A, Bval);
+    ImageBufAlgo::CompareResults comp;
+    ImageBufAlgo::compare (R, D, 1e-6, 1e-6, comp);
+    OIIO_CHECK_EQUAL (comp.maxerror, 0.0);
+}
+
+
+
+// Tests ImageBufAlgo::sub
+void test_sub ()
+{
+    std::cout << "test sub\n";
+    const int WIDTH = 4, HEIGHT = 4, CHANNELS = 4;
+    ImageSpec spec (WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
+
+    // Create buffers
+    ImageBuf A (spec);
+    const float Aval[CHANNELS] = { 0.1, 0.2, 0.3, 0.4 };
+    ImageBufAlgo::fill (A, Aval);
+    ImageBuf B (spec);
+    const float Bval[CHANNELS] = { 0.01, 0.02, 0.03, 0.04 };
+    ImageBufAlgo::fill (B, Bval);
+
+    // Test subtraction of images
+    ImageBuf R (spec);
+    ImageBufAlgo::sub (R, A, B);
+    for (int j = 0;  j < spec.height;  ++j)
+        for (int i = 0;  i < spec.width;  ++i)
+            for (int c = 0;  c < spec.nchannels;  ++c)
+                OIIO_CHECK_EQUAL (R.getchannel (i, j, 0, c), Aval[c] - Bval[c]);
+
+    // Test subtraction of image and constant color
+    ImageBuf D (spec);
+    ImageBufAlgo::sub (D, A, Bval);
+    ImageBufAlgo::CompareResults comp;
+    ImageBufAlgo::compare (R, D, 1e-6, 1e-6, comp);
+    OIIO_CHECK_EQUAL (comp.maxerror, 0.0);
+}
+
+
+
+// Tests ImageBufAlgo::mul
+void test_mul ()
+{
+    std::cout << "test mul\n";
+    const int WIDTH = 4, HEIGHT = 4, CHANNELS = 4;
+    ImageSpec spec (WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
+
+    // Create buffers
+    ImageBuf A (spec);
+    const float Aval[CHANNELS] = { 0.1, 0.2, 0.3, 0.4 };
+    ImageBufAlgo::fill (A, Aval);
+    ImageBuf B (spec);
+    const float Bval[CHANNELS] = { 0.01, 0.02, 0.03, 0.04 };
+    ImageBufAlgo::fill (B, Bval);
+
+    // Test multiplication of images
+    ImageBuf R (spec);
+    ImageBufAlgo::mul (R, A, B);
+    for (int j = 0;  j < spec.height;  ++j)
+        for (int i = 0;  i < spec.width;  ++i)
+            for (int c = 0;  c < spec.nchannels;  ++c)
+                OIIO_CHECK_EQUAL (R.getchannel (i, j, 0, c), Aval[c] * Bval[c]);
+
+    // Test multiplication of image and constant color
+    ImageBuf D (spec);
+    ImageBufAlgo::mul (D, A, Bval);
+    ImageBufAlgo::CompareResults comp;
+    ImageBufAlgo::compare (R, D, 1e-6, 1e-6, comp);
+    OIIO_CHECK_EQUAL (comp.maxerror, 0.0);
+}
+
+
+
+// Tests ImageBufAlgo::mad
+void test_mad ()
+{
+    std::cout << "test mad\n";
+    const int WIDTH = 4, HEIGHT = 4, CHANNELS = 4;
+    ImageSpec spec (WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
+
+    // Create buffers
+    ImageBuf A (spec);
+    const float Aval[CHANNELS] = { 0.1, 0.2, 0.3, 0.4 };
+    ImageBufAlgo::fill (A, Aval);
+    ImageBuf B (spec);
+    const float Bval[CHANNELS] = { 1, 2, 3, 4 };
+    ImageBufAlgo::fill (B, Bval);
+    ImageBuf C (spec);
+    const float Cval[CHANNELS] = { 0.01, 0.02, 0.03, 0.04 };
+    ImageBufAlgo::fill (C, Cval);
+
+    // Test multiplication of images
+    ImageBuf R (spec);
+    ImageBufAlgo::mad (R, A, B, C);
+    for (int j = 0;  j < spec.height;  ++j)
+        for (int i = 0;  i < spec.width;  ++i)
+            for (int c = 0;  c < spec.nchannels;  ++c)
+                OIIO_CHECK_EQUAL (R.getchannel (i, j, 0, c),
+                                  Aval[c] * Bval[c] + Cval[c]);
+
+    // Test multiplication of image and constant color
+    ImageBuf D (spec);
+    ImageBufAlgo::mad (D, A, Bval, Cval);
+    ImageBufAlgo::CompareResults comp;
+    ImageBufAlgo::compare (R, D, 1e-6, 1e-6, comp);
+    OIIO_CHECK_EQUAL (comp.maxerror, 0.0);
 }
 
 
@@ -404,6 +507,31 @@ void test_isMonochrome ()
 
 
 
+// Tests ImageBufAlgo::computePixelStats()
+void test_computePixelStats ()
+{
+    std::cout << "test computePixelStats\n";
+    ImageBuf img (ImageSpec(2,2,3,TypeDesc::FLOAT));
+    float black[3] = { 0, 0, 0 }, white[3] = { 1, 1, 1 };
+    img.setpixel (0, 0, black);
+    img.setpixel (1, 0, white);
+    img.setpixel (0, 1, black);
+    img.setpixel (1, 1, white);
+    ImageBufAlgo::PixelStats stats;
+    ImageBufAlgo::computePixelStats (stats, img);
+    for (int c = 0; c < 3; ++c) {
+        OIIO_CHECK_EQUAL (stats.min[c], 0.0f);
+        OIIO_CHECK_EQUAL (stats.max[c], 1.0f);
+        OIIO_CHECK_EQUAL (stats.avg[c], 0.5f);
+        OIIO_CHECK_EQUAL (stats.stddev[c], 0.5f);
+        OIIO_CHECK_EQUAL (stats.nancount[c], 0);
+        OIIO_CHECK_EQUAL (stats.infcount[c], 0);
+        OIIO_CHECK_EQUAL (stats.finitecount[c], 4);
+    }
+}
+
+
+
 // Test ability to do a maketx directly from an ImageBuf
 void
 test_maketx_from_imagebuf()
@@ -413,7 +541,7 @@ test_maketx_from_imagebuf()
     const int WIDTH = 16, HEIGHT = 16, CHANNELS = 3;
     ImageSpec spec (WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
     ImageBuf A (spec);
-    float pink[] = { .5, .3, .3 }, green[] = { .1, .5, .1 };
+    float pink[] = { 0.5f, 0.3f, 0.3f }, green[] = { 0.1f, 0.5f, 0.1f };
     ImageBufAlgo::checker (A, 4, 4, 4, pink, green);
 
     // Write it
@@ -435,6 +563,74 @@ test_maketx_from_imagebuf()
 
 
 
+// Test various IBAprep features
+void
+test_IBAprep ()
+{
+    using namespace ImageBufAlgo;
+    ImageBuf rgb  (ImageSpec(256, 256, 3));  // Basic RGB uint8 image
+    ImageBuf rgba (ImageSpec(256, 256, 4));  // Basic RGBA uint8 image
+
+#define CHECK(...)  { ImageBuf dst; ROI roi; OIIO_CHECK_ASSERT (IBAprep (__VA_ARGS__)); }
+#define CHECK0(...) { ImageBuf dst; ROI roi; OIIO_CHECK_ASSERT (!IBAprep (__VA_ARGS__)); }
+
+    // Test REQUIRE_ALPHA
+    CHECK  (roi, &dst, &rgba, IBAprep_REQUIRE_ALPHA);
+    CHECK0 (roi, &dst, &rgb,  IBAprep_REQUIRE_ALPHA);
+
+    // Test REQUIRE_Z
+    ImageSpec rgbaz_spec (256, 256, 5);
+    rgbaz_spec.channelnames[4] = "Z";
+    rgbaz_spec.z_channel = 4;
+    ImageBuf rgbaz (rgbaz_spec);
+    CHECK  (  roi, &dst, &rgbaz, IBAprep_REQUIRE_Z);
+    CHECK0 (roi, &dst, &rgb, IBAprep_REQUIRE_Z);
+
+    // Test REQUIRE_SAME_NCHANNELS
+    CHECK  (roi, &dst, &rgb, &rgb,  NULL, NULL, IBAprep_REQUIRE_SAME_NCHANNELS);
+    CHECK0 (roi, &dst, &rgb, &rgba, NULL, NULL, IBAprep_REQUIRE_SAME_NCHANNELS);
+
+    // Test NO_SUPPOERT_VOLUME
+    ImageSpec volspec (256, 256, 3);  volspec.depth = 256;
+    ImageBuf vol (volspec);
+    CHECK  (roi, &dst, &rgb, IBAprep_NO_SUPPORT_VOLUME);
+    CHECK0 (roi, &dst, &vol, IBAprep_NO_SUPPORT_VOLUME);
+
+    // Test SUPPORT_DEEP
+    ImageSpec deepspec (256, 256, 3);  deepspec.deep = true;
+    ImageBuf deep (deepspec);
+    CHECK  (roi, &dst, &deep, IBAprep_SUPPORT_DEEP);
+    CHECK0 (roi, &dst, &deep);  // deep should be rejected
+
+    // Test DEEP_MIXED
+    CHECK  (roi, &dst, &deep, &deep, NULL, IBAprep_SUPPORT_DEEP | IBAprep_DEEP_MIXED);
+    CHECK  (roi, &dst, &deep, &rgb, NULL, IBAprep_SUPPORT_DEEP | IBAprep_DEEP_MIXED);
+    CHECK  (roi, &dst, &deep, &deep, NULL, IBAprep_SUPPORT_DEEP);
+    CHECK0 (roi, &dst, &deep, &rgb, NULL, IBAprep_SUPPORT_DEEP);
+
+    // Test DST_FLOAT_PIXELS
+    {
+        ROI roi1, roi2;
+        ImageBuf dst1, dst2;
+        OIIO_CHECK_ASSERT (IBAprep (roi1, &dst1, &rgb));
+        OIIO_CHECK_EQUAL (dst1.spec().format, TypeDesc::UINT8);
+        OIIO_CHECK_ASSERT (IBAprep (roi2, &dst2, &rgb, IBAprep_DST_FLOAT_PIXELS));
+        OIIO_CHECK_EQUAL (dst2.spec().format, TypeDesc::FLOAT);
+    }
+
+    // Test MINIMIZE_NCHANNELS
+    {
+        ROI roi1, roi2;
+        ImageBuf dst1, dst2;
+        OIIO_CHECK_ASSERT (IBAprep (roi1, &dst1, &rgb, &rgba));
+        OIIO_CHECK_EQUAL (dst1.nchannels(), 4);
+        OIIO_CHECK_ASSERT (IBAprep (roi2, &dst2, &rgb, &rgba, NULL, NULL, IBAprep_MINIMIZE_NCHANNELS));
+        OIIO_CHECK_EQUAL (dst2.nchannels(), 3);
+    }
+#undef CHECK
+}
+
+
 
 int
 main (int argc, char **argv)
@@ -445,11 +641,16 @@ main (int argc, char **argv)
     test_paste ();
     test_channel_append ();
     test_add ();
+    test_sub ();
+    test_mul ();
+    test_mad ();
     test_compare ();
     test_isConstantColor ();
     test_isConstantChannel ();
     test_isMonochrome ();
+    test_computePixelStats ();
     test_maketx_from_imagebuf ();
+    test_IBAprep ();
     
     return unit_test_failures;
 }

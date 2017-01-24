@@ -45,6 +45,7 @@
 #include "OpenImageIO/imageio.h"
 #include "OpenImageIO/imagebuf.h"
 #include "OpenImageIO/imagebufalgo.h"
+#include "OpenImageIO/deepdata.h"
 #include "OpenImageIO/hash.h"
 #include "OpenImageIO/filesystem.h"
 
@@ -79,8 +80,8 @@ print_sha1 (ImageInput *input)
             return;
         }
         // Hash both the sample counds and the data block
-        sha.appendvec (dd.nsamples);
-        sha.appendvec (dd.data);
+        sha.append (dd.all_samples());
+        sha.append (dd.all_data());
     } else {
         imagesize_t size = input->spec().image_bytes (true /*native*/);
         if (size >= std::numeric_limits<size_t>::max()) {
@@ -256,11 +257,11 @@ print_stats (const std::string &filename,
 
     if (input.deep()) {
         const DeepData *dd (input.deepdata());
-        size_t npixels = dd->nsamples.size();
+        size_t npixels = dd->pixels();
         size_t totalsamples = 0, emptypixels = 0;
         size_t maxsamples = 0, minsamples = std::numeric_limits<size_t>::max();
         for (size_t p = 0;  p < npixels;  ++p) {
-            size_t c = dd->nsamples[p];
+            size_t c = dd->samples(p);
             totalsamples += c;
             if (c > maxsamples)
                 maxsamples = c;
@@ -420,6 +421,27 @@ extended_format_name (TypeDesc type, int bits)
 
 
 
+static const char *
+brief_format_name (TypeDesc type, int bits=0)
+{
+    if (! bits)
+        bits = (int)type.size()*8;
+    if (type.is_floating_point()) {
+        if (type.basetype == TypeDesc::FLOAT)
+            return "f";
+        if (type.basetype == TypeDesc::HALF)
+            return "h";
+        return ustring::format("f%d", bits).c_str();
+    } else if (type.is_signed()) {
+        return ustring::format("i%d", bits).c_str();
+    } else {
+        return ustring::format("u%d", bits).c_str();
+    }
+    return type.c_str();  // use the name implied by type
+}
+
+
+
 // prints basic info (resolution, width, height, depth, channels, data format,
 // and format name) about given subimage.
 static void
@@ -570,10 +592,19 @@ print_info (const std::string &filename, size_t namefieldlength,
         printf ("    %d subimages: ", num_of_subimages);
         for (int i = 0; i < num_of_subimages; ++i) {
             input->seek_subimage (i, 0, spec);
+            int bits = spec.get_int_attribute ("oiio:BitsPerSample",
+                                               spec.format.size()*8);
+            if (i)
+                printf (", ");
             if (spec.depth > 1)
                 printf ("%dx%dx%d ", spec.width, spec.height, spec.depth);
             else
                 printf ("%dx%d ", spec.width, spec.height);
+            // printf ("[");
+            for (int c = 0; c < spec.nchannels; ++c)
+                printf ("%c%s", c ? ',' : '[',
+                        brief_format_name(spec.channelformat(c), bits));
+            printf ("]");
             if (movie)
                 break;
         }

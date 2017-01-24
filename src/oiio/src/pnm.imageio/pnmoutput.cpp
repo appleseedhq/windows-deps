@@ -40,10 +40,6 @@ class PNMOutput : public ImageOutput {
 public:
     virtual ~PNMOutput ();
     virtual const char * format_name (void) const { return "pnm"; }
-    virtual bool supports (const std::string &feature) const {
-        // Support nothing nonstandard
-        return false;
-    }
     virtual bool open (const std::string &name, const ImageSpec &spec,
                        OpenMode mode=Create);
     virtual bool close ();
@@ -55,7 +51,7 @@ public:
 
 private:
     std::string m_filename;           ///< Stash the filename
-    std::ofstream m_file;
+    OIIO::ofstream m_file;
     unsigned int m_max_val, m_pnm_type;
     unsigned int m_dither;
     std::vector<unsigned char> m_scratch;
@@ -191,12 +187,15 @@ PNMOutput::open (const std::string &name, const ImageSpec &userspec,
     {
         m_pnm_type -= 3;
         Filesystem::open (m_file, name);
+        
     }
-    else
+    else {
         Filesystem::open (m_file, name, std::ios::out|std::ios::binary);
-
-    if (!m_file.is_open())
-       return false;
+ 
+    }
+    
+    if (!m_file)
+        return false;
 
     m_max_val = (1 << bits_per_sample) - 1;
     // Write header
@@ -218,7 +217,7 @@ PNMOutput::open (const std::string &name, const ImageSpec &userspec,
 bool
 PNMOutput::close ()
 {
-    if (! m_file.is_open()) {   // already closed
+    if (!m_file) {   // already closed
         return true;
     }
 
@@ -241,7 +240,7 @@ bool
 PNMOutput::write_scanline (int y, int z, TypeDesc format,
         const void *data, stride_t xstride)
 {
-    if (!m_file.is_open())
+    if (!m_file)
         return false;
     if (z)
         return false;

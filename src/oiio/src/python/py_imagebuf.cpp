@@ -120,11 +120,45 @@ BOOST_PYTHON_FUNCTION_OVERLOADS(ImageBuf_write_overloads,
                                 ImageBuf_write, 2, 3)
 
 
+bool
+ImageBuf_make_writeable (ImageBuf &buf, bool keep_cache_type)
+{
+    ScopedGILRelease gil;
+    return buf.make_writeable (keep_cache_type);
+}
+
+
+
 void
 ImageBuf_set_write_format (ImageBuf &buf, TypeDesc::BASETYPE format)
 {
     buf.set_write_format (format);
 }
+
+
+
+bool
+ImageBuf_copy (ImageBuf &buf, const ImageBuf &src,
+               TypeDesc format = TypeDesc::UNKNOWN)
+{
+    ScopedGILRelease gil;
+    return buf.copy (src, format);
+}
+
+
+bool
+ImageBuf_copy2 (ImageBuf &buf, const ImageBuf &src,
+                TypeDesc::BASETYPE format = TypeDesc::UNKNOWN)
+{
+    ScopedGILRelease gil;
+    return buf.copy (src, format);
+}
+
+
+BOOST_PYTHON_FUNCTION_OVERLOADS(ImageBuf_copy_overloads,
+                                ImageBuf_copy, 2, 3)
+BOOST_PYTHON_FUNCTION_OVERLOADS(ImageBuf_copy2_overloads,
+                                ImageBuf_copy2, 2, 3)
 
 
 
@@ -273,9 +307,7 @@ ImageBuf_get_pixels (const ImageBuf &buf, TypeDesc format, ROI roi=ROI::All())
 
     size_t size = (size_t) roi.npixels() * roi.nchannels() * format.size();
     boost::scoped_array<char> data (new char [size]);
-    if (! buf.get_pixel_channels (roi.xbegin, roi.xend, roi.ybegin, roi.yend,
-                                  roi.zbegin, roi.zend, roi.chbegin, roi.chend,
-                                  format, &data[0])) {
+    if (! buf.get_pixels (roi, format, &data[0])) {
         return object(handle<>(Py_None));
     }
 
@@ -297,6 +329,77 @@ BOOST_PYTHON_FUNCTION_OVERLOADS(ImageBuf_get_pixels_bt_overloads,
 
 
 
+void
+ImageBuf_set_deep_value (ImageBuf &buf, int x, int y, int z,
+                         int c, int s, float value)
+{
+    buf.set_deep_value (x, y, z, c, s, value);
+}
+
+void
+ImageBuf_set_deep_value_uint (ImageBuf &buf, int x, int y, int z,
+                         int c, int s, uint32_t value)
+{
+    buf.set_deep_value (x, y, z, c, s, value);
+}
+
+
+
+bool
+ImageBuf_set_pixels_tuple (ImageBuf &buf, ROI roi, tuple data)
+{
+    if (! roi.defined())
+        roi = buf.roi();
+    roi.chend = std::min (roi.chend, buf.nchannels()+1);
+    size_t size = (size_t) roi.npixels() * roi.nchannels();
+    if (size == 0)
+        return true;   // done
+    std::vector<float> vals;
+    py_to_stdvector (vals, data);
+    if (size > vals.size())
+        return false;   // Not enough data to fill our ROI
+    buf.set_pixels (roi, TypeDesc::TypeFloat, &vals[0]);
+    return true;
+}
+
+
+bool
+ImageBuf_set_pixels_array (ImageBuf &buf, ROI roi, numeric::array data)
+{
+    if (! roi.defined())
+        roi = buf.roi();
+    roi.chend = std::min (roi.chend, buf.nchannels()+1);
+    size_t size = (size_t) roi.npixels() * roi.nchannels();
+    if (size == 0)
+        return true;   // done
+
+    TypeDesc type;
+    size_t pylen = 0;
+    const void *addr = python_array_address (data, type, pylen);
+    if (!addr || size > pylen)
+        return false;   // Not enough data to fill our ROI
+
+    buf.set_pixels (roi, type, addr);
+    return true;
+}
+
+
+
+DeepData&
+ImageBuf_deepdataref (ImageBuf *ib)
+{
+    return *ib->deepdata();
+}
+
+
+
+static void
+ImageBuf_deep_alloc_dummy ()
+{
+}
+
+
+
 void declare_imagebuf()
 {
     enum_<ImageBuf::WrapMode>("WrapMode")
@@ -313,9 +416,13 @@ void declare_imagebuf()
         .def(init<const ImageSpec&>())
 
         .def("clear", &ImageBuf::clear)
-        .def("reset", &ImageBuf_reset_name)
-        .def("reset", &ImageBuf_reset_name2)
-        .def("reset", &ImageBuf_reset_name_config)
+        .def("reset", &ImageBuf_reset_name,
+             (arg("name")))
+        .def("reset", &ImageBuf_reset_name2,
+             (arg("name"), arg("subimage")=0, arg("miplevel")=0))
+        .def("reset", &ImageBuf_reset_name_config,
+             (arg("name"), arg("subimage")=0, arg("miplevel")=0,
+              arg("config")=ImageSpec()))
         .def("reset", &ImageBuf_reset_spec)
         .add_property ("initialized", &ImageBuf::initialized)
         .def("init_spec", &ImageBuf::init_spec)
@@ -326,6 +433,8 @@ void declare_imagebuf()
         .def("write", &ImageBuf_write,
              ImageBuf_write_overloads())
         // FIXME -- write(ImageOut&)
+        .def("make_writeable", &ImageBuf_make_writeable,
+             (arg("keep_cache_type")=false))
         .def("set_write_format", &ImageBuf_set_write_format)
         .def("set_write_tiles", &ImageBuf::set_write_tiles,
              (arg("width")=0, arg("height")=0, arg("depth")=0))
@@ -372,13 +481,17 @@ void declare_imagebuf()
 
         .add_property("pixels_valid", &ImageBuf::pixels_valid)
         .add_property("pixeltype", &ImageBuf::pixeltype)
-        .add_property("deep", &ImageBuf::deep)
         .add_property("has_error",   &ImageBuf::has_error)
         .def("geterror",    &ImageBuf::geterror)
 
+        .def("pixelindex", &ImageBuf::pixelindex,
+             (arg("x"), arg("y"), arg("z"), arg("check_range")=false))
         .def("copy_metadata", &ImageBuf::copy_metadata)
         .def("copy_pixels", &ImageBuf::copy_pixels)
-        .def("copy", &ImageBuf::copy)
+        .def("copy",  &ImageBuf_copy,
+             ImageBuf_copy_overloads())
+        .def("copy",  &ImageBuf_copy2,
+             ImageBuf_copy2_overloads())
         .def("swap", &ImageBuf::swap)
 
         .def("getchannel", &ImageBuf_getchannel,
@@ -400,6 +513,31 @@ void declare_imagebuf()
         .def("setpixel", &ImageBuf_setpixel1)
         .def("get_pixels", &ImageBuf_get_pixels, ImageBuf_get_pixels_overloads())
         .def("get_pixels", &ImageBuf_get_pixels_bt, ImageBuf_get_pixels_bt_overloads())
+        .def("set_pixels", &ImageBuf_set_pixels_tuple)
+        .def("set_pixels", &ImageBuf_set_pixels_array)
+
+        .add_property("deep", &ImageBuf::deep)
+        .def("deep_samples", &ImageBuf::deep_samples,
+             (arg("x"), arg("y"), arg("z")=0))
+        .def("set_deep_samples", &ImageBuf::set_deep_samples,
+             (arg("x"), arg("y"), arg("z")=0, arg("nsamples")=1))
+        .def("deep_insert_samples", &ImageBuf::deep_insert_samples,
+             (arg("x"), arg("y"), arg("z")=0, arg("samplepos"), arg("nsamples")=1))
+        .def("deep_erase_samples", &ImageBuf::deep_erase_samples,
+             (arg("x"), arg("y"), arg("z")=0, arg("samplepos"), arg("nsamples")=1))
+        .def("deep_value", &ImageBuf::deep_value,
+             (arg("x"), arg("y"), arg("z")=0, arg("channel"), arg("sample")))
+        .def("deep_value_uint", &ImageBuf::deep_value_uint,
+             (arg("x"), arg("y"), arg("z")=0, arg("channel"), arg("sample")))
+        .def("set_deep_value", &ImageBuf_set_deep_value,
+             (arg("x"), arg("y"), arg("z")=0, arg("channel"),
+              arg("sample"), arg("value")=0.0f))
+        .def("set_deep_value_uint", &ImageBuf_set_deep_value_uint,
+             (arg("x"), arg("y"), arg("z")=0, arg("channel"),
+              arg("sample"), arg("value")=0))
+        .def("deep_alloc", &ImageBuf_deep_alloc_dummy)  // DEPRECATED(1.7)
+        .def("deepdata", &ImageBuf_deepdataref,
+             return_value_policy<reference_existing_object>())
 
         // FIXME -- do we want to provide pixel iterators?
     ;

@@ -25,7 +25,7 @@ out its resolution, and read the pixels (converting them into
         std::vector<unsigned char> pixels (xres*yres*channels);
         in->read_image (TypeDesc::UINT8, &pixels[0]);
         in->close ();
-        delete in;
+        ImageInput::destroy (in);
 \end{code}
 
 \noindent Here is a breakdown of what work this code is doing:
@@ -69,7 +69,7 @@ out its resolution, and read the pixels (converting them into
   the plugin.
   \begin{code}
         in->close ();
-        delete in;
+        ImageInput::destroy (in);
   \end{code}
 \end{itemize}
 
@@ -573,7 +573,7 @@ multi-image files:
         // to find a next MIP level.
 
         in->close ();
-        delete in;
+        ImageInput::destroy (in);
 \end{code}
 
 In this example, we have used \readimage, but of course \readscanline
@@ -651,35 +651,8 @@ only for reading deep data:
 It is only possible to read ``native'' data types from deep files; that
 is, there is no automatic translation into arbitrary data types as there
 is for ordinary images.  All three of these functions store the
-resulting deep data in a special {\cf DeepData} structure, defined in
-{\cf imageio.h} as follows:
-
-\begin{code}
-    struct DeepData {
-        int npixels, nchannels;
-        std::vector<TypeDesc> channeltypes;  // for each channel [c]
-        std::vector<unsigned int> nsamples;// for each pixel [z][y][x]
-        std::vector<void *> pointers;    // for each channel per pixel [z][y][x][c]
-        std::vector<char> data;          // for each sample [z][y][x][c][s]
-
-        DeepData ();
-        // Set the size and allocate the nsamples[] vector.
-        void init (int npix, int nchan,
-                   const TypeDesc *chbegin, const TypeDesc *chend);
-        // After nsamples[] has been filled in, allocate enough scratch space
-        // for data and set up all the pointers.
-        void alloc ();
-        // Clear the vectors and reset size to 0.
-        void clear ();
-        // Deallocate all space in the vectors
-        void free ();
-        // Retrieve the pointer to the first sample of the given pixel and
-        // channel. Return NULL if there are no samples for that pixel.
-        void *channel_ptr (int pixel, int channel) const;
-        // Retrieve sample value within a pixel, cast to a float.
-        float deep_value (int pixel, int channel, int sample) const;
-    };
-\end{code}
+resulting deep data in a special {\cf DeepData} structure, described in
+detail in Section~\ref{sec:deepdata}.
 
 Here is an example of using these methods to read a deep image from 
 a file and print all its values:
@@ -694,21 +667,21 @@ a file and print all its values:
         in->read_native_deep_image (deepdata);
         int p = 0;  // absolute pixel number
         for (int y = 0; y < spec.height;  ++y) {
-            for (int x = 0;  x < spec.width;  ++x) {
+            for (int x = 0;  x < spec.width;  ++x, ++p) {
                 std::cout << "Pixel " << x << "," << y << ":\n";
-                if (deepdata.nsamples[p] == 0)
+                if (deepdata.samples(p) == 0)
                     std::cout << "  no samples\n";
                 else
                     for (int c = 0;  c < spec.nchannels;  ++c) {
-                        TypeDesc type = deepdata.channeltypes[c];
+                        TypeDesc type = deepdata.channeltype(c);
                         std::cout << "  " << spec.channelnames[c] << ": ";
                         void *ptr = deepdata.pointers[p*spec.nchannels+c]
-                        for (int s = 0;  s < deepdata.nsamples[p];  ++s) {
-                            if (type.basetype == TypeDesc::FLOAT)
-                                std::cout << ((float *)ptr)[s] << ' ';
-                            else if (type.basetype == TypeDesc::HALF)
-                                std::cout << ((half *)ptr)[s] << ' ';
-                            ... handle other types ...
+                        for (int s = 0; s < deepdata.samples(p); ++s) {
+                            if (type.basetype == TypeDesc::FLOAT ||
+                                type.basetype == TypeDesc::HALF)
+                                std::cout << deepdata.deep_value(p, c, s) << ' ';
+                            else if (type.basetype == TypeDesc::UINT32)
+                                std::cout << deepdata.deep_value_uint(p, c, s) << ' ';
                         }
                         std::cout << "\n";
                     }
@@ -716,7 +689,7 @@ a file and print all its values:
         }
     }
     in->close ();
-    delete in;
+    ImageInput::destroy (in);
 \end{code}
 
 
@@ -780,20 +753,20 @@ elaborated with error checking and reporting:
         channels = spec.nchannels;
         pixels.resize (xres*yres*channels);
 
-        if (! in->read_image (TypeDesc::UINT8, pixels)) {
+        if (! in->read_image (TypeDesc::UINT8, &pixels[0])) {
             std::cerr << "Could not read pixels from " << filename 
                       << ", error = " << in->geterror() << "\n";
-            delete in;
+            ImageInput::destroy (in);
             return;
         }
 
         if (! in->close ()) {
             std::cerr << "Error closing " << filename 
                       << ", error = " << in->geterror() << "\n";
-            delete in;
+            ImageInput::destroy (in);
             return;
         }
-        delete in;
+        ImageInput::destroy (in);
 \end{code}
 
 
@@ -832,15 +805,28 @@ finds one that's able to open the file without error.  This just
 creates the \ImageInput, it does not open the file.
 \apiend
 
+\apiitem{void {\ce destroy} (ImageInput *input)}
+
+Destroy an \ImageInput that was created by {\cf create()} or {\cf open()}.
+The {\cf destroy()} method is just a wrapper around operator {\cf delete},
+but by being implemented within the \product DLL, it can ensure that the
+memory deallocation is done in the same DLL arena as where it was originally
+allocated. This is considered safer than a bare {\cf delete} when
+used inside ``plug-ins,'' especially on Windows systems.
+\apiend
+
 \apiitem{const char * {\ce format_name} (void) const}
 Return the name of the format implemented by this class.
 \apiend
 
-\apiitem{bool {\ce supports} (const std::string \&feature)}
+\apiitem{int {\ce supports} (string_view feature)}
 \label{sec:inputsupportsfeaturelist}
-Given the name of a \emph{feature}, tells if this \ImageInput 
-instance supports that feature.  The following features are recognized
-by this query:
+Given the name of a \emph{feature}, tells if this \ImageInput  instance
+supports that feature. Most queries will simply return 0 for ``doesn't
+support the feature'' and nonzero for ``supports the feature,'' but it is
+acceptable to have queries return other nonzero integers to indicate varying
+degrees of support or limits (but those queries should be clearly documented
+as such). The following features are recognized by this query:
 \begin{description}
 \item[\spc] \spc
 \item[\rm \qkw{arbitrary_metadata}] Does the image file format allow
@@ -1056,6 +1042,13 @@ channels $[${\cf chbegin},{\cf chend}$)$ into the buffer.
                              stride_t ystride=AutoStride, \\
                              \bigspc stride_t zstride=AutoStride, \\
                              \bigspc ProgressCallback progress_callback=NULL,\\
+                             \bigspc void *progress_callback_data=NULL) \\
+bool {\ce read_image} (int chbegin, int chend, \\
+                             \bigspc TypeDesc format, void *data, \\
+                             \bigspc stride_t xstride=AutoStride,
+                             stride_t ystride=AutoStride, \\
+                             \bigspc stride_t zstride=AutoStride, \\
+                             \bigspc ProgressCallback progress_callback=NULL,\\
                              \bigspc void *progress_callback_data=NULL)}
 
 Read the entire image of {\kw spec.width * spec.height * spec.depth}
@@ -1075,6 +1068,9 @@ data, i.e., \\
 The function will internally either call {\kw read_scanlines} or 
 {\kw read_tiles}, depending on whether the file is scanline- or
 tile-oriented.
+
+The version that specifies a channel range will read only
+channels $[${\cf chbegin},{\cf chend}$)$ into the buffer.
 
 Because this may be an expensive operation, a progress callback may be passed.
 Periodically, it will be called as follows:\\
@@ -1174,6 +1170,21 @@ General message passing between client and image input server.
 This is currently undefined and is reserved for future use.
 \apiend
 
+\apiitem{void {\ce threads} (int n) \\
+int {\ce threads} () const}
+\index{threads}
+Get or set the threading policy for this \ImageInput, controlling the
+maximum amount of parallelizing thread ``fan-out'' that might occur during
+large read operations. The default of 0 means that the global
+{\cf attribute("threads")} value should be used (which itself defaults to
+using as many threads as cores; see Section~\ref{sec:attribute:threads}).
+
+The main reason to change this value is to set it to 1 to indicate that the
+calling thread should do all the work rather than spawning new threads. That
+is probably the desired behavior in situations where the calling application
+has already spawned multiple worker threads.
+\apiend
+
 \apiitem{std::string {\ce geterror} () const}
 \index{error checking}
 Returns the current error string describing what went wrong if
@@ -1181,8 +1192,6 @@ any of the public methods returned {\kw false} indicating an error.
 (Hopefully the implementation plugin called {\kw error()} with a
 helpful error message.)
 \apiend
-
-
 
 \index{Image I/O API|)}
 

@@ -35,39 +35,62 @@
 #include <OpenEXR/ImathFun.h>
 
 #include <boost/scoped_array.hpp>
+#include <boost/thread.hpp>
+#include <boost/thread/tss.hpp>
 
 #include "OpenImageIO/dassert.h"
 #include "OpenImageIO/typedesc.h"
 #include "OpenImageIO/strutil.h"
+#include "OpenImageIO/sysutil.h"
 #include "OpenImageIO/fmath.h"
 #include "OpenImageIO/thread.h"
 #include "OpenImageIO/hash.h"
 #include "OpenImageIO/imageio.h"
 #include "imageio_pvt.h"
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
 
 // Global private data
 namespace pvt {
 recursive_mutex imageio_mutex;
-atomic_int oiio_threads (boost::thread::hardware_concurrency());
+atomic_int oiio_threads (Sysutil::hardware_concurrency());
+atomic_int oiio_exr_threads (Sysutil::hardware_concurrency());
 atomic_int oiio_read_chunk (256);
+int tiff_half (0);
 ustring plugin_searchpath (OIIO_DEFAULT_PLUGIN_SEARCHPATH);
 std::string format_list;   // comma-separated list of all formats
 std::string extension_list;   // list of all extensions for all formats
+std::string library_list;   // list of all libraries for all formats
+}
+
+using namespace pvt;
+
+
+namespace {
+// Hidden global OIIO data.
+static spin_mutex attrib_mutex;
+static const int maxthreads = 256;   // reasonable maximum for sanity check
+const char *oiio_debug_env = getenv("OPENIMAGEIO_DEBUG");
+#ifdef NDEBUG
+int print_debug (oiio_debug_env ? atoi(oiio_debug_env) : 0);
+#else
+int print_debug (oiio_debug_env ? atoi(oiio_debug_env) : 1);
+#endif
+};
+
+
+
+int
+openimageio_version ()
+{
+    return OIIO_VERSION;
 }
 
 
 
-using namespace pvt;
-
-namespace {
-
-
 // To avoid thread oddities, we have the storage area buffering error
 // messages for seterror()/geterror() be thread-specific.
-static thread_specific_ptr<std::string> thread_error_msg;
+static boost::thread_specific_ptr<std::string> thread_error_msg;
 
 // Return a reference to the string for this thread's error messages,
 // creating it if none exists for this thread thus far.
@@ -82,16 +105,6 @@ error_msg ()
     return *e;
 }
 
-} // end anon namespace
-
-
-
-
-int
-openimageio_version ()
-{
-    return OIIO_VERSION;
-}
 
 
 
@@ -100,7 +113,6 @@ openimageio_version ()
 void
 pvt::seterror (const std::string& message)
 {
-    recursive_lock_guard lock (pvt::imageio_mutex);
     error_msg() = message;
 }
 
@@ -109,7 +121,6 @@ pvt::seterror (const std::string& message)
 std::string
 geterror ()
 {
-    recursive_lock_guard lock (pvt::imageio_mutex);
     std::string e = error_msg();
     error_msg().clear ();
     return e;
@@ -117,14 +128,15 @@ geterror ()
 
 
 
-namespace {
-
-// Private global OIIO data.
-
-static spin_mutex attrib_mutex;
-static const int maxthreads = 64;   // reasonable maximum for sanity check
-
-};
+void
+pvt::debugmsg_ (string_view message)
+{
+    recursive_lock_guard lock (pvt::imageio_mutex);
+    if (print_debug) {
+        std::cerr << "OIIO DEBUG: " << message 
+                  << (message.back() == '\n' ? "" : "\n");
+    }
+}
 
 
 
@@ -134,7 +146,7 @@ attribute (string_view name, TypeDesc type, const void *val)
     if (name == "threads" && type == TypeDesc::TypeInt) {
         int ot = Imath::clamp (*(const int *)val, 0, maxthreads);
         if (ot == 0)
-            ot = boost::thread::hardware_concurrency();
+            ot = Sysutil::hardware_concurrency();
         oiio_threads = ot;
         return true;
     }
@@ -145,6 +157,18 @@ attribute (string_view name, TypeDesc type, const void *val)
     }
     if (name == "plugin_searchpath" && type == TypeDesc::TypeString) {
         plugin_searchpath = ustring (*(const char **)val);
+        return true;
+    }
+    if (name == "exr_threads" && type == TypeDesc::TypeInt) {
+        oiio_exr_threads = Imath::clamp (*(const int *)val, -1, maxthreads);
+        return true;
+    }
+    if (name == "tiff:half" && type == TypeDesc::TypeInt) {
+        tiff_half = *(const int *)val;
+        return true;
+    }
+    if (name == "debug" && type == TypeDesc::TypeInt) {
+        print_debug = *(const int *)val;
         return true;
     }
     return false;
@@ -178,6 +202,24 @@ getattribute (string_view name, TypeDesc type, void *val)
         if (extension_list.empty())
             pvt::catalog_all_plugins (plugin_searchpath.string());
         *(ustring *)val = ustring(extension_list);
+        return true;
+    }
+    if (name == "library_list" && type == TypeDesc::TypeString) {
+        if (library_list.empty())
+            pvt::catalog_all_plugins (plugin_searchpath.string());
+        *(ustring *)val = ustring(library_list);
+        return true;
+    }
+    if (name == "exr_threads" && type == TypeDesc::TypeInt) {
+        *(int *)val = oiio_exr_threads;
+        return true;
+    }
+    if (name == "tiff:half" && type == TypeDesc::TypeInt) {
+        *(int *)val = tiff_half;
+        return true;
+    }
+    if (name == "debug" && type == TypeDesc::TypeInt) {
+        *(int *)val = print_debug;
         return true;
     }
     return false;
@@ -403,18 +445,6 @@ pvt::convert_from_float (const float *src, void *dst, size_t nvals,
 }
 
 
-// DEPRECATED (1.4)
-const void *
-pvt::convert_from_float (const float *src, void *dst, size_t nvals,
-                         long long quant_black, long long quant_white,
-                         long long quant_min, long long quant_max,
-                         TypeDesc format)
-{
-    return convert_from_float (src, dst, nvals, quant_min, quant_max, format);
-}
-
-
-
 const void *
 pvt::parallel_convert_from_float (const float *src, void *dst, size_t nvals,
                                   TypeDesc format, int nthreads)
@@ -449,19 +479,6 @@ pvt::parallel_convert_from_float (const float *src, void *dst, size_t nvals,
     }
     threads.join_all ();
     return dst;
-}
-
-
-
-// DEPRECATED (1.4)
-const void *
-pvt::parallel_convert_from_float (const float *src, void *dst,
-                                  size_t nvals,
-                                  long long quant_black, long long quant_white,
-                                  long long quant_min, long long quant_max,
-                                  TypeDesc format, int nthreads)
-{
-    return parallel_convert_from_float (src, dst, nvals, format, nthreads);
 }
 
 
@@ -517,17 +534,6 @@ convert_types (TypeDesc src_type, const void *src,
 
 
 
-// Deprecated version -- keep for link compatibiity
-bool
-convert_types (TypeDesc src_type, const void *src, 
-               TypeDesc dst_type, void *dst, int n,
-               int alpha_channel, int z_channel)
-{
-    return convert_types (src_type, src, dst_type, dst, n);
-}
-
-
-
 bool
 convert_image (int nchannels, int width, int height, int depth,
                const void *src, TypeDesc src_type,
@@ -564,14 +570,12 @@ convert_image (int nchannels, int width, int height, int depth,
                 // unit.  (Note that within convert_types, a memcpy will
                 // be used if the formats are identical.)
                 result &= convert_types (src_type, f, dst_type, t,
-                                         nchannels*width,
-                                         alpha_channel, z_channel);
+                                         nchannels*width);
             } else {
                 // General case -- anything goes with strides.
                 for (int x = 0;  x < width;  ++x) {
                     result &= convert_types (src_type, f, dst_type, t,
-                                             nchannels,
-                                             alpha_channel, z_channel);
+                                             nchannels);
                     f += src_xstride;
                     t += dst_xstride;
                 }
@@ -841,240 +845,6 @@ premult (int nchannels, int width, int height, int depth,
 
 
 
-void
-DeepData::init (int npix, int nchan,
-                const TypeDesc *chbegin, const TypeDesc *chend)
-{
-    clear ();
-    npixels = npix;
-    nchannels = nchan;
-    channeltypes.assign (chbegin, chend);
-    nsamples.resize (npixels, 0);
-    pointers.resize (size_t(npixels)*size_t(nchannels), NULL);
-}
-
-
-
-void
-DeepData::alloc ()
-{
-    // Calculate the total size we need, align each channel to 4 byte boundary
-    size_t totalsamples = 0, totalbytes = 0;
-    for (int i = 0;  i < npixels;  ++i) {
-        if (int s = nsamples[i]) {
-            totalsamples += s;
-            for (int c = 0;  c < nchannels;  ++c)
-                totalbytes += round_to_multiple (channeltypes[c].size() * s, 4);
-        }
-    }
-
-    // Set all the data pointers to the right offsets within the
-    // data block.  Leave the pointes NULL for pixels with no samples.
-    data.resize (totalbytes);
-    char *p = &data[0];
-    for (int i = 0;  i < npixels;  ++i) {
-        if (int s = nsamples[i]) {
-            for (int c = 0;  c < nchannels;  ++c) {
-                pointers[i*nchannels+c] = p;
-                p += round_to_multiple (channeltypes[c].size()*s, 4);
-            }
-        }
-    }
-}
-
-
-
-void
-DeepData::clear ()
-{
-    npixels = 0;
-    nchannels = 0;
-    channeltypes.clear();
-    nsamples.clear();
-    pointers.clear();
-    data.clear();
-}
-
-
-
-void
-DeepData::free ()
-{
-    std::vector<unsigned int>().swap (nsamples);
-    std::vector<void *>().swap (pointers);
-    std::vector<char>().swap (data);
-}
-
-
-
-void *
-DeepData::channel_ptr (int pixel, int channel) const
-{
-    if (pixel < 0 || pixel >= npixels || channel < 0 || channel >= nchannels)
-        return NULL;
-    return pointers[pixel*nchannels + channel];
-}
-
-
-
-float
-DeepData::deep_value (int pixel, int channel, int sample) const
-{
-    if (pixel < 0 || pixel >= npixels || channel < 0 || channel >= nchannels)
-        return 0.0f;
-    int nsamps = nsamples[pixel];
-    if (nsamps == 0 || sample < 0 || sample >= nsamps)
-        return 0.0f;
-    const void *ptr = pointers[pixel*nchannels + channel];
-    if (! ptr)
-        return 0.0f;
-    switch (channeltypes[channel].basetype) {
-    case TypeDesc::FLOAT :
-        return ((const float *)ptr)[sample];
-    case TypeDesc::HALF  :
-        return ((const half *)ptr)[sample];
-    case TypeDesc::UINT8 :
-        return ConstDataArrayProxy<unsigned char,float>((const unsigned char *)ptr)[sample];
-    case TypeDesc::INT8  :
-        return ConstDataArrayProxy<char,float>((const char *)ptr)[sample];
-    case TypeDesc::UINT16:
-        return ConstDataArrayProxy<unsigned short,float>((const unsigned short *)ptr)[sample];
-    case TypeDesc::INT16 :
-        return ConstDataArrayProxy<short,float>((const short *)ptr)[sample];
-    case TypeDesc::UINT  :
-        return ConstDataArrayProxy<unsigned int,float>((const unsigned int *)ptr)[sample];
-    case TypeDesc::INT   :
-        return ConstDataArrayProxy<int,float>((const int *)ptr)[sample];
-    case TypeDesc::UINT64:
-        return ConstDataArrayProxy<unsigned long long,float>((const unsigned long long *)ptr)[sample];
-    case TypeDesc::INT64 :
-        return ConstDataArrayProxy<long long,float>((const long long *)ptr)[sample];
-    default:
-        ASSERT (0);
-        return 0.0f;
-    }
-}
-
-
-
-uint32_t
-DeepData::deep_value_uint (int pixel, int channel, int sample) const
-{
-    if (pixel < 0 || pixel >= npixels || channel < 0 || channel >= nchannels)
-        return 0.0f;
-    int nsamps = nsamples[pixel];
-    if (nsamps == 0 || sample < 0 || sample >= nsamps)
-        return 0.0f;
-    const void *ptr = pointers[pixel*nchannels + channel];
-    if (! ptr)
-        return 0.0f;
-    switch (channeltypes[channel].basetype) {
-    case TypeDesc::FLOAT :
-        return ConstDataArrayProxy<float,uint32_t>((const float *)ptr)[sample];
-    case TypeDesc::HALF  :
-        return ConstDataArrayProxy<half,uint32_t>((const half *)ptr)[sample];
-    case TypeDesc::UINT8 :
-        return ConstDataArrayProxy<unsigned char,uint32_t>((const unsigned char *)ptr)[sample];
-    case TypeDesc::INT8  :
-        return ConstDataArrayProxy<char,uint32_t>((const char *)ptr)[sample];
-    case TypeDesc::UINT16:
-        return ConstDataArrayProxy<unsigned short,uint32_t>((const unsigned short *)ptr)[sample];
-    case TypeDesc::INT16 :
-        return ConstDataArrayProxy<short,uint32_t>((const short *)ptr)[sample];
-    case TypeDesc::UINT  :
-        return ((const unsigned int *)ptr)[sample];
-    case TypeDesc::INT   :
-        return ConstDataArrayProxy<int,uint32_t>((const int *)ptr)[sample];
-    case TypeDesc::UINT64:
-        return ConstDataArrayProxy<unsigned long long,uint32_t>((const unsigned long long *)ptr)[sample];
-    case TypeDesc::INT64 :
-        return ConstDataArrayProxy<long long,uint32_t>((const long long *)ptr)[sample];
-    default:
-        ASSERT (0);
-        return 0.0f;
-    }
-}
-
-
-
-void
-DeepData::set_deep_value (int pixel, int channel, int sample, float value)
-{
-    if (pixel < 0 || pixel >= npixels || channel < 0 || channel >= nchannels)
-        return;
-    int nsamps = nsamples[pixel];
-    if (nsamps == 0 || sample < 0 || sample >= nsamps)
-        return;
-    void *ptr = pointers[pixel*nchannels + channel];
-    if (! ptr)
-        return;
-    switch (channeltypes[channel].basetype) {
-    case TypeDesc::FLOAT :
-        DataArrayProxy<float,float>((float *)ptr)[sample] = value; break;
-    case TypeDesc::HALF  :
-        DataArrayProxy<half,float>((half *)ptr)[sample] = value; break;
-    case TypeDesc::UINT8 :
-        DataArrayProxy<unsigned char,float>((unsigned char *)ptr)[sample] = value; break;
-    case TypeDesc::INT8  :
-        DataArrayProxy<char,float>((char *)ptr)[sample] = value; break;
-    case TypeDesc::UINT16:
-        DataArrayProxy<unsigned short,float>((unsigned short *)ptr)[sample] = value; break;
-    case TypeDesc::INT16 :
-        DataArrayProxy<short,float>((short *)ptr)[sample] = value; break;
-    case TypeDesc::UINT  :
-        DataArrayProxy<uint32_t,float>((uint32_t *)ptr)[sample] = value; break;
-    case TypeDesc::INT   :
-        DataArrayProxy<int,float>((int *)ptr)[sample] = value; break;
-    case TypeDesc::UINT64:
-        DataArrayProxy<uint64_t,float>((uint64_t *)ptr)[sample] = value; break;
-    case TypeDesc::INT64 :
-        DataArrayProxy<int64_t,float>((int64_t *)ptr)[sample] = value; break;
-    default:
-        ASSERT (0);
-    }
-}
-
-
-
-void
-DeepData::set_deep_value_uint (int pixel, int channel, int sample, uint32_t value)
-{
-    if (pixel < 0 || pixel >= npixels || channel < 0 || channel >= nchannels)
-        return;
-    int nsamps = nsamples[pixel];
-    if (nsamps == 0 || sample < 0 || sample >= nsamps)
-        return;
-    void *ptr = pointers[pixel*nchannels + channel];
-    if (! ptr)
-        return;
-    switch (channeltypes[channel].basetype) {
-    case TypeDesc::FLOAT :
-        DataArrayProxy<float,uint32_t>((float *)ptr)[sample] = value; break;
-    case TypeDesc::HALF  :
-        DataArrayProxy<half,uint32_t>((half *)ptr)[sample] = value; break;
-    case TypeDesc::UINT8 :
-        DataArrayProxy<unsigned char,uint32_t>((unsigned char *)ptr)[sample] = value; break;
-    case TypeDesc::INT8  :
-        DataArrayProxy<char,uint32_t>((char *)ptr)[sample] = value; break;
-    case TypeDesc::UINT16:
-        DataArrayProxy<unsigned short,uint32_t>((unsigned short *)ptr)[sample] = value; break;
-    case TypeDesc::INT16 :
-        DataArrayProxy<short,uint32_t>((short *)ptr)[sample] = value; break;
-    case TypeDesc::UINT  :
-        DataArrayProxy<uint32_t,uint32_t>((uint32_t *)ptr)[sample] = value; break;
-    case TypeDesc::INT   :
-        DataArrayProxy<int,uint32_t>((int *)ptr)[sample] = value; break;
-    case TypeDesc::UINT64:
-        DataArrayProxy<uint64_t,uint32_t>((uint64_t *)ptr)[sample] = value; break;
-    case TypeDesc::INT64 :
-        DataArrayProxy<int64_t,uint32_t>((int64_t *)ptr)[sample] = value; break;
-    default:
-        ASSERT (0);
-    }
-}
-
-
-
 bool
 wrap_black (int &coord, int origin, int width)
 {
@@ -1133,5 +903,4 @@ wrap_mirror (int &coord, int origin, int width)
 }
 
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END

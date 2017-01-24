@@ -1,25 +1,3 @@
-black.tif            :  320 x  240, 3 channel, uint8 tiff
-    Stats Min: 0 0 0 (of 255)
-    Stats Max: 0 0 0 (of 255)
-    Stats Avg: 0.00 0.00 0.00 (of 255)
-    Stats StdDev: 0.00 0.00 0.00 (of 255)
-    Stats NanCount: 0 0 0 
-    Stats InfCount: 0 0 0 
-    Stats FiniteCount: 76800 76800 76800 
-    Constant: Yes
-    Constant Color: 0.00 0.00 0.00 (of 255)
-    Monochrome: Yes
-constant.tif         :  320 x  240, 4 channel, float tiff
-    Stats Min: 0.100000 0.200000 0.300000 1.000000 (float)
-    Stats Max: 0.100000 0.200000 0.300000 1.000000 (float)
-    Stats Avg: 0.100000 0.200000 0.300000 1.000000 (float)
-    Stats StdDev: 0.000020 0.000040 nan 0.000000 (float)
-    Stats NanCount: 0 0 0 0 
-    Stats InfCount: 0 0 0 0 
-    Stats FiniteCount: 76800 76800 76800 76800 
-    Constant: Yes
-    Constant Color: 0.100000 0.200000 0.300000 1.000000 (float)
-    Monochrome: No
        0  0,0,0
    59136  1,.5,.5
     6400  0,1,0
@@ -75,6 +53,8 @@ copyA.0007.jpg       :  360 x  240, 3 channel, uint8 jpeg
 copyA.0008.jpg       :  360 x  240, 3 channel, uint8 jpeg
 copyA.0009.jpg       :  360 x  240, 3 channel, uint8 jpeg
 copyA.0010.jpg       :  360 x  240, 3 channel, uint8 jpeg
+Reading black.tif
+    oiio:DebugOpenConfig!: 42
 Comparing "filled.tif" and "ref/filled.tif"
 PASS
 Comparing "autotrim.tif" and "ref/autotrim.tif"
@@ -92,6 +72,10 @@ PASS
 Comparing "fit.tif" and "ref/fit.tif"
 PASS
 Comparing "fit2.tif" and "ref/fit2.tif"
+PASS
+Comparing "fit3.tif" and "ref/fit3.tif"
+PASS
+Comparing "pixelaspect.tif" and "ref/pixelaspect.tif"
 PASS
 Comparing "warped.tif" and "ref/warped.tif"
 PASS
@@ -112,6 +96,10 @@ PASS
 Comparing "pasted.tif" and "ref/pasted.tif"
 PASS
 Comparing "mosaic.tif" and "ref/mosaic.tif"
+PASS
+Comparing "trim.tif" and "ref/trim.tif"
+PASS
+Comparing "trimsubimages.tif" and "ref/trimsubimages.tif"
 PASS
 Comparing "flip.tif" and "ref/flip.tif"
 PASS
@@ -155,21 +143,41 @@ Comparing "chappend-rgbaz.exr" and "ref/chappend-rgbaz.exr"
 PASS
 Comparing "chname.exr" and "ref/chname.exr"
 PASS
-Comparing "cmul1.exr" and "ref/cmul1.exr"
-PASS
-Comparing "cmul2.exr" and "ref/cmul2.exr"
+Comparing "add.exr" and "ref/add.exr"
 PASS
 Comparing "cadd1.exr" and "ref/cadd1.exr"
 PASS
 Comparing "cadd2.exr" and "ref/cadd2.exr"
 PASS
+Comparing "sub.exr" and "ref/sub.exr"
+PASS
+Comparing "subc.exr" and "ref/subc.exr"
+PASS
+Comparing "mul.exr" and "ref/mul.exr"
+PASS
+Comparing "cmul1.exr" and "ref/cmul1.exr"
+PASS
+Comparing "cmul2.exr" and "ref/cmul2.exr"
+PASS
+Comparing "div.exr" and "ref/div.exr"
+PASS
+Comparing "divc1.exr" and "ref/divc1.exr"
+PASS
+Comparing "divc2.exr" and "ref/divc2.exr"
+PASS
+Comparing "mad.exr" and "ref/mad.exr"
+PASS
+Comparing "invert.tif" and "ref/invert.tif"
+PASS
 Comparing "cpow1.exr" and "ref/cpow1.exr"
 PASS
 Comparing "cpow2.exr" and "ref/cpow2.exr"
 PASS
-Comparing "add.exr" and "ref/add.exr"
+Comparing "abs.exr" and "ref/abs.exr"
 PASS
-Comparing "sub.exr" and "ref/sub.exr"
+Comparing "absdiff.exr" and "ref/absdiff.exr"
+PASS
+Comparing "absdiffc.exr" and "ref/absdiffc.exr"
 PASS
 Comparing "chsum.tif" and "ref/chsum.tif"
 PASS
@@ -199,9 +207,15 @@ Comparing "gauss5x5-blur.tif" and "ref/gauss5x5-blur.tif"
 PASS
 Comparing "tahoe-median.tif" and "ref/tahoe-median.tif"
 PASS
+Comparing "dilate.tif" and "ref/dilate.tif"
+PASS
+Comparing "erode.tif" and "ref/erode.tif"
+PASS
 Comparing "unsharp.tif" and "ref/unsharp.tif"
 PASS
 Comparing "unsharp-median.tif" and "ref/unsharp-median.tif"
+PASS
+Comparing "tahoe-laplacian.tif" and "ref/tahoe-laplacian.tif"
 PASS
 Comparing "fft.exr" and "ref/fft.exr"
 PASS
@@ -212,6 +226,12 @@ PASS
 Comparing "unpolar.exr" and "ref/unpolar.exr"
 PASS
 Comparing "labeladd.exr" and "ref/labeladd.exr"
+PASS
+Comparing "exprgradient.tif" and "ref/exprgradient.tif"
+PASS
+Comparing "exprcropped.tif" and "ref/exprcropped.tif"
+PASS
+Comparing "exprstrcatlzw.tif" and "ref/exprstrcatlzw.tif"
 PASS
 Comparing "rgbfromtga.png" and "ref/rgbfromtga.png"
 PASS

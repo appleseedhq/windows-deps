@@ -26,6 +26,7 @@
 \usepackage{array}
 \usepackage{multirow}
 \usepackage{longtable}
+\usepackage{tabularx}
 %\usepackage{version}
 \usepackage{makeidx}
 %\usepackage{showidx}
@@ -45,7 +46,7 @@
 
 \def\product{{\sffamily OpenImageIO}\xspace}
 \def\OpenImageIO{{\sffamily OpenImageIO}\xspace}
-\def\versionnumber{1.5}
+\def\versionnumber{1.7}
 \def\productver{\product\ {\sffamily \versionnumber}\xspace}
 \def\producthome{{\codefont \$IMAGEIOHOME}\xspace}
 \def\ivbinary{{\codefont iv}\xspace}
@@ -63,6 +64,7 @@
 \def\ParamValue{{\codefont ParamValue}\xspace}
 \def\ParamValueList{{\codefont ParamValueList}\xspace}
 \def\ImageBuf{{\codefont ImageBuf}\xspace}
+\def\ImageBufAlgo{{\codefont ImageBufAlgo}\xspace}
 \def\ImageCache{{\codefont ImageCache}\xspace}
 \def\TextureSystem{{\codefont TextureSystem}\xspace}
 \def\ROI{{\codefont ROI}\xspace}
@@ -85,16 +87,15 @@
 {\Huge{\bf \product}
 %\textregistered\ 
 {\bf\sffamily \versionnumber} \medskip \\ \huge Programmer Documentation
-%\\ \large (in progress)
+% \large (in progress)
 } \bigskip }
 \author{Editor: Larry Gritz \\
 \emph{lg@openimageio.org}
  \bigskip \\
 }
-\date{{\large 
-%Editor: Larry Gritz \\[2ex]
-Date: 26 Jan 2015
-\\ (with corrections, 5 Apr 2015)
+\date{{\large
+Date: 1 Oct 2016
+\\ (with corrections, 6 Dec 2016)
 }}
 
 

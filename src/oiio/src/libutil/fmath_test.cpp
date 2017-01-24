@@ -28,10 +28,53 @@
   (This is the Modified BSD License)
 */
 
-#include "OpenImageIO/fmath.h"
-#include "OpenImageIO/unittest.h"
+#include <vector>
+
+#include <OpenEXR/half.h>
+
+#include <OpenImageIO/fmath.h>
+#include <OpenImageIO/strutil.h>
+#include <OpenImageIO/typedesc.h>
+#include <OpenImageIO/timer.h>
+#include <OpenImageIO/unittest.h>
+#include <OpenImageIO/imagebufalgo_util.h>
+#include <OpenImageIO/argparse.h>
 
 OIIO_NAMESPACE_USING;
+
+static int iterations = 10;
+static int ntrials = 5;
+static bool verbose = false;
+
+
+
+static void
+getargs (int argc, char *argv[])
+{
+    bool help = false;
+    ArgParse ap;
+    ap.options ("fmath_test\n"
+                OIIO_INTRO_STRING "\n"
+                "Usage:  fmath_test [options]",
+                // "%*", parse_files, "",
+                "--help", &help, "Print help message",
+                "-v", &verbose, "Verbose mode",
+                // "--threads %d", &numthreads,
+                //     ustring::format("Number of threads (default: %d)", numthreads).c_str(),
+                "--iterations %d", &iterations,
+                    ustring::format("Number of iterations (default: %d)", iterations).c_str(),
+                "--trials %d", &ntrials, "Number of trials",
+                NULL);
+    if (ap.parse (argc, (const char**)argv) < 0) {
+        std::cerr << ap.geterror() << std::endl;
+        ap.usage ();
+        exit (EXIT_FAILURE);
+    }
+    if (help) {
+        ap.usage ();
+        exit (EXIT_FAILURE);
+    }
+}
 
 
 
@@ -79,6 +122,8 @@ test_int_helpers ()
     OIIO_CHECK_EQUAL (round_to_multiple(4, 5), 5);
     OIIO_CHECK_EQUAL (round_to_multiple(5, 5), 5);
     OIIO_CHECK_EQUAL (round_to_multiple(6, 5), 10);
+    OIIO_CHECK_EQUAL (round_to_multiple(size_t(5), 5), 5);
+    OIIO_CHECK_EQUAL (round_to_multiple(size_t(6), 5), 10);
 
     // round_to_multiple_of_pow2
     OIIO_CHECK_EQUAL (round_to_multiple_of_pow2(int(1), 4), 4);
@@ -127,6 +172,34 @@ void test_convert_type (double tolerance = 1e-6)
 }
 
 
+
+template<typename S, typename D>
+void do_convert_type (const std::vector<S> &svec, std::vector<D> &dvec)
+{
+    convert_type (&svec[0], &dvec[0], svec.size());
+    DoNotOptimize (dvec[0]);  // Be sure nothing is optimized away
+}
+
+
+template<typename S, typename D>
+void benchmark_convert_type ()
+{
+    const size_t size = 10000000;
+    const S testval(1.0);
+    std::vector<S> svec (size, testval);
+    std::vector<D> dvec (size);
+    std::cout << Strutil::format("Benchmark conversion of %6s -> %6s : ",
+                                 TypeDesc(BaseTypeFromC<S>::value),
+                                 TypeDesc(BaseTypeFromC<D>::value));
+    float time = time_trial (bind (do_convert_type<S,D>, OIIO::cref(svec), OIIO::ref(dvec)),
+                             ntrials, iterations) / iterations;
+    std::cout << Strutil::format ("%7.1f Mvals/sec", (size/1.0e6)/time) << std::endl;
+    D r = convert_type<S,D>(testval);
+    OIIO_CHECK_EQUAL (dvec[size-1], r);
+}
+
+
+
 void test_bit_range_convert ()
 {
     OIIO_CHECK_EQUAL ((bit_range_convert<10,16>(1023)), 65535);
@@ -150,6 +223,16 @@ void test_bit_range_convert ()
 
 int main (int argc, char *argv[])
 {
+#if !defined(NDEBUG) || defined(OIIO_CI) || defined(OIIO_CODECOV)
+    // For the sake of test time, reduce the default iterations for DEBUG,
+    // CI, and code coverage builds. Explicit use of --iters or --trials
+    // will override this, since it comes before the getargs() call.
+    iterations /= 10;
+    ntrials = 1;
+#endif
+
+    getargs (argc, argv);
+
     test_int_helpers ();
 
     std::cout << "\nround trip convert char/float/char\n";
@@ -171,6 +254,13 @@ int main (int argc, char *argv[])
     std::cout << "round trip convert float/unsigned int/float\n";
     test_convert_type<float, unsigned int> ();
 
+    benchmark_convert_type<unsigned char, float> ();
+    benchmark_convert_type<float, unsigned char> ();
+    benchmark_convert_type<unsigned short, float> ();
+    benchmark_convert_type<float, unsigned short> ();
+    benchmark_convert_type<half, float> ();
+    benchmark_convert_type<float, half> ();
+    benchmark_convert_type<float, float> ();
 // convertion to a type smaller in bytes causes error
 //    std::cout << "round trip convert float/short/float\n";
 //    test_convert_type<float,short> ();

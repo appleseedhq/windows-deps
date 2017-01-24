@@ -514,7 +514,8 @@ int accept_untiled \\
 int accept_unmipped \\
 int failure_retries \\
 int deduplicate \\
-string substitute_image}
+string substitute_image \\
+int max_errors_per_file}
 
 These attributes are all passed along to the underlying \ImageCache that
 is used internally by the \TextureSystem.  Please consult the
@@ -551,11 +552,25 @@ The default value of zero means that all missing channels will get
 the ``fill'' color.
 \apiend
 
+\apiitem{int max_tile_channels}
+Sets the maximum number of color channels in a texture file for which all
+channels will be loaded as cached tiles. Files with more than this number
+of color channels will have only the requested subset loaded, in order
+to save cache space (but at the possible wasted expense of separate tiles
+that overlap their channel ranges). The default is 5.
+\apiend
+
 \apiitem{string latlong_up}
 Sets the default ``up'' direction for latlong environment maps (only
 applies if the map itself doesn't specify a format or is in a format
 that explicitly requires a particular orientation).  The default is
 \qkw{y}.  (Currently any other value will result in $z$ being ``up.'')
+\apiend
+
+\apiitem{int flip_t}
+\NEW % 1.7
+If nonzero, $t$ coordinates will be flipped ($1-t$) for texture lookups.
+The default is 0.
 \apiend
 
 \apiitem{string options}
@@ -571,23 +586,52 @@ settings of named options.  For example,
 \subsection{Opaque data for performance lookups}
 \label{sec:texturesys:api:opaque}
 
-\apiitem{Perthread * {\ce get_perthread_info} ()}
+\apiitem{Perthread * {\ce get_perthread_info} (Perthread *thread_info=NULL) \\
+Perthread * {\ce create_perthread_info} () \\
+void {\ce destroy_perthread_info} (Perthread *thread_info)}
 \indexapi{get_perthread_info}
+\indexapi{create_perthread_info} \indexapi{destroy_perthread_info}
 
-Retrieves an opaque handle for per-thread info, to be used for
-{\cf get_texture_handle()} and the texture routines that take handles
-directly.
+The \TextureSystem implementation needs to maintain certain per-thread
+state, and some \TextureSystem methods take an opaque {\cf Perthread} pointer
+to this record. There are three options for how to deal with it:
+
+1. Don't worry about it at all: don't use the methods that want {\cf
+Perthread} pointers, or always pass {\cf NULL} for any {\cf Perthread*}
+arguments, and \TextureSystem will do thread-specific-pointer retrieval as
+necessary (though at some small cost).
+
+2. If your app already stores per-thread information of its own, you may
+call {\cf get_perthread_info(NULL)} to retrieve it for that thread, and then
+pass it into the functions that allow it (thus sparing them the need and
+expense of retrieving the thread-specific pointer). However, it is crucial
+that this pointer not be shared between multiple threads. In this case,
+the \TextureSystem manages the storage, which will automatically be released
+when the thread terminates.
+
+3. If your app also wants to manage the storage of the {\cf Perthread},
+it can explicitly create one with {\cf create_perthread_info}, pass it around,
+and eventually be responsible for destroying it with {\cf destroy_perthread_info}.
+When managing the storage, the app may reuse the {\cf Perthread} for another
+thread after the first is terminated, but still may not use the same
+{\cf Perthread} for two threads running concurrently.
 \apiend
+
 
 \apiitem{TextureHandle * {\ce get_texture_handle} (ustring filename,\\
 \bigspc\bigspc\bigspc  Perthread *thread_info=NULL)}
 \indexapi{get_texture_handle}
-
-Retrieve an opaque handle for fast texture lookups.  The opaque
+Retrieve an opaque handle for fast texture lookups.  The optional opaque
 pointer {\cf thread_info} is thread-specific information returned by
 {\cf get_perthread_info()}.  Return {\cf NULL} if something has gone
 horribly wrong.
+\apiend
 
+\apiitem{bool {\ce good} (TextureHandle *texture_handle)}
+\indexapi{good}
+Return true if the texture handle (previously returned by
+{\cf get_texture_handle()}) is a valid image that can be subsequently read
+or sampled.
 \apiend
 
 
@@ -1104,9 +1148,13 @@ plugin.
 \label{sec:texturesys:api:getimagespec}
 
 \apiitem{bool {\ce get_texture_info} (ustring filename, int subimage, \\
+\bigspc\spc\spc ustring dataname, TypeDesc datatype, void *data) \\
+bool {\ce get_texture_info} (TextureHandle *texture_handle, \\
+\bigspc\spc\spc Perthread *thread_info, int subimage, \\
 \bigspc\spc\spc ustring dataname, TypeDesc datatype, void *data)}
 
-Retrieves information about the texture named by {\cf filename}.
+Retrieves information about the texture, either named by {\cf filename} or
+specified by an opaque handle returned by {\cf get_texture_handle()}.
 The {\cf dataname} is a keyword indcating what information should
 be retrieved, {\cf datatype} is the type of data expected, and
 {\cf data} points to caller-owned memory where the results should be
@@ -1117,7 +1165,7 @@ The return value is {\cf true} if {\cf get_texture_info()} is able to answer
 the query -- that is, find the requested {\cf dataname} for the texture and
 it matched the requested {\cf datatype}.  If the requested data was not
 found, or was not of the right data type, {\cf get_texture_info()} will
-return {\cf false}. Except for the \qkw{exists} query, file that does not
+return {\cf false}. Except for the \qkw{exists} and \qkw{udim} queries, file that does not
 exist or could not be read properly as an image also constitutes a query
 failure that will return {\cf false}.
 
@@ -1131,6 +1179,10 @@ exists and is an image format that \product can read, or 0 if the file
 does not exist, or could not be properly read as a texture. Note that
 unlike all other queries, this query will ``succeed'' (return {\cf true})
 even if the file does not exist.
+
+\item[\rm \kw{udim}] Stores the value 1 (as an {\cf int}) if the file
+is a ``virtual UDIM'' or texture atlas file (as described in
+Section~\ref{sec:texturesys:udim}) or 0 otherwise.
 
 \item[\rm \kw{subimages}] The number of subimages/faces in the file, as an integer.
 
@@ -1162,6 +1214,16 @@ all accessible through the same API calls.
 \item[\rm \kw{channels}] The number of color channels in the file 
 (an integer).
 
+\item[\rm \kw{format}] The native data format of the pixels in the
+  file (an integer, giving the {\cf TypeDesc::BASETYPE} of the data).
+  Note that this is not necessarily the same as the data format stored
+  in the image cache.
+
+\item[\rm \kw{cachedformat}] The native data format of the pixels as
+  stored in the image cache (an integer, giving the {\cf
+    TypeDesc::BASETYPE} of the data).  Note that this is not necessarily
+  the same as the native data format of the file.
+
 \item[\rm \kw{datawindow}] 
 Returns the pixel data window of the image, which is either an array of 4
 integers (returning xmin, ymin, xmax, ymax) or an array of 6 integers
@@ -1187,7 +1249,7 @@ only rendered images will have this.
 
 \item[\rm \kw{averagecolor}] If available in the metadata (generally only
 for files that have been processed by {\cf maketx}), this will return the
-average color of the texture (into an array of floats).  \NEW
+average color of the texture (into an array of floats).
 
 \item[\rm \kw{averagealpha}] If available in the metadata (generally only
 for files that have been processed by {\cf maketx}), this will return the
@@ -1198,13 +1260,36 @@ have been processed by {\cf maketx}) indicates that the texture has the same
 values for all pixels in the texture, this will retrieve the constant color
 of the texture (into an array of floats). A non-constant image (or one that
 does not have the special metadata tag identifying it as a constant texture)
-will fail this query (return false). \NEW
+will fail this query (return false).
 
 \item[\rm \kw{constantalpha}] If the metadata indicates that the texture has
 the same values for all pixels in the texture, this will retrieve the
 constant alpha value of the texture (into a float). A non-constant image (or
 one that does not have the special metadata tag identifying it as a constant
 texture) will fail this query (return false).
+
+\item[\rm \kw{stat:tilesread}] Number of tiles read from this file ({\cf int64}).
+
+\item[\rm \kw{stat:bytesread}] Number of bytes of uncompressed pixel data read
+from this file ({cf int64}).
+
+\item[\rm \kw{stat:redundant_tiles}] Number of times a tile was read, where
+the same tile had been rad before. ({\cf int64}).
+
+\item[\rm \kw{stat:redundant_bytesread}] Number of bytes (of uncompressed pixel
+data) in tiles that were read redundantly. ({\cf int64}).
+
+\item[\rm \kw{stat:redundant_bytesread}] Number of tiles read from this file ({\cf int}).
+
+\item[\rm \kw{stat:timesopened}] Number of times this file was opened ({\cf int}).
+
+\item[\rm \kw{stat:iotime}] Time (in seconds) spent on all I/O for this file ({\cf float}).
+
+\item[\rm \kw{stat:mipsused}] Stores 1 if any MIP levels beyond the highest
+resolution were accesed, otherwise 0. ({\cf int})
+
+\item[\rm \kw{stat:is_duplicate}] Stores 1 if this file was a duplicate of
+another image, otherwise 0. ({\cf int})
 
 \item[Anything else] -- For all other data names, the
 the metadata of the image file will be searched for an item that
@@ -1213,9 +1298,12 @@ matches both the name and data type.
 \end{description}
 \apiend
 
-\apiitem{bool {\ce get_imagespec} (ustring filename, int subimage, ImageSpec \&spec)}
+\apiitem{bool {\ce get_imagespec} (ustring filename, int subimage, ImageSpec \&spec) \\
+bool {\ce get_imagespec} (TextureHandle *texture_handle, Perthread *thread_info,\\
+  \bigspc\bigspc int subimage, ImageSpec \&spec)}
 
-If the named image is found and able to be opened by an available
+If the image (specified by either name or handle)
+is found and able to be opened by an available
 image format plugin, this function copies its image specification into
 {\cf spec} and returns {\cf true}.  Otherwise, if the file is not
 found, could not be opened, or is not of a format readable by any
@@ -1223,7 +1311,9 @@ plugin that could be found, the return value is {\cf false}.
 \apiend
 
 
-\apiitem{const ImageSpec * {\ce imagespec} (ustring filename, int subimage)}
+\apiitem{const ImageSpec * {\ce imagespec} (ustring filename, int subimage) \\
+const ImageSpec * {\ce imagespec} (TextureHandle *texture_handle, \\
+\bigspc\bigspc Perthread *thread_info, int subimage)}
 
 If the named image is found and able to be opened by an available
 image format plugin, and the designated subimage exists, this function
@@ -1243,9 +1333,15 @@ caller must beware that the pointer is only valid as long as nobody
 \apiitem{bool {\ce get_texels} (ustring filename, TextureOpt \&options, int miplevel, \\
 \bigspc                       int xbegin, int xend, int ybegin, int yend,\\
 \bigspc                       int zbegin, int zend, int chbegin, int chend,\\
+\bigspc                       TypeDesc format, void *result) \\
+bool {\ce get_texels} (TextureHandle *texture_handle, PerThread *thread_info, \\
+\bigspc                       Perthread *thread_info, TextureOpt \&options, int miplevel, \\
+\bigspc                       int xbegin, int xend, int ybegin, int yend,\\
+\bigspc                       int zbegin, int zend, int chbegin, int chend,\\
 \bigspc                       TypeDesc format, void *result)}
 
-Retrieve a rectangle of raw unfiltered texels at the named MIP-map level, storing
+For a texture identified by either name or handle,
+retrieve a rectangle of raw unfiltered texels at the named MIP-map level, storing
 the texel values beginning at the address specified by result.
 Note that the face/subimage is communicated through {\kw options.subimage}.
 The texel values will be converted to the type specified by
@@ -1355,6 +1451,59 @@ everything will be invalidated, no matter how wasteful it is, but if
 force is false, in actuality files will only be invalidated if their
 modification times have been changed since they were first opened.
 \apiend
+
+\subsection{UDIM and texture atlases}
+\label{sec:texturesys:udim}
+\NEW % 1.7
+The {\cf texture()} call supports virtual filenames that expand per lookup
+for UDIM and other tiled texture atlas techniques. The substitutions will
+occur if the texture filename initially passed to {\cf texture()} does not
+exist as a concrete file and contains one or more of the following
+substrings:
+
+\medskip
+
+%\noindent
+\begin{tabular}{p{0.75in} p{4.75in}}
+{\cf <UDIM>} & 1001 + \emph{utile} + \emph{vtile}*10 \\
+{\cf <u>} & \emph{utile} \\
+{\cf <v>} & \emph{vtile} \\
+{\cf <U>} & \emph{utile} + 1 \\
+{\cf <V>} & \emph{vtile} + 1 \\
+\end{tabular}
+
+\medskip
+
+\noindent where the tile numbers are derived from the input $u,v$ texture
+coordinates as follows:
+
+\begin{code}
+    // Each unit square of texture is a different tile
+    utile = max (0, int(u));
+    vtile = max (0, int(v));
+    // Re-adjust the texture coordinates to the offsets within the tile
+    u = u - utile;
+    v = v - vtile;
+\end{code}
+\smallskip
+
+\noindent Example:
+
+\begin{code}
+    ustring filename ("paint.<UDIM>.tif");
+    float s = 1.4, t = 3.8;
+    texsys->texture (filename, s, t, ...);
+\end{code}
+
+\noindent will retrieve from file \qkw{paint.1032.tif} at coordinates $(0.4,0.8)$.
+
+\smallskip
+
+Please note that most other calls, including most queries for {\cf
+get_texture_info()}, will fail with one of these special filenames, since
+it's not a real file and the system doesn't know which concrete file you it
+corresponds to in the absence of specific texture coordinates.
+
 
 \index{Texture System|)}
 

@@ -50,7 +50,7 @@ public:
     PSDInput ();
     virtual ~PSDInput () { close(); }
     virtual const char * format_name (void) const { return "psd"; }
-    virtual bool supports (const std::string &feature) const {
+    virtual int supports (string_view feature) const {
         return (feature == "exif"
              || feature == "iptc");
     }
@@ -196,7 +196,7 @@ private:
     };
 
     std::string m_filename;
-    std::ifstream m_file;
+    OIIO::ifstream m_file;
     //Current subimage
     int m_subimage;
     //Subimage count (1 + layer count)
@@ -524,6 +524,8 @@ OIIO_EXPORT ImageInput *psd_input_imageio_create () { return new PSDInput; }
 
 OIIO_EXPORT int psd_imageio_version = OIIO_PLUGIN_VERSION;
 
+OIIO_EXPORT const char* psd_imageio_library_version () { return NULL; }
+
 OIIO_EXPORT const char * psd_input_extensions[] = {
     "psd", "pdd", "psb", NULL
 };
@@ -543,12 +545,14 @@ bool
 PSDInput::open (const std::string &name, ImageSpec &newspec)
 {
     m_filename = name;
+
     Filesystem::open (m_file, name, std::ios::binary);
-    if (!m_file.is_open ()) {
+  
+    if (!m_file) {
         error ("\"%s\": failed to open file", name.c_str());
         return false;
     }
-
+    
     // File Header
     if (!load_header ())
         return false;
@@ -759,7 +763,7 @@ void
 PSDInput::init ()
 {
     m_filename.clear ();
-    m_file.close ();
+    m_file.close();
     m_subimage = -1;
     m_subimage_count = 0;
     m_specs.clear ();
@@ -1118,8 +1122,8 @@ PSDInput::load_resource_1058 (uint32_t length)
     if (!m_file.read (&data[0], length))
         return false;
 
-    if (!decode_exif (&data[0], length, m_composite_attribs) ||
-        !decode_exif (&data[0], length, m_common_attribs)) {
+    if (!decode_exif (data, m_composite_attribs) ||
+        !decode_exif (data, m_common_attribs)) {
         error ("Failed to decode Exif data");
         return false;
     }

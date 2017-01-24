@@ -7,11 +7,15 @@ if (NOT USE_EXTERNAL_PUGIXML)
           OpenImageIO/pugixml.cpp)
 endif ()
 
-message(STATUS "Create oiioversion.h from oiioversion.h.in")
+if (VERBOSE)
+    message(STATUS "Create oiioversion.h from oiioversion.h.in")
+endif ()
 # Mangle the SOVERSION so that it's a valid C++ identifier for the versioning
 # namespace defined in oiioversion.h
 string (REGEX REPLACE "\\." "_" MANGLED_SOVERSION ${SOVERSION})
 set (OIIO_VERSION_NS "v${MANGLED_SOVERSION}")
+set (OIIO_BUILD_CPP11 ${USE_CPP11})
+set (OIIO_BUILD_CPP14 ${USE_CPP14})
 configure_file(OpenImageIO/oiioversion.h.in "${CMAKE_BINARY_DIR}/include/OpenImageIO/oiioversion.h" @ONLY)
 list(APPEND public_headers "${CMAKE_BINARY_DIR}/include/OpenImageIO/oiioversion.h")
 

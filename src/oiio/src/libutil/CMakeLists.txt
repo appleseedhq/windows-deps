@@ -1,8 +1,8 @@
 set (libOpenImageIO_Util_srcs argparse.cpp errorhandler.cpp filesystem.cpp
-                  filter.cpp hashes.cpp paramlist.cpp
+                  farmhash.cpp filter.cpp hashes.cpp paramlist.cpp
                   plugin.cpp SHA1.cpp
                   strutil.cpp sysutil.cpp timer.cpp
-                  typedesc.cpp ustring.cpp)
+                  typedesc.cpp ustring.cpp xxhash.cpp)
 
 if (BUILDSTATIC)
     add_library (OpenImageIO_Util STATIC ${libOpenImageIO_Util_srcs})
@@ -15,9 +15,11 @@ target_link_libraries (OpenImageIO_Util
 if (WIN32)
     target_link_libraries (OpenImageIO_Util psapi.lib)
 endif ()
-link_ilmbase (OpenImageIO_Util)
+target_link_libraries (OpenImageIO_Util ${ILMBASE_LIBRARIES})
 
-message(STATUS "Setting SOVERSION to: ${SOVERSION}")
+if (VERBOSE)
+    message(STATUS "Setting SOVERSION to: ${SOVERSION}")
+endif ()
 set_target_properties(OpenImageIO_Util
                          PROPERTIES
                          VERSION ${OIIO_VERSION_MAJOR}.${OIIO_VERSION_MINOR}.${OIIO_VERSION_PATCH}
@@ -95,5 +97,10 @@ if (OIIO_BUILD_TESTS)
     set_target_properties (simd_test PROPERTIES FOLDER "Unit Tests")
     target_link_libraries (simd_test OpenImageIO_Util ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
     add_test (unit_simd simd_test)
+
+    add_executable (filter_test filter_test.cpp)
+    set_target_properties (filter_test PROPERTIES FOLDER "Unit Tests")
+    target_link_libraries (filter_test OpenImageIO ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+    add_test (unit_filter filter_test)
 
 endif ()

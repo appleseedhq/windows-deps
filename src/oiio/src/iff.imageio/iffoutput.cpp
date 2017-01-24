@@ -49,8 +49,8 @@ OIIO_PLUGIN_EXPORTS_END
 
 
 
-bool
-IffOutput::supports (const std::string &feature) const
+int
+IffOutput::supports (string_view feature) const
 {
     return (feature == "tiles"
          || feature == "alpha"
@@ -120,7 +120,7 @@ IffOutput::open (const std::string &name, const ImageSpec &spec,
     // currently only RGB RLE compression is supported, we default to RLE
     // as Maya does not handle non-compressed IFF's very well.
     m_iff_header.compression =
-    (m_spec.get_string_attribute ("compression", "none") == std::string("none")) ? NONE : RLE;
+        (m_spec.get_string_attribute("compression") == "none") ? NONE : RLE;
 
     // we write the header of the file
     m_iff_header.x = m_spec.x;
@@ -133,7 +133,7 @@ IffOutput::open (const std::string &name, const ImageSpec &spec,
     m_iff_header.author = m_spec.get_string_attribute ("Artist");
     m_iff_header.date = m_spec.get_string_attribute ("DateTime");
     
-    if (!m_iff_header.write_header (m_fd)) {
+    if (!write_header (m_iff_header)) {
         error ("\"%s\": could not write iff header", m_filename.c_str ());
         close ();
         return false;
@@ -269,8 +269,7 @@ IffOutput::close (void)
                 length += 8;
               
                 // tile compression.
-                bool tile_compress = 
-                (m_spec.get_string_attribute ("compression", "none") == std::string("none")) ? NONE : RLE;
+                bool tile_compress = (m_iff_header.compression == RLE);
                 
                 // set bytes.
                 std::vector<uint8_t> scratch;
@@ -484,8 +483,8 @@ IffOutput::close (void)
                                         swap_endian (&pixel);
                                     }
                                     // set pixel
-                                    *out_p++ = pixel;
-                                    (*out_p)++; // avoid gcc4.x warning
+                                    *out_p++ = pixel & 0xff;
+                                    *out_p++ = pixel >> 8;
                                 }
                             }
                         }

@@ -28,8 +28,6 @@
   (This is the Modified BSD License)
 */
 
-#include <boost/algorithm/string/predicate.hpp>
-using boost::algorithm::iequals;
 #include "sgi_pvt.h"
 
 
@@ -47,8 +45,8 @@ OIIO_PLUGIN_EXPORTS_END
 
 
 
-bool
-SgiOutput::supports (const std::string &feature) const
+int
+SgiOutput::supports (string_view feature) const
 {
     return (feature == "alpha"
          || feature == "nchannels");

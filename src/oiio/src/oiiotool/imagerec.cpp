@@ -38,13 +38,7 @@
 #include <string>
 #include <utility>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/tokenizer.hpp>
-#include <boost/foreach.hpp>
-#include <boost/filesystem.hpp>
 #include <boost/regex.hpp>
-
-using boost::algorithm::iequals;
 
 
 #include "OpenImageIO/argparse.h"
@@ -53,6 +47,7 @@ using boost::algorithm::iequals;
 #include "OpenImageIO/imagebufalgo.h"
 #include "OpenImageIO/filesystem.h"
 #include "OpenImageIO/filter.h"
+#include "OpenImageIO/thread.h"
 
 #include "oiiotool.h"
 
@@ -66,6 +61,7 @@ ImageRec::ImageRec (const std::string &name, int nsubimages,
                     const int *miplevels, const ImageSpec *specs)
     : m_name(name), m_elaborated(true),
       m_metadata_modified(false), m_pixels_modified(true),
+      m_was_output(false),
       m_imagecache(NULL)
 {
     int specnum = 0;
@@ -91,6 +87,7 @@ ImageRec::ImageRec (ImageRec &img, int subimage_to_copy,
                     int miplevel_to_copy, bool writable, bool copy_pixels)
     : m_name(img.name()), m_elaborated(true),
       m_metadata_modified(false), m_pixels_modified(false),
+      m_was_output(false),
       m_imagecache(img.m_imagecache)
 {
     img.read ();
@@ -133,6 +130,7 @@ ImageRec::ImageRec (ImageRec &A, ImageRec &B, int subimage_to_copy,
                     TypeDesc pixeltype)
     : m_name(A.name()), m_elaborated(true),
       m_metadata_modified(false), m_pixels_modified(false),
+      m_was_output(false),
       m_imagecache(A.m_imagecache)
 {
     A.read ();
@@ -190,6 +188,7 @@ ImageRec::ImageRec (ImageRec &A, ImageRec &B, int subimage_to_copy,
 ImageRec::ImageRec (ImageBufRef img, bool copy_pixels)
     : m_name(img->name()), m_elaborated(true),
       m_metadata_modified(false), m_pixels_modified(false),
+      m_was_output(false),
       m_imagecache(img->imagecache())
 {
     m_subimages.resize (1);
@@ -208,6 +207,7 @@ ImageRec::ImageRec (const std::string &name, const ImageSpec &spec,
                     ImageCache *imagecache)
     : m_name(name), m_elaborated(true),
       m_metadata_modified(false), m_pixels_modified(true),
+      m_was_output(false),
       m_imagecache(imagecache)
 {
     int subimages = 1;
@@ -227,7 +227,7 @@ ImageRec::ImageRec (const std::string &name, const ImageSpec &spec,
 
 
 bool
-ImageRec::read (bool force_native_read)
+ImageRec::read (ReadPolicy readpolicy)
 {
     if (elaborated())
         return true;
@@ -241,7 +241,6 @@ ImageRec::read (bool force_native_read)
         return false;  // Image not found
     }
     m_subimages.resize (subimages);
-
     bool allok = true;
     for (int s = 0;  s < subimages;  ++s) {
         int miplevels = 0;
@@ -260,11 +259,22 @@ ImageRec::read (bool force_native_read)
             bool forceread = (s == 0 && m == 0 &&
                               m_imagecache->imagespec(uname,s,m)->image_bytes() < 50*1024*1024);
             ImageBuf *ib = new ImageBuf (name(), m_imagecache);
-            TypeDesc convert = TypeDesc::FLOAT;
-            if (force_native_read) {
+
+            // If we were requested to bypass the cache, force a full read.
+            if (readpolicy & ReadNoCache)
                 forceread = true;
-                convert = ib->nativespec().format;
+
+            // Convert to float unless asked to keep native.
+            TypeDesc convert = (readpolicy & ReadNative)
+                             ? ib->nativespec().format : TypeDesc::FLOAT;
+            if (! forceread &&
+                convert != TypeDesc::UINT8 && convert != TypeDesc::UINT16 &&
+                convert != TypeDesc::HALF &&  convert != TypeDesc::FLOAT) {
+                // If we're still trying to use the cache but it doesn't
+                // support the native type, force a full read.
+                forceread = true;
             }
+
             bool ok = ib->read (s, m, forceread, convert);
             if (!ok)
                 error ("%s", ib->geterror());

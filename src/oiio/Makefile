@@ -27,13 +27,16 @@ ifdef PROFILE
 endif
 
 MY_MAKE_FLAGS ?=
-MY_CMAKE_FLAGS ?= -g3 -DSELF_CONTAINED_INSTALL_TREE:BOOL=TRUE
+MY_NINJA_FLAGS ?=
+MY_CMAKE_FLAGS += -g3 -DSELF_CONTAINED_INSTALL_TREE:BOOL=TRUE
+BUILDSENTINEL ?= Makefile
+NINJA ?= ninja
+CMAKE ?= cmake
 
 # Site-specific build instructions
 ifndef OPENIMAGEIO_SITE
     OPENIMAGEIO_SITE := ${shell uname -n}
 endif
-$(info OPENIMAGEIO_SITE = ${OPENIMAGEIO_SITE})
 ifneq (${shell echo ${OPENIMAGEIO_SITE} | grep imageworks},)
 include ${working_dir}/site/spi/Makefile-bits
 endif
@@ -45,15 +48,17 @@ build_dir     := ${top_build_dir}/${platform}${variant}
 top_dist_dir  := dist
 dist_dir      := ${top_dist_dir}/${platform}${variant}
 
-$(info dist_dir = ${dist_dir})
-$(info INSTALLDIR = ${INSTALLDIR})
-
-
-VERBOSE := ${SHOWCOMMANDS}
+VERBOSE ?= ${SHOWCOMMANDS}
 ifneq (${VERBOSE},)
 MY_MAKE_FLAGS += VERBOSE=${VERBOSE}
-MY_CMAKE_FLAGS += -DVERBOSE:BOOL=1
-TEST_FLAGS += -V
+MY_CMAKE_FLAGS += -DVERBOSE:BOOL=${VERBOSE}
+ifneq (${VERBOSE},0)
+	MY_NINJA_FLAGS += -v
+	TEST_FLAGS += -V
+endif
+$(info OPENIMAGEIO_SITE = ${OPENIMAGEIO_SITE})
+$(info dist_dir = ${dist_dir})
+$(info INSTALLDIR = ${INSTALLDIR})
 endif
 
 ifneq (${EMBEDPLUGINS},)
@@ -100,6 +105,14 @@ ifneq (${PYTHON_VERSION},)
 MY_CMAKE_FLAGS += -DPYTHON_VERSION:STRING=${PYTHON_VERSION}
 endif
 
+ifneq (${PYLIB_LIB_PREFIX},)
+MY_CMAKE_FLAGS += -DPYLIB_LIB_PREFIX:BOOL=${PYLIB_LIB_PREFIX}
+endif
+
+ifneq (${PYLIB_INCLUDE_SONAME},)
+MY_CMAKE_FLAGS += -DPYLIB_INCLUDE_SONAME:BOOL=${PYLIB_INCLUDE_SONAME}
+endif
+
 ifneq (${USE_FFMPEG},)
 MY_CMAKE_FLAGS += -DUSE_FFMPEG:BOOL=${USE_FFMPEG}
 endif
@@ -114,6 +127,18 @@ endif
 
 ifneq (${USE_OPENJPEG},)
 MY_CMAKE_FLAGS += -DUSE_OPENJPEG:BOOL=${USE_OPENJPEG}
+endif
+
+ifneq (${OPENJPEG_HOME},)
+MY_CMAKE_FLAGS += -DOPENJPEG_HOME:STRING=${OPENJPEG_HOME}
+endif
+
+ifneq (${USE_JPEGTURBO},)
+MY_CMAKE_FLAGS += -DUSE_JPEGTURBO:BOOL=${USE_JPEGTURBO}
+endif
+
+ifneq (${JPEGTURBO_PATH},)
+MY_CMAKE_FLAGS += -DJPEGTURBO_PATH:STRING=${JPEGTURBO_PATH}
 endif
 
 ifneq (${USE_GIF},)
@@ -148,15 +173,20 @@ ifneq (${LIBRAW_PATH},)
 MY_CMAKE_FLAGS += -DLIBRAW_PATH:STRING=${LIBRAW_PATH}
 endif
 
+ifneq (${USE_PTEX},)
+MY_CMAKE_FLAGS += -DUSE_PTEX:BOOL=${USE_PTEX}
+endif
+
 ifneq (${USE_EXTERNAL_PUGIXML},)
 MY_CMAKE_FLAGS += -DUSE_EXTERNAL_PUGIXML:BOOL=${USE_EXTERNAL_PUGIXML} -DPUGIXML_HOME=${PUGIXML_HOME}
 endif
 
-ifneq (${ILMBASE_HOME},)
-MY_CMAKE_FLAGS += -DILMBASE_HOME:STRING=${ILMBASE_HOME}
-endif
 ifneq (${OPENEXR_HOME},)
 MY_CMAKE_FLAGS += -DOPENEXR_HOME:STRING=${OPENEXR_HOME}
+endif
+
+ifneq (${ILMBASE_HOME},)
+MY_CMAKE_FLAGS += -DILMBASE_HOME:STRING=${ILMBASE_HOME}
 endif
 
 ifneq (${OCIO_HOME},)
@@ -199,14 +229,6 @@ ifneq (${SOVERSION},)
 MY_CMAKE_FLAGS += -DSOVERSION:STRING=${SOVERSION}
 endif
 
-ifneq (${PYLIB_LIB_PREFIX},)
-MY_CMAKE_FLAGS += -DPYLIB_LIB_PREFIX:BOOL=${PYLIB_LIB_PREFIX}
-endif
-
-ifneq (${PYLIB_INCLUDE_SONAME},)
-MY_CMAKE_FLAGS += -DPYLIB_INCLUDE_SONAME:BOOL=${PYLIB_INCLUDE_SONAME}
-endif
-
 ifneq (${BUILD_OIIOUTIL_ONLY},)
 MY_CMAKE_FLAGS += -DBUILD_OIIOUTIL_ONLY:BOOL=${BUILD_OIIOUTIL_ONLY}
 endif
@@ -230,6 +252,10 @@ ifneq (${USE_CPP11},)
 MY_CMAKE_FLAGS += -DUSE_CPP11:BOOL=${USE_CPP11}
 endif
 
+ifneq (${USE_CPP14},)
+MY_CMAKE_FLAGS += -DUSE_CPP14:BOOL=${USE_CPP14}
+endif
+
 ifneq (${USE_LIBCPLUSPLUS},)
 MY_CMAKE_FLAGS += -DUSE_LIBCPLUSPLUS:BOOL=${USE_LIBCPLUSPLUS}
 endif
@@ -245,6 +271,24 @@ endif
 ifneq (${TEST},)
 TEST_FLAGS += -R ${TEST}
 endif
+
+ifneq (${USE_CCACHE},)
+MY_CMAKE_FLAGS += -DUSE_CCACHE:BOOL=${USE_CCACHE}
+endif
+
+ifeq (${USE_NINJA},1)
+MY_CMAKE_FLAGS += -G Ninja
+BUILDSENTINEL := build.ninja
+endif
+
+ifneq (${CODECOV},)
+MY_CMAKE_FLAGS += -DCMAKE_BUILD_TYPE:STRING=Debug -DCODECOV:BOOL=${CODECOV}
+endif
+
+ifneq (${USE_FREETYPE},)
+MY_CMAKE_FLAGS += -DUSE_FREETYPE:BOOL=${USE_FREETYPE}
+endif
+
 
 #$(info MY_CMAKE_FLAGS = ${MY_CMAKE_FLAGS})
 #$(info MY_MAKE_FLAGS = ${MY_MAKE_FLAGS})
@@ -272,60 +316,93 @@ profile:
 # ${build_dir}/Makefile doesn't already exist, in which case we rely on the
 # cmake generated makefiles to regenerate themselves when necessary.
 cmakesetup:
-	@ (if [ ! -e ${build_dir}/Makefile ] ; then \
-		cmake -E make_directory ${build_dir} ; \
+	@ (if [ ! -e ${build_dir}/${BUILDSENTINEL} ] ; then \
+		${CMAKE} -E make_directory ${build_dir} ; \
 		cd ${build_dir} ; \
-		cmake -DCMAKE_INSTALL_PREFIX=${INSTALLDIR}/${dist_dir} \
+		${CMAKE} -DCMAKE_INSTALL_PREFIX=${INSTALLDIR}/${dist_dir} \
 			${MY_CMAKE_FLAGS} -DBOOST_ROOT=${BOOST_HOME} \
 			../.. ; \
 	 fi)
 
+ifeq (${USE_NINJA},1)
+
 # 'make cmake' does a basic build (after first setting it up)
 cmake: cmakesetup
-	( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} )
+	@ ( cd ${build_dir} ; ${NINJA} ${MY_NINJA_FLAGS} )
 
 # 'make cmakeinstall' builds everthing and installs it in 'dist'.
 # Suppress pointless output from docs installation.
 cmakeinstall: cmake
-	( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} install | grep -v '^-- \(Installing\|Up-to-date\).*doc/html' )
+	@ ( cd ${build_dir} ; ${NINJA} ${MY_NINJA_FLAGS} install | grep -v '^-- \(Installing\|Up-to-date\|Set runtime path\)' )
+
+# 'make package' builds everything and then makes an installable package
+# (platform dependent -- may be .tar.gz, .sh, .dmg, .rpm, .deb. .exe)
+package: cmakeinstall
+	@ ( cd ${build_dir} ; ${NINJA} ${MY_NINJA_FLAGS} package )
+
+# 'make package_source' makes an installable source package
+# (platform dependent -- may be .tar.gz, .sh, .dmg, .rpm, .deb. .exe)
+package_source: cmakeinstall
+	@ ( cd ${build_dir} ; ${NINJA} ${MY_NINJA_FLAGS} package_source )
+
+else
+
+# 'make cmake' does a basic build (after first setting it up)
+cmake: cmakesetup
+	@ ( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} )
+
+# 'make cmakeinstall' builds everthing and installs it in 'dist'.
+# Suppress pointless output from docs installation.
+cmakeinstall: cmake
+	@ ( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} install | grep -v '^-- \(Installing\|Up-to-date\|Set runtime path\)' )
+
+# 'make package' builds everything and then makes an installable package
+# (platform dependent -- may be .tar.gz, .sh, .dmg, .rpm, .deb. .exe)
+package: cmakeinstall
+	@ ( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} package )
+
+# 'make package_source' makes an installable source package
+# (platform dependent -- may be .tar.gz, .sh, .dmg, .rpm, .deb. .exe)
+package_source: cmakeinstall
+	@ ( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} package_source )
+
+endif
 
 # 'make dist' is just a synonym for 'make cmakeinstall'
 dist : cmakeinstall
 
+TEST_FLAGS += --force-new-ctest-process --output-on-failure
+
 # 'make test' does a full build and then runs all tests
 test: cmake
-	cmake -E cmake_echo_color --switch=$(COLOR) --cyan "Running tests ${TEST_FLAGS}..."
-	( cd ${build_dir} ; ctest --force-new-ctest-process ${TEST_FLAGS} -E broken )
+	@ ${CMAKE} -E cmake_echo_color --switch=$(COLOR) --cyan "Running tests ${TEST_FLAGS}..."
+	@ # if [ "${CODECOV}" == "1" ] ; then lcov -b ${build_dir} -d ${build_dir} -z ; rm -rf ${build_dir}/cov ; fi
+	@ ( cd ${build_dir} ; PYTHONPATH=${PWD}/${build_dir}/src/python ctest -E broken ${TEST_FLAGS} )
+	@ ( if [ "${CODECOV}" == "1" ] ; then \
+	      cd ${build_dir} ; \
+	      lcov -b . -d . -c -o cov.info ; \
+	      lcov --remove cov.info "/usr*" -o cov.info ; \
+	      genhtml -o ./cov -t "OIIO test coverage" --num-spaces 4 cov.info ; \
+	  fi )
 
 # 'make testall' does a full build and then runs all tests (even the ones
 # that are expected to fail on some platforms)
 testall: cmake
-	cmake -E cmake_echo_color --switch=$(COLOR) --cyan "Running all tests ${TEST_FLAGS}..."
-	( cd ${build_dir} ; ctest --force-new-ctest-process ${TEST_FLAGS} )
+	${CMAKE} -E cmake_echo_color --switch=$(COLOR) --cyan "Running all tests ${TEST_FLAGS}..."
+	( cd ${build_dir} ; PYTHONPATH=${PWD}/${build_dir}/src/python ctest ${TEST_FLAGS} )
 
-# 'make package' builds everything and then makes an installable package 
-# (platform dependent -- may be .tar.gz, .sh, .dmg, .rpm, .deb. .exe)
-package: cmakeinstall
-	( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} package )
-
-# 'make package_source' makes an installable source package 
-# (platform dependent -- may be .tar.gz, .sh, .dmg, .rpm, .deb. .exe)
-package_source: cmakeinstall
-	( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} package_source )
-
-#clean: testclean
 # 'make clean' clears out the build directory for this platform
 clean:
-	cmake -E remove_directory ${build_dir}
+	${CMAKE} -E remove_directory ${build_dir}
 
 # 'make realclean' clears out both build and dist directories for this platform
 realclean: clean
-	cmake -E remove_directory ${dist_dir}
+	${CMAKE} -E remove_directory ${dist_dir}
 
 # 'make nuke' blows away the build and dist areas for all platforms
 nuke:
-	cmake -E remove_directory ${top_build_dir}
-	cmake -E remove_directory ${top_dist_dir}
+	${CMAKE} -E remove_directory ${top_build_dir}
+	${CMAKE} -E remove_directory ${top_dist_dir}
 
 doxygen:
 	doxygen src/doc/Doxyfile
@@ -356,19 +433,23 @@ help:
 	@echo "      STOP_ON_WARNING=0        Do not stop building if compiler warns"
 	@echo "      OPENIMAGEIO_SITE=xx      Use custom site build mods"
 	@echo "      MYCC=xx MYCXX=yy         Use custom compilers"
-	@echo "      USE_CPP11=1              Compile in C++11 mode"
+	@echo "      USE_CPP11=0              Compile in C++11 mode (=0 means use CPP03!)"
+	@echo "      USE_CPP14=1              Compile in C++14 mode"
 	@echo "      USE_LIBCPLUSPLUS=1       Use clang libc++"
 	@echo "      EXTRA_CPP_ARGS=          Additional args to the C++ command"
+	@echo "      USE_NINJA=1              Set up Ninja build (instead of make)"
+	@echo "      USE_CCACHE=0             Disable ccache (even if available)"
+	@echo "      CODECOV=1                Enable code coverage tests"
 	@echo "  Linking and libraries:"
 	@echo "      HIDE_SYMBOLS=1           Hide symbols not in the public API"
 	@echo "      SOVERSION=nn             Include the specifed major version number "
 	@echo "                                  in the shared object metadata"
 	@echo "      BUILDSTATIC=1            Build static library instead of shared"
-	@echo "      LINKSTATIC=1             Link with static external libraries when possible"
+	@echo "      LINKSTATIC=1             Link with static external libs when possible"
 	@echo "  Finding and Using Dependencies:"
 	@echo "      BOOST_HOME=path          Custom Boost installation"
-	@echo "      ILMBASE_HOME=path        Custom Ilmbase installation"
 	@echo "      OPENEXR_HOME=path        Custom OpenEXR installation"
+	@echo "      ILMBASE_HOME=path        Custom IlmBase installation"
 	@echo "      USE_EXTERNAL_PUGIXML=1   Use the system PugiXML, not the one in OIIO"
 	@echo "      USE_QT=0                 Skip anything that needs Qt"
 	@echo "      USE_OPENGL=0             Skip anything that needs OpenGL"
@@ -377,9 +458,13 @@ help:
 	@echo "      USE_PYTHON3=1            If 1, try to build against Python3, not 2.x"
 	@echo "      PYTHON_VERSION=2.6       Specify the Python version"
 	@echo "      USE_FIELD3D=0            Don't build the Field3D plugin"
+	@echo "      FIELD3D_HOME=path        Custom Field3D installation"
 	@echo "      USE_FFMPEG=0             Don't build the FFmpeg plugin"
+	@echo "      USE_JPEGTURBO=0          Don't build the JPEG-Turbo even if found"
+	@echo "      JPEGTURBO_PATH=path      Custom path for JPEG-Turbo"
 	@echo "      USE_OPENJPEG=0           Don't build the JPEG-2000 plugin"
 	@echo "      USE_GIF=0                Don't build the GIF plugin"
+	@echo "      GIF_DIR=path             Custom GIFLIB installation"
 	@echo "      USE_OCIO=0               Don't use OpenColorIO even if found"
 	@echo "      OCIO_HOME=path           Custom OpenColorIO installation"
 	@echo "      USE_NUKE=0               Don't build Nuke plugins"
@@ -388,9 +473,9 @@ help:
 #	@echo "      USE_OPENSSL=1            Use OpenSSL's SHA-1 implementation"
 	@echo "      USE_LIBRAW=0             Don't use LibRaw, even if found"
 	@echo "      LIBRAW_PATH=path         Custom LibRaw installation"
-	@echo "      FIELD3D_HOME=path        Custom Field3D installation"
-	@echo "      GIF_DIR=path             Custom GIFLIB installation"
 	@echo "      USE_OPENCV=0             Skip anything that needs OpenCV"
+	@echo "      USE_PTEX=0               Skip anything that needs PTex"
+	@echo "      USE_FREETYPE=0           Skip anything that needs Freetype"
 	@echo "  OIIO build-time options:"
 	@echo "      NAMESPACE=name           Wrap everything in another namespace"
 	@echo "      EMBEDPLUGINS=0           Don't compile the plugins into libOpenImageIO"
@@ -400,6 +485,9 @@ help:
 	@echo "      OIIO_BUILD_TESTS=0       Skip building the unit tests"
 	@echo "      BUILD_OIIOUTIL_ONLY=1    Build *only* libOpenImageIO_Util"
 	@echo "      USE_SIMD=arch            Build with SIMD support (choices: 0, sse2, sse3,"
-	@echo "                                    ssse3, sse4.1, sse4.2)"
+	@echo "                                  ssse3, sse4.1, sse4.2, f16c, avx, avx2"
+	@echo "                                  comma-separated ok)"
+	@echo "  make test, extra options:"
+	@echo "      TEST=regex               Run only tests matching the regex"
 	@echo ""
 

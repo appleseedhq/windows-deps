@@ -55,12 +55,10 @@
 #include "imagecache_pvt.h"
 
 #include <boost/foreach.hpp>
-#include <boost/algorithm/string.hpp>
 #include <boost/scoped_array.hpp>
 
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
     using namespace pvt;
 
 namespace pvt {
@@ -68,7 +66,7 @@ namespace pvt {
 // The static perthread mutex needs to outlive the shared_image_cache
 // instance, so must be declared first in this file to avoid static
 // initialization order problems.
-mutex ImageCacheImpl::m_perthread_info_mutex;
+spin_mutex ImageCacheImpl::m_perthread_info_mutex;
 
 }
 
@@ -82,7 +80,8 @@ static ustring s_resolution ("resolution"), s_texturetype ("texturetype");
 static ustring s_textureformat ("textureformat"), s_fileformat ("fileformat");
 static ustring s_format ("format"), s_cachedformat ("cachedformat");
 static ustring s_channels ("channels"), s_cachedpixeltype ("cachedpixeltype");
-static ustring s_exists ("exists");
+static ustring s_exists ("exists"), s_broken ("broken");
+static ustring s_UDIM ("UDIM");
 static ustring s_subimages ("subimages"), s_miplevels ("miplevels");
 static ustring s_datawindow ("datawindow"), s_displaywindow ("displaywindow");
 static ustring s_averagecolor ("averagecolor"), s_averagealpha ("averagealpha");
@@ -123,6 +122,14 @@ iorate_compare (const ImageCacheFileRef &a, const ImageCacheFileRef &b)
 }
 
 
+// Functor to compare amount of redundant reading, sort in descending order
+static bool
+redundantbytes_compare (const ImageCacheFileRef &a, const ImageCacheFileRef &b)
+{
+    return a->redundant_bytesread() > b->redundant_bytesread();
+}
+
+
 };  // end anonymous namespace
 
 
@@ -141,6 +148,7 @@ ImageCacheStatistics::init ()
 //    tiles_current = 0;
 //    tiles_peak = 0;
     files_totalsize = 0;
+    files_totalsize_ondisk = 0;
     bytes_read = 0;
 //    open_files_created = 0;
 //    open_files_current = 0;
@@ -185,6 +193,7 @@ ImageCacheStatistics::merge (const ImageCacheStatistics &s)
 //    tiles_current += s.tiles_current;
 //    tiles_peak += s.tiles_peak;
     files_totalsize += s.files_totalsize;
+    files_totalsize_ondisk += s.files_totalsize_ondisk;
     bytes_read += s.bytes_read;
 //    open_files_created += s.open_files_created;
 //    open_files_current += s.open_files_current;
@@ -231,6 +240,38 @@ ImageCacheFile::LevelInfo::LevelInfo (const ImageSpec &spec_,
                spec.height <= spec.tile_height &&
                spec.depth <= spec.tile_depth);
     polecolorcomputed = false;
+
+    // Allocate bit field for which tiles have been read at least once.
+    if (onetile) {
+        nxtiles = 1;
+        nytiles = 1;
+        nztiles = 1;
+    } else {
+        nxtiles = (spec.width  + spec.tile_width  - 1) / spec.tile_width;
+        nytiles = (spec.height + spec.tile_height - 1) / spec.tile_height;
+        nztiles = (spec.depth  + spec.tile_depth  - 1) / spec.tile_depth;
+    }
+    int total_tiles = nxtiles * nytiles * nztiles;
+    ASSERT (total_tiles >= 1);
+    tiles_read = new atomic_ll [round_to_multiple (total_tiles, 64) / 64];
+}
+
+
+
+ImageCacheFile::LevelInfo::LevelInfo (const LevelInfo &src)
+    : spec(src.spec), nativespec(src.nativespec),
+      full_pixel_range(src.full_pixel_range),
+      onetile(src.onetile),
+      polecolorcomputed(src.polecolorcomputed),
+      polecolor(src.polecolor),
+      nxtiles(src.nxtiles),
+      nytiles(src.nytiles),
+      nztiles(src.nztiles)
+{
+    int nwords = round_to_multiple (nxtiles * nytiles * nztiles, 64) / 64;
+    tiles_read = new atomic_ll [nwords];
+    for (int i = 0; i < nwords; ++i)
+        tiles_read[i] = src.tiles_read[i];
 }
 
 
@@ -245,10 +286,14 @@ ImageCacheFile::ImageCacheFile (ImageCacheImpl &imagecache,
       m_swrap(TextureOpt::WrapBlack), m_twrap(TextureOpt::WrapBlack),
       m_rwrap(TextureOpt::WrapBlack),
       m_envlayout(LayoutTexture), m_y_up(false), m_sample_border(false),
-      m_tilesread(0), m_bytesread(0), m_timesopened(0), m_iotime(0),
-      m_mipused(false), m_validspec(false), 
+      m_is_udim(false),
+      m_tilesread(0), m_bytesread(0),
+      m_redundant_tiles(0), m_redundant_bytesread(0),
+      m_timesopened(0), m_iotime(0),
+      m_mipused(false), m_validspec(false), m_errors_issued(0),
       m_imagecache(imagecache), m_duplicate(NULL),
       m_total_imagesize(0),
+      m_total_imagesize_ondisk(0),
       m_inputcreator(creator),
       m_configspec(config ? new ImageSpec(*config) : NULL)
 {
@@ -256,10 +301,22 @@ ImageCacheFile::ImageCacheFile (ImageCacheImpl &imagecache,
     m_filename = imagecache.resolve_filename (m_filename_original.string());
     // N.B. the file is not opened, the ImageInput is NULL.  This is
     // reflected by the fact that m_validspec is false.
+#if USE_SHADOW_MATRICES
     m_Mlocal.makeIdentity();
     m_Mproj.makeIdentity();
     m_Mtex.makeIdentity();
     m_Mras.makeIdentity();
+#endif
+
+    // Figure out if it's a UDIM-like virtual texture
+    if (! Filesystem::exists(m_filename.string())
+        && (m_filename.find("<UDIM>") != m_filename.npos ||
+            m_filename.find("<U>") != m_filename.npos ||
+            m_filename.find("<V>") != m_filename.npos ||
+            m_filename.find("<u>") != m_filename.npos ||
+            m_filename.find("<v>") != m_filename.npos)) {
+        m_is_udim = true;
+    }
 }
 
 
@@ -295,14 +352,14 @@ ImageCacheFile::SubimageInfo::init (const ImageSpec &spec, bool forcefloat)
     if (! forcefloat) {
         // If we aren't forcing everything to be float internally, then 
         // there are a few other types we allow.
-        // But at present, it's only UINT8 and FLOAT.
         if (spec.format == TypeDesc::UINT8
+            || spec.format == TypeDesc::UINT16
+            || spec.format == TypeDesc::HALF
             /* future expansion:  || spec.format == AnotherFormat ... */)
             datatype = spec.format;
     }
     channelsize = datatype.size();
     pixelsize = channelsize * spec.nchannels;
-    eightbit = (datatype == TypeDesc::UINT8);
 
     // See if there's a constant color tag
     string_view software = spec.get_string_attribute ("Software");
@@ -358,10 +415,10 @@ ImageCacheFile::open (ImageCachePerThreadInfo *thread_info)
     if (m_inputcreator)
         m_input.reset (m_inputcreator());
     else
-        m_input.reset (ImageInput::create (m_filename.c_str(),
-                                           m_imagecache.plugin_searchpath().c_str()));
+        m_input.reset (ImageInput::create (m_filename.string(),
+                                           m_imagecache.plugin_searchpath()));
     if (! m_input) {
-        imagecache().error ("%s", OIIO::geterror().c_str());
+        imagecache().error ("%s", OIIO::geterror());
         m_broken = true;
         invalidate_spec ();
         return false;
@@ -385,11 +442,13 @@ ImageCacheFile::open (ImageCachePerThreadInfo *thread_info)
             (void) m_input->geterror ();  // Eat the errors
             break;
         }
-        // We failed.  Wait a bit and try again.
-        Sysutil::usleep (1000 * 100);  // 100 ms
+        if (tries < imagecache().failure_retries()) {
+            // We failed, but will wait a bit and try again.
+            Sysutil::usleep (1000 * 100);  // 100 ms
+        }
     }
     if (! ok) {
-        imagecache().error ("%s", m_input->geterror().c_str());
+        imagecache().error ("%s", m_input->geterror());
         m_broken = true;
         m_input.reset ();
         return false;
@@ -413,6 +472,7 @@ ImageCacheFile::open (ImageCachePerThreadInfo *thread_info)
     // Since each subimage can potentially have its own mipmap levels,
     // keep track of the highest level discovered
     imagesize_t old_total_imagesize = m_total_imagesize;
+    imagesize_t old_total_imagesize_ondisk = m_total_imagesize_ondisk;
     m_total_imagesize = 0;
     do {
         m_subimages.resize (nsubimages+1);
@@ -507,16 +567,14 @@ ImageCacheFile::open (ImageCachePerThreadInfo *thread_info)
             }
         }
         if (si.untiled && ! imagecache().accept_untiled()) {
-            imagecache().error ("%s was untiled, rejecting",
-                                m_filename.c_str());
+            imagecache().error ("%s was untiled, rejecting", m_filename);
             m_broken = true;
             invalidate_spec ();
             m_input.reset ();
             return false;
         }
         if (si.unmipped && ! imagecache().accept_unmipped()) {
-            imagecache().error ("%s was not MIP-mapped, rejecting",
-                                m_filename.c_str());
+            imagecache().error ("%s was not MIP-mapped, rejecting", m_filename);
             m_broken = true;
             invalidate_spec ();
             m_input.reset ();
@@ -527,8 +585,15 @@ ImageCacheFile::open (ImageCachePerThreadInfo *thread_info)
     } while (m_input->seek_subimage (nsubimages, 0, nativespec));
     ASSERT ((size_t)nsubimages == m_subimages.size());
 
+    if (Filesystem::exists(m_filename.string()))
+        m_total_imagesize_ondisk = imagesize_t(Filesystem::file_size (m_filename));
+    else
+        m_total_imagesize_ondisk = 0;
+
     thread_info->m_stats.files_totalsize -= old_total_imagesize;
     thread_info->m_stats.files_totalsize += m_total_imagesize;
+    thread_info->m_stats.files_totalsize_ondisk -= old_total_imagesize_ondisk;
+    thread_info->m_stats.files_totalsize_ondisk += m_total_imagesize_ondisk;
 
     init_from_spec ();  // Fill in the rest of the fields
     return true;
@@ -603,6 +668,7 @@ ImageCacheFile::init_from_spec ()
             m_envlayout = LayoutTexture;
     }
 
+#if USE_SHADOW_MATRICES
     Imath::M44f c2w;
     m_imagecache.get_commontoworld (c2w);
     if ((p = spec.find_attribute ("worldtocamera", TypeDesc::TypeMatrix))) {
@@ -614,6 +680,7 @@ ImageCacheFile::init_from_spec ()
         m_Mproj = c2w * (*m);
     }
     // FIXME -- compute Mtex, Mras
+#endif
 
     // See if there's a SHA-1 hash in the image description
     std::string fing = spec.get_string_attribute ("oiio:SHA-1");
@@ -645,8 +712,10 @@ ImageCacheFile::init_from_spec ()
 bool
 ImageCacheFile::read_tile (ImageCachePerThreadInfo *thread_info,
                            int subimage, int miplevel, int x, int y, int z,
+                           int chbegin, int chend,
                            TypeDesc format, void *data)
 {
+    ASSERT (chend > chbegin);
     recursive_lock_guard guard (m_input_mutex);
 
     if (! m_input && !m_broken) {
@@ -685,7 +754,7 @@ ImageCacheFile::read_tile (ImageCachePerThreadInfo *thread_info,
         // waiting on its tile to get filled with pixels).
         unlock_input_mutex ();
         bool ok = read_unmipped (thread_info, subimage, miplevel,
-                                 x, y, z, format, data);
+                                 x, y, z, chbegin, chend, format, data);
         // The lock_guard at the very top will try to unlock upon
         // destruction, to to make things right, we need to re-lock.
         lock_input_mutex ();
@@ -695,7 +764,7 @@ ImageCacheFile::read_tile (ImageCachePerThreadInfo *thread_info,
     // Special case for untiled images -- need to do tile emulation
     if (subinfo.untiled)
         return read_untiled (thread_info, subimage, miplevel,
-                             x, y, z, format, data);
+                             x, y, z, chbegin, chend, format, data);
 
     // Ordinary tiled
     ImageSpec tmp;
@@ -704,19 +773,28 @@ ImageCacheFile::read_tile (ImageCachePerThreadInfo *thread_info,
         ok = m_input->seek_subimage (subimage, miplevel, tmp);
     if (ok) {
         for (int tries = 0; tries <= imagecache().failure_retries(); ++tries) {
-            ok = m_input->read_tile (x, y, z, format, data);
+            const ImageSpec &spec (m_input->spec());
+            ok = m_input->read_tiles (x, x+spec.tile_width,
+                                      y, y+spec.tile_height,
+                                      z, z+spec.tile_depth,
+                                      chbegin, chend, format, data);
             if (ok) {
                 if (tries)   // succeeded, but only after a failure!
                     ++thread_info->m_stats.tile_retry_success;
                 (void) m_input->geterror ();  // Eat the errors
                 break;
             }
-            // We failed.  Wait a bit and try again.
-            Sysutil::usleep (1000 * 100);  // 100 ms
-            // TODO: should we attempt to close and re-open the file?
+            if (tries < imagecache().failure_retries()) {
+                // We failed, but will wait a bit and try again.
+                Sysutil::usleep (1000 * 100);  // 100 ms
+                // TODO: should we attempt to close and re-open the file?
+            }
         }
-        if (! ok)
-            imagecache().error ("%s", m_input->geterror().c_str());
+        if (! ok) {
+            std::string err = m_input->geterror();
+            if (!err.empty() && errors_should_issue())
+                imagecache().error ("%s", err);
+        }
     }
     if (ok) {
         size_t b = spec(subimage,miplevel).tile_bytes();
@@ -731,7 +809,8 @@ ImageCacheFile::read_tile (ImageCachePerThreadInfo *thread_info,
 
 bool
 ImageCacheFile::read_unmipped (ImageCachePerThreadInfo *thread_info,
-                               int subimage, int miplevel, int x, int y, int z,
+                               int subimage, int miplevel,
+                               int x, int y, int z, int chbegin, int chend,
                                TypeDesc format, void *data)
 {
     // We need a tile from an unmipmapped file, and it doesn't really
@@ -750,9 +829,9 @@ ImageCacheFile::read_unmipped (ImageCachePerThreadInfo *thread_info,
     const ImageSpec &spec (this->spec(subimage,miplevel));
     int tw = spec.tile_width;
     int th = spec.tile_height;
-    stride_t xstride=AutoStride, ystride=AutoStride, zstride=AutoStride;
-    spec.auto_stride(xstride, ystride, zstride, format, spec.nchannels, tw, th);
-    ImageSpec lospec (tw, th, spec.nchannels, TypeDesc::FLOAT);
+    ASSERT (chend > chbegin);
+    int nchans = chend - chbegin;
+    ImageSpec lospec (tw, th, nchans, TypeDesc::FLOAT);
     ImageBuf lores (lospec);
 
     // Figure out the range of texels we need for this tile
@@ -786,8 +865,8 @@ ImageCacheFile::read_unmipped (ImageCachePerThreadInfo *thread_info,
     // Texel by texel, generate the values by interpolating filtered
     // lookups form the next finer subimage.
     const ImageSpec &upspec (this->spec(subimage,miplevel-1));  // next higher level
-    float *bilerppels = (float *) alloca (4 * spec.nchannels * sizeof(float));
-    float *resultpel = (float *) alloca (spec.nchannels * sizeof(float));
+    float *bilerppels = (float *) alloca (4 * nchans * sizeof(float));
+    float *resultpel = (float *) alloca (nchans * sizeof(float));
     bool ok = true;
     // FIXME(volume) -- loop over z, too
     for (int j = y0;  j <= y1;  ++j) {
@@ -801,17 +880,17 @@ ImageCacheFile::read_unmipped (ImageCachePerThreadInfo *thread_info,
             ok &= imagecache().get_pixels (this, thread_info,
                                            subimage, miplevel-1,
                                            xlow, xlow+2, ylow, ylow+2,
-                                           0, 1, 0, spec.nchannels,
+                                           0, 1, chbegin, chend,
                                            TypeDesc::FLOAT, bilerppels);
-            bilerp (bilerppels+0, bilerppels+spec.nchannels,
-                    bilerppels+2*spec.nchannels, bilerppels+3*spec.nchannels,
-                    xfrac, yfrac, spec.nchannels, resultpel);
+            bilerp (bilerppels+0, bilerppels+nchans,
+                    bilerppels+2*nchans, bilerppels+3*nchans,
+                    xfrac, yfrac, nchans, resultpel);
             lores.setpixel (i-x0, j-y0, resultpel);
         }
     }
 
     // Now convert and copy those values out to the caller's buffer
-    lores.get_pixels (0, tw, 0, th, 0, 1, format, data);
+    lores.get_pixels (ROI (0, tw, 0, th, 0, 1, chbegin, chend), format, data);
 
     // Restore the microcache to the way it was before.
     thread_info->tile = oldtile;
@@ -826,7 +905,8 @@ ImageCacheFile::read_unmipped (ImageCachePerThreadInfo *thread_info,
 // of reading a "tile" from a file that's scanline-oriented.
 bool
 ImageCacheFile::read_untiled (ImageCachePerThreadInfo *thread_info,
-                              int subimage, int miplevel, int x, int y, int z,
+                              int subimage, int miplevel,
+                              int x, int y, int z, int chbegin, int chend,
                               TypeDesc format, void *data)
 {
     // N.B. No need to lock the input mutex, since this is only called
@@ -836,7 +916,9 @@ ImageCacheFile::read_untiled (ImageCachePerThreadInfo *thread_info,
         m_input->current_miplevel() != miplevel) {
         ImageSpec tmp;
         if (! m_input->seek_subimage (subimage, miplevel, tmp)) {
-            imagecache().error ("%s", m_input->geterror().c_str());
+            std::string err = m_input->geterror();
+            if (!err.empty() && errors_should_issue())
+                imagecache().error ("%s", err);
             return false;
         }
     }
@@ -845,9 +927,10 @@ ImageCacheFile::read_untiled (ImageCachePerThreadInfo *thread_info,
     ImageSpec &spec (this->spec(subimage,miplevel));
     int tw = spec.tile_width;
     int th = spec.tile_height;
+    ASSERT (chend > chbegin);
+    int nchans = chend - chbegin;
     stride_t xstride=AutoStride, ystride=AutoStride, zstride=AutoStride;
-    spec.auto_stride (xstride, ystride, zstride, format,
-                      spec.nchannels, tw, th);
+    spec.auto_stride (xstride, ystride, zstride, format, nchans, tw, th);
 
     bool ok = true;
     if (imagecache().autotile()) {
@@ -858,7 +941,7 @@ ImageCacheFile::read_untiled (ImageCachePerThreadInfo *thread_info,
         // if not already present, on the assumption that it's highly
         // likely that they will also soon be requested.
         // FIXME -- I don't think this works properly for 3D images
-        size_t pixelsize = size_t (spec.nchannels * format.size());
+        size_t pixelsize = size_t (nchans * format.size());
         // Because of the way we copy below, we need to allocate the
         // buffer to be an even multiple of the tile width, so round up.
         stride_t scanlinesize = tw * ((spec.width+tw-1)/tw);
@@ -871,10 +954,14 @@ ImageCacheFile::read_untiled (ImageCachePerThreadInfo *thread_info,
         y0 += spec.y;
         y1 += spec.y;
         // Read the whole tile-row worth of scanlines
-        ok = m_input->read_scanlines (y0, y1+1, z, format, (void *)&buf[0],
+        ok = m_input->read_scanlines (y0, y1+1, z, chbegin, chend,
+                                      format, (void *)&buf[0],
                                       pixelsize, scanlinesize);
-        if (! ok)
-            imagecache().error ("%s", m_input->geterror().c_str());
+        if (! ok) {
+            std::string err = m_input->geterror();
+            if (!err.empty() && errors_should_issue())
+                imagecache().error ("%s", err);
+        }
         size_t b = (y1-y0+1) * spec.scanline_bytes();
         thread_info->m_stats.bytes_read += b;
         m_bytesread += b;
@@ -894,7 +981,7 @@ ImageCacheFile::read_untiled (ImageCachePerThreadInfo *thread_info,
         for (int i = 0;  i < spec.width;  i += tw) {
             if (i == xx) {
                 // This is the tile we've been asked for
-                convert_image (spec.nchannels, tw, th, 1,
+                convert_image (nchans, tw, th, 1,
                                &buf[x0 * pixelsize], format, pixelsize,
                                scanlinesize, scanlinesize*th, data, format,
                                xstride, ystride, zstride);
@@ -902,7 +989,7 @@ ImageCacheFile::read_untiled (ImageCachePerThreadInfo *thread_info,
                 // Not the tile we asked for, but it's in the same
                 // tile-row, so let's put it in the cache anyway so
                 // it'll be there when asked for.
-                TileID id (*this, subimage, miplevel, i+spec.x, y0, z);
+                TileID id (*this, subimage, miplevel, i+spec.x, y0, z, chbegin, chend);
                 if (! imagecache().tile_in_cache (id, thread_info)) {
                     ImageCacheTileRef tile;
                     tile = new ImageCacheTile (id, &buf[i*pixelsize],
@@ -919,9 +1006,13 @@ ImageCacheFile::read_untiled (ImageCachePerThreadInfo *thread_info,
         lock_input_mutex ();
     } else {
         // No auto-tile -- the tile is the whole image
-        ok = m_input->read_image (format, data, xstride, ystride, zstride);
-        if (! ok)
-            imagecache().error ("%s", m_input->geterror().c_str());
+        ok = m_input->read_image (chbegin, chend, format, data,
+                                  xstride, ystride, zstride);
+        if (! ok) {
+            std::string err = m_input->geterror();
+            if (!err.empty() && errors_should_issue())
+                imagecache().error ("%s", err);
+        }
         size_t b = spec.image_bytes();
         thread_info->m_stats.bytes_read += b;
         m_bytesread += b;
@@ -977,6 +1068,7 @@ ImageCacheFile::invalidate ()
     // Eat any errors that occurred in the open/close
     while (! imagecache().geterror().empty())
         ;
+    m_errors_issued = 0;  // start error count fresh
 }
 
 
@@ -1019,6 +1111,14 @@ ImageCacheFile::get_average_color (float *avg, int subimage,
 
 
 
+int
+ImageCacheFile::errors_should_issue () const
+{
+    return (++m_errors_issued <= imagecache().max_errors_per_file());
+}
+
+
+
 ImageCacheFile *
 ImageCacheImpl::find_file (ustring filename,
                            ImageCachePerThreadInfo *thread_info,
@@ -1034,7 +1134,7 @@ ImageCacheImpl::find_file (ustring filename,
     // expensive lock on the shared file cache.
     ImageCacheFile *tf = thread_info->find_file (filename);
 
-    // Part 1 - make sure the ImageCacheFile entry exists and is in the
+    // Make sure the ImageCacheFile entry exists and is in the
     // file cache.  For this part, we need to lock the file cache.
     bool newfile = false;
     if (! tf) {  // was not found in microcache
@@ -1054,19 +1154,44 @@ ImageCacheImpl::find_file (ustring filename,
         }
         m_files.unlock_bin (bin);
 
-        if (newfile)
+        if (newfile) {
             check_max_files (thread_info);
+            if (! tf->duplicate())
+                ++thread_info->m_stats.unique_files;
+        }
         thread_info->filename (filename, tf);  // add to the microcache
 #if IMAGECACHE_TIME_STATS
         thread_info->m_stats.find_file_time += timer();
 #endif
     }
 
-    // Part 2 - open the file if it's never been opened before.
+    // Ensure that it's open and do other important housekeeping.
+//    tf = verify_file (tf, thread_info, header_only);
+    return tf;
+}
+
+
+
+ImageCacheFile *
+ImageCacheImpl::verify_file (ImageCacheFile *tf,
+                             ImageCachePerThreadInfo *thread_info,
+                             bool header_only)
+{
+    if (! tf)
+        return NULL;
+
+    if (tf->is_udim()) {
+        // Can't really open a UDIM-like virtual file
+        return tf;
+    }
+
+    // Open the file if it's never been opened before.
     // No need to have the file cache locked for this, though we lock
     // the tf->m_input_mutex if we need to open it.
     if (! tf->validspec()) {
         Timer timer;
+        if (! thread_info)
+            thread_info = get_perthread_info ();
         recursive_lock_guard guard (tf->m_input_mutex);
         if (! tf->validspec()) {
             tf->open (thread_info);
@@ -1114,21 +1239,15 @@ ImageCacheImpl::find_file (ustring filename,
         }
     }
 
-    // if this is a duplicate texture, switch to the canonical copy
-    if (tf->duplicate()) {
-        if (! header_only)
-            tf = tf->duplicate();
+    if (! header_only) {
+        // if this is a duplicate texture, switch to the canonical copy
         // N.B. If looking up header info (i.e., get_image_info, rather
         // than getting pixels, use the original not the duplicate, since
         // metadata may differ even if pixels are identical).
-    } else {
-        // not a duplicate -- if opening the first time, count as unique
-        if (newfile)
-            ++thread_info->m_stats.unique_files;
-    }
-
-    if (! header_only)
+        if (tf->duplicate())
+            tf = tf->duplicate();
         tf->use ();  // Mark it as recently used
+    }
     return tf;
 }
 
@@ -1193,7 +1312,7 @@ ImageCacheImpl::check_max_files (ImageCachePerThreadInfo *thread_info)
     // looking up the filename of the first entry in the file cache.
     if (! m_file_sweep_name) {
         FilenameMap::iterator sweep = m_files.begin();
-        ASSERT (sweep != m_files.end() &&
+        DASSERT (sweep != m_files.end() &&
                 "no way m_files can be empty and have too many files open");
         m_file_sweep_name = sweep->first;
     }
@@ -1277,16 +1396,17 @@ ImageCacheTile::ImageCacheTile (const TileID &id, const void *pels,
     m_pixels_size = 0;
     ImageCacheFile &file (m_id.file ());
     const ImageSpec &spec (file.spec(id.subimage(), id.miplevel()));
+    m_channelsize = file.datatype(id.subimage()).size();
+    m_pixelsize = id.nchannels() * m_channelsize;
     size_t size = memsize_needed ();
     ASSERT_MSG (size > 0 && memsize() == 0, "size was %llu, memsize = %llu",
                 (unsigned long long)size, (unsigned long long)memsize());
     m_pixels.reset (new char [m_pixels_size = size]);
-    size_t dst_pelsize = file.pixelsize(id.subimage());
-    m_valid = convert_image (spec.nchannels, spec.tile_width, spec.tile_height,
+    m_valid = convert_image (id.nchannels(), spec.tile_width, spec.tile_height,
                              spec.tile_depth, pels, format, xstride, ystride,
                              zstride, &m_pixels[0], file.datatype(id.subimage()),
-                             dst_pelsize, dst_pelsize * spec.tile_width,
-                             dst_pelsize * spec.tile_width * spec.tile_height);
+                             m_pixelsize, m_pixelsize * spec.tile_width,
+                             m_pixelsize * spec.tile_width * spec.tile_height);
     id.file().imagecache().incr_tiles (size);
     m_pixels_ready = true;  // Caller sent us the pixels, no read necessary
     // FIXME -- for shadow, fill in mindepth, maxdepth
@@ -1305,9 +1425,7 @@ size_t
 ImageCacheTile::memsize_needed () const
 {
     const ImageSpec &spec (file().spec(m_id.subimage(),m_id.miplevel()));
-    TypeDesc datatype = file().datatype(id().subimage());
-    size_t pixelsize = spec.nchannels * datatype.size();
-    size_t s = spec.tile_pixels() * pixelsize;
+    size_t s = spec.tile_pixels() * pixelsize();
     // N.B. Round up so we can use a SIMD fetch for the last pixel and
     // channel without running off the end.
     s += OIIO_SIMD_MAX_SIZE_BYTES;
@@ -1319,18 +1437,33 @@ ImageCacheTile::memsize_needed () const
 void
 ImageCacheTile::read (ImageCachePerThreadInfo *thread_info)
 {
+    ImageCacheFile &file (m_id.file());
+    m_channelsize = file.datatype(id().subimage()).size();
+    m_pixelsize = m_id.nchannels() * m_channelsize;
     size_t size = memsize_needed ();
     ASSERT (memsize() == 0 && size > OIIO_SIMD_MAX_SIZE_BYTES);
     m_pixels.reset (new char [m_pixels_size = size]);
     // Clear the end pad values so there aren't NaNs sucked up by simd loads
     memset (m_pixels.get() + size - OIIO_SIMD_MAX_SIZE_BYTES,
             0, OIIO_SIMD_MAX_SIZE_BYTES);
-    ImageCacheFile &file (m_id.file());
     m_valid = file.read_tile (thread_info, m_id.subimage(), m_id.miplevel(),
                               m_id.x(), m_id.y(), m_id.z(),
+                              m_id.chbegin(), m_id.chend(),
                               file.datatype(m_id.subimage()), &m_pixels[0]);
     m_id.file().imagecache().incr_mem (size);
-    if (! m_valid) {
+    if (m_valid) {
+        // Figure out if 
+        ImageCacheFile::LevelInfo &lev (file.levelinfo (m_id.subimage(), m_id.miplevel()));
+        int whichtile = ((m_id.x() - lev.spec.x) / lev.spec.tile_width)
+                      + ((m_id.y() - lev.spec.y) / lev.spec.tile_height) * lev.nxtiles
+                      + ((m_id.z() - lev.spec.z) / lev.spec.tile_depth) * (lev.nxtiles*lev.nytiles);
+        int index = whichtile / 64;
+        int64_t bitmask = int64_t (1ULL << (whichtile & 63));
+        int64_t oldval = lev.tiles_read[index].fetch_or (bitmask);
+        if (oldval & bitmask)   // Was it previously read?
+            file.register_redundant_tile (lev.spec.tile_bytes());
+    } else {
+        // (! m_valid)
         m_used = false;  // Don't let it hold mem if invalid
 #if 0
         std::cerr << "(1) error reading tile " << m_id.x() << ' ' << m_id.y()
@@ -1358,7 +1491,7 @@ ImageCacheTile::wait_pixels_ready () const
 
 
 const void *
-ImageCacheTile::data (int x, int y, int z) const
+ImageCacheTile::data (int x, int y, int z, int c) const
 {
     const ImageSpec &spec = m_id.file().spec (m_id.subimage(), m_id.miplevel());
     size_t w = spec.tile_width;
@@ -1368,9 +1501,11 @@ ImageCacheTile::data (int x, int y, int z) const
     x -= m_id.x();
     y -= m_id.y();
     z -= m_id.z();
-    if (x < 0 || x >= (int)w || y < 0 || y >= (int)h || z < 0 || z >= (int)d)
+    if (x < 0 || x >= (int)w || y < 0 || y >= (int)h ||
+        z < 0 || z >= (int)d || c < m_id.chbegin() || c > m_id.chend())
         return NULL;
-    size_t offset = ((z * h + y) * w + x) * m_id.file().pixelsize(m_id.subimage());
+    size_t offset = ((z * h + y) * w + x) * pixelsize()
+                  + (c-m_id.chbegin()) * channelsize();
     return (const void *)&m_pixels[offset];
 }
 
@@ -1385,9 +1520,23 @@ ImageCacheImpl::ImageCacheImpl ()
 
 
 void
+ImageCacheImpl::set_max_open_files (int max_open_files)
+{
+    // Clamp to somewhat less than the maximum number of files allowed
+    // by the system.
+    int m = int (std::min (Sysutil::max_open_files(),
+                           size_t(std::numeric_limits<int>::max())));
+    m = std::max (10, m - 5 * int(Sysutil::hardware_concurrency()));
+    m_max_open_files = std::min (max_open_files, m);
+    // std::cout << "clamped max_open_files = " << m_max_open_files << "\n";
+}
+
+
+
+void
 ImageCacheImpl::init ()
 {
-    m_max_open_files = 100;
+    set_max_open_files (100);
     m_max_memory_bytes = 256 * 1024 * 1024;   // 256 MB default cache size
     m_autotile = 0;
     m_autoscanline = false;
@@ -1403,6 +1552,7 @@ ImageCacheImpl::init ()
     m_Mw2c.makeIdentity();
     m_mem_used = 0;
     m_statslevel = 0;
+    m_max_errors_per_file = 100;
     m_stat_tiles_created = 0;
     m_stat_tiles_current = 0;
     m_stat_tiles_peak = 0;
@@ -1430,7 +1580,7 @@ void
 ImageCacheImpl::mergestats (ImageCacheStatistics &stats) const
 {
     stats.init ();
-    lock_guard lock (m_perthread_info_mutex);
+    spin_lock lock (m_perthread_info_mutex);
     for (size_t i = 0;  i < m_all_perthread_info.size();  ++i)
         stats.merge (m_all_perthread_info[i]->m_stats);
 }
@@ -1461,19 +1611,30 @@ ImageCacheImpl::onefile_stat_line (const ImageCacheFileRef &file,
     }
     if (i >= 0)
         out << Strutil::format ("%7d ", i);
-    if (includestats)
-        out << Strutil::format ("%4llu    %5llu   %6.1f %9s  ",
-                                (unsigned long long) file->timesopened(),
-                                (unsigned long long) file->tilesread(),
-                                file->bytesread()/1024.0/1024.0,
-                                Strutil::timeintervalformat(file->iotime()).c_str());
+    if (includestats) {
+        unsigned long long redund_tiles = file->redundant_tiles();
+        if (redund_tiles)
+            out << Strutil::format ("%4llu  %7llu   %8.1f   (%5llu %6.1f) %9s  ",
+                                    (unsigned long long) file->timesopened(),
+                                    (unsigned long long) file->tilesread(),
+                                    file->bytesread()/1024.0/1024.0,
+                                    redund_tiles,
+                                    file->redundant_bytesread()/1024.0/1024.0,
+                                    Strutil::timeintervalformat(file->iotime()));
+        else
+            out << Strutil::format ("%4llu  %7llu   %8.1f                  %9s  ",
+                                    (unsigned long long) file->timesopened(),
+                                    (unsigned long long) file->tilesread(),
+                                    file->bytesread()/1024.0/1024.0,
+                                    Strutil::timeintervalformat(file->iotime()));
+    }
     if (file->subimages() > 1)
         out << Strutil::format ("%3d face x%d.%s", file->subimages(),
                                 spec.nchannels, formatcode);
     else
         out << Strutil::format ("%4dx%4dx%d.%s", spec.width, spec.height,
                                 spec.nchannels, formatcode);
-    out << "  " << file->filename();
+    out << "  " << file->filename() << " ";
     if (file->duplicate()) {
         out << " DUPLICATES " << file->duplicate()->filename();
         return out.str();
@@ -1500,7 +1661,7 @@ ImageCacheImpl::onefile_stat_line (const ImageCacheFileRef &file,
             }
     }
     if (file->mipreadcount().size() > 1) {
-        out << " MIP-COUNT [";
+        out << " MIP-COUNT[";
         int nmip = (int) file->mipreadcount().size();
         for (int c = 0; c < nmip; c++)
             out << (c ? "," : "") << file->mipreadcount()[c];
@@ -1519,6 +1680,43 @@ ImageCacheImpl::getstats (int level) const
     ImageCacheStatistics stats;
     mergestats (stats);
 
+    // Gather file list and statistics
+    size_t total_opens = 0, total_tiles = 0;
+    size_t total_redundant_tiles = 0;
+    imagesize_t total_bytes = 0;
+    imagesize_t total_redundant_bytes = 0;
+    size_t total_untiled = 0, total_unmipped = 0, total_duplicates = 0;
+    size_t total_constant = 0;
+    double total_iotime = 0;
+    std::vector<ImageCacheFileRef> files;
+    {
+        for (FilenameMap::iterator f = m_files.begin(); f != m_files.end(); ++f) {
+            const ImageCacheFileRef &file (f->second);
+            files.push_back (file);
+            total_opens += file->timesopened();
+            total_tiles += file->tilesread();
+            total_redundant_tiles += file->redundant_tiles();
+            total_redundant_bytes += file->redundant_bytesread();
+            total_bytes += file->bytesread();
+            total_iotime += file->iotime();
+            if (file->duplicate()) {
+                ++total_duplicates;
+                continue;
+            }
+            bool found_untiled = false, found_unmipped = false;
+            bool found_const = true;
+            for (int s = 0, send = file->subimages();  s < send;  ++s) {
+                const ImageCacheFile::SubimageInfo &si (file->subimageinfo(s));
+                found_untiled |= si.untiled;
+                found_unmipped |= si.unmipped;
+                found_const &= si.is_constant_image;
+            }
+            total_untiled += found_untiled;
+            total_unmipped += found_unmipped;
+            total_constant += found_const;
+        }
+    }
+
     std::ostringstream out;
     if (level > 0) {
         out << "OpenImageIO ImageCache statistics (";
@@ -1530,11 +1728,34 @@ ImageCacheImpl::getstats (int level) const
                 out << (void *)this;
         }
         out << ") ver " << OIIO_VERSION_STRING << "\n";
+
+        std::string opt;
+#define BOOLOPT(name) if (m_##name) opt += #name " "
+#define INTOPT(name) opt += Strutil::format(#name "=%d ", m_##name)
+#define STROPT(name) if (m_##name.size()) opt += Strutil::format(#name "=\"%s\" ", m_##name)
+        opt += Strutil::format("max_memory_MB=%0.1f ", m_max_memory_bytes/(1024.0*1024.0));
+        INTOPT(max_open_files);
+        INTOPT(autotile);
+        INTOPT(autoscanline);
+        INTOPT(automip);
+        INTOPT(forcefloat);
+        INTOPT(accept_untiled);
+        INTOPT(accept_unmipped);
+        INTOPT(read_before_insert);
+        INTOPT(deduplicate);
+        INTOPT(unassociatedalpha);
+        INTOPT(failure_retries);
+#undef BOOLOPT
+#undef INTOPT
+#undef STROPT
+        out << "  Options:  " << Strutil::wordwrap(opt,75,12) << "\n";
+
         if (stats.unique_files) {
             out << "  Images : " << stats.unique_files << " unique\n";
             out << "    ImageInputs : " << m_stat_open_files_created << " created, " << m_stat_open_files_current << " current, " << m_stat_open_files_peak << " peak\n";
-            out << "    Total size of all images referenced : " << Strutil::memformat (stats.files_totalsize) << "\n";
-            out << "    Read from disk : " << Strutil::memformat (stats.bytes_read) << "\n";
+            out << "    Total pixel data size of all images referenced : " << Strutil::memformat (stats.files_totalsize) << "\n";
+            out << "    Total actual file size of all images referenced : " << Strutil::memformat (stats.files_totalsize_ondisk) << "\n";
+            out << "    Pixel data read : " << Strutil::memformat (stats.bytes_read) << "\n";
         } else {
             out << "  No images opened\n";
         }
@@ -1544,7 +1765,7 @@ ImageCacheImpl::getstats (int level) const
             out << "    File I/O time : " 
                 << Strutil::timeintervalformat (stats.fileio_time);
             {
-                lock_guard lock (m_perthread_info_mutex);
+                spin_lock lock (m_perthread_info_mutex);
                 size_t nthreads = m_all_perthread_info.size();
                 if (nthreads > 1) {
                     double perthreadtime = stats.fileio_time / (float)nthreads;
@@ -1563,6 +1784,8 @@ ImageCacheImpl::getstats (int level) const
             out << "    total tile requests : " << stats.find_tile_calls << "\n";
             out << "    micro-cache misses : " << stats.find_tile_microcache_misses << " (" << 100.0*(double)stats.find_tile_microcache_misses/(double)stats.find_tile_calls << "%)\n";
             out << "    main cache misses : " << stats.find_tile_cache_misses << " (" << 100.0*(double)stats.find_tile_cache_misses/(double)stats.find_tile_calls << "%)\n";
+            out << "    redundant reads: " << (unsigned long long) total_redundant_tiles
+                << " tiles, " << Strutil::memformat (total_redundant_bytes) << "\n";
         }
         out << "    Peak cache memory : " << Strutil::memformat (m_mem_used) << "\n";
         if (stats.tile_locking_time > 0.001)
@@ -1575,58 +1798,29 @@ ImageCacheImpl::getstats (int level) const
                 << stats.tile_retry_success << " tiles\n";
     }
 
-    // Gather file list and statistics
-    size_t total_opens = 0, total_tiles = 0;
-    imagesize_t total_bytes = 0;
-    size_t total_untiled = 0, total_unmipped = 0, total_duplicates = 0;
-    size_t total_constant = 0;
-    double total_iotime = 0;
-    std::vector<ImageCacheFileRef> files;
-    {
-        for (FilenameMap::iterator f = m_files.begin(); f != m_files.end(); ++f) {
-            const ImageCacheFileRef &file (f->second);
-            files.push_back (file);
-            total_opens += file->timesopened();
-            total_tiles += file->tilesread();
-            total_bytes += file->bytesread();
-            total_iotime += file->iotime();
-            if (file->duplicate()) {
-                ++total_duplicates;
-                continue;
-            }
-            bool found_untiled = false, found_unmipped = false;
-            bool found_const = true;
-            for (int s = 0;  s < file->subimages();  ++s) {
-                const ImageCacheFile::SubimageInfo &si (file->subimageinfo(s));
-                found_untiled |= si.untiled;
-                found_unmipped |= si.unmipped;
-                found_const &= si.is_constant_image;
-            }
-            total_untiled += found_untiled;
-            total_unmipped += found_unmipped;
-            total_constant += found_const;
-        }
-    }
-
     if (level >= 2 && files.size()) {
         out << "  Image file statistics:\n";
-        out << "        opens   tiles  MB read  I/O time  res              File\n";
+        out << "        opens   tiles    MB read   --redundant--   I/O time  res              File\n";
         std::sort (files.begin(), files.end(), filename_compare);
         for (size_t i = 0;  i < files.size();  ++i) {
             const ImageCacheFileRef &file (files[i]);
             ASSERT (file);
+            if (file->is_udim())
+                continue;
             if (file->broken() || file->subimages() == 0) {
-                out << "  BROKEN                                                  " 
+                out << "  BROKEN                                                                      " 
                     << file->filename() << "\n";
                 continue;
             }
             out << onefile_stat_line (file, i+1) << "\n";
         }
-        out << Strutil::format ("\n  Tot:  %4llu    %5llu   %6.1f %9s\n",
+        out << Strutil::format ("\n  Tot:  %4llu  %7llu   %8.1f   (%5llu %6.1f) %9s\n",
                                 (unsigned long long) total_opens,
                                 (unsigned long long) total_tiles,
                                 total_bytes/1024.0/1024.0,
-                                Strutil::timeintervalformat(total_iotime).c_str());
+                                (unsigned long long) total_redundant_tiles,
+                                total_redundant_bytes/1024.0/1024.0,
+                                Strutil::timeintervalformat(total_iotime));
     }
 
     // Try to point out hot spots
@@ -1652,45 +1846,84 @@ ImageCacheImpl::getstats (int level) const
                 << " constant-valued in all pixels\n";
         if (files.size() >= 50) {
             const int topN = 3;
+            int nprinted;
             std::sort (files.begin(), files.end(), bytesread_compare);
             out << "  Top files by bytes read:\n";
-            for (int i = 0;  i < std::min<int> (topN, files.size());  ++i) {
-                if (files[i]->broken() || !files[i]->validspec())
+            nprinted = 0;
+            BOOST_FOREACH (const ImageCacheFileRef &file, files) {
+                if (nprinted++ >= topN)
+                    break;
+                if (file->broken() || !file->validspec())
                     continue;
-                out << Strutil::format ("    %d   %6.1f MB (%4.1f%%)  ", i+1,
-                                        files[i]->bytesread()/1024.0/1024.0,
-                                        100.0 * (files[i]->bytesread() / (double)total_bytes));
-                out << onefile_stat_line (files[i], -1, false) << "\n";
+                out << Strutil::format ("    %d   %6.1f MB (%4.1f%%)  ", nprinted,
+                                        file->bytesread()/1024.0/1024.0,
+                                        100.0 * (file->bytesread() / (double)total_bytes));
+                out << onefile_stat_line (file, -1, false) << "\n";
             }
             std::sort (files.begin(), files.end(), iotime_compare);
             out << "  Top files by I/O time:\n";
-            for (int i = 0;  i < std::min<int> (topN, files.size());  ++i) {
-                if (files[i]->broken() || !files[i]->validspec())
+            nprinted = 0;
+            BOOST_FOREACH (const ImageCacheFileRef &file, files) {
+                if (nprinted++ >= topN)
+                    break;
+                if (file->broken() || !file->validspec())
                     continue;
-                out << Strutil::format ("    %d   %9s (%4.1f%%)   ", i+1,
-                                        Strutil::timeintervalformat (files[i]->iotime()).c_str(),
-                                        100.0 * files[i]->iotime() / total_iotime);
-                out << onefile_stat_line (files[i], -1, false) << "\n";
+                out << Strutil::format ("    %d   %9s (%4.1f%%)   ", nprinted,
+                                        Strutil::timeintervalformat (file->iotime()).c_str(),
+                                        100.0 * file->iotime() / total_iotime);
+                out << onefile_stat_line (file, -1, false) << "\n";
             }
             std::sort (files.begin(), files.end(), iorate_compare);
             out << "  Files with slowest I/O rates:\n";
-            int n = 0;
+            nprinted = 0;
             BOOST_FOREACH (const ImageCacheFileRef &file, files) {
                 if (file->broken() || !file->validspec())
                     continue;
                 if (file->iotime() < 0.25)
                     continue;
+                if (nprinted++ >= topN)
+                    break;
                 double mb = file->bytesread()/(1024.0*1024.0);
                 double r = mb / file->iotime();
-                out << Strutil::format ("    %d   %6.2f MB/s (%.2fMB/%.2fs)   ", n+1, r, mb, file->iotime());
+                out << Strutil::format ("    %d   %6.2f MB/s (%.2fMB/%.2fs)   ",
+                                        nprinted, r, mb, file->iotime());
                 out << onefile_stat_line (file, -1, false) << "\n";
-                if (++n >= topN)
-                    break;
             }
-            if (n == 0)
+            if (nprinted == 0)
                 out << "    (nothing took more than 0.25s)\n";
             double fast = files.back()->bytesread()/(1024.0*1024.0) / files.back()->iotime();
             out << Strutil::format ("    (fastest was %.1f MB/s)\n", fast);
+            if (total_redundant_tiles > 0) {
+                std::sort (files.begin(), files.end(), redundantbytes_compare);
+                out << "  Top files by redundant I/O:\n";
+                nprinted = 0;
+                BOOST_FOREACH (const ImageCacheFileRef &file, files) {
+                    if (nprinted++ >= topN)
+                        break;
+                    if (file->broken() || !file->validspec())
+                        continue;
+                    out << Strutil::format ("    %d   %6.1f MB (%4.1f%%)  ", nprinted,
+                                            file->redundant_bytesread()/1024.0/1024.0,
+                                            100.0 * (file->redundant_bytesread() / (double)total_redundant_bytes));
+                    out << onefile_stat_line (file, -1, false) << "\n";
+                }
+            }
+        }
+        int nbroken = 0;
+        BOOST_FOREACH (const ImageCacheFileRef &file, files) {
+            if (file->broken() || !file->validspec())
+                ++nbroken;
+        }
+        out << "  Broken or invalid files: " << nbroken << "\n";
+        if (nbroken) {
+            std::sort (files.begin(), files.end(), filename_compare);
+            int nprinted = 0;
+            BOOST_FOREACH (const ImageCacheFileRef &file, files) {
+                if (file->broken() || !file->validspec()) {
+                    ++nprinted;
+                    out << Strutil::format ("   %4d  %s\n", nprinted, file->filename());
+                }
+            }
         }
     }
 
@@ -1713,7 +1946,7 @@ void
 ImageCacheImpl::reset_stats ()
 {
     {
-        lock_guard lock (m_perthread_info_mutex);
+        spin_lock lock (m_perthread_info_mutex);
         for (size_t i = 0;  i < m_all_perthread_info.size();  ++i)
             m_all_perthread_info[i]->m_stats.init ();
     }
@@ -1741,7 +1974,7 @@ ImageCacheImpl::attribute (string_view name, TypeDesc type,
         return optparser (*this, *(const char **)val);
     }
     if (name == "max_open_files" && type == TypeDesc::INT) {
-        m_max_open_files = *(const int *)val;
+        set_max_open_files (*(const int *)val);
     }
     else if (name == "max_memory_MB" && type == TypeDesc::FLOAT) {
         float size = *(const float *)val;
@@ -1750,7 +1983,8 @@ ImageCacheImpl::attribute (string_view name, TypeDesc type,
 #else
         size = std::max (size, 1.0f);   // But let developers debugging do it
 #endif
-        m_max_memory_bytes = size_t(size * 1024 * 1024);
+        m_max_memory_bytes = (long long)size * (long long)(1024*1024);
+        ASSERT (m_max_memory_bytes >= (1024*1024));
     }
     else if (name == "max_memory_MB" && type == TypeDesc::INT) {
         float size = *(const int *)val;
@@ -1759,7 +1993,8 @@ ImageCacheImpl::attribute (string_view name, TypeDesc type,
 #else
         size = std::max (size, 1.0f);   // But let developers debugging do it
 #endif
-        m_max_memory_bytes = size_t(size) * 1024 * 1024;
+        m_max_memory_bytes = (long long)size * (long long)(1024*1024);
+        ASSERT (m_max_memory_bytes >= (1024*1024));
     }
     else if (name == "searchpath" && type == TypeDesc::STRING) {
         std::string s = std::string (*(const char **)val);
@@ -1776,6 +2011,9 @@ ImageCacheImpl::attribute (string_view name, TypeDesc type,
     else if (name == "statistics:level" && type == TypeDesc::INT) {
         m_statslevel = *(const int *)val;
     }
+    else if (name == "max_errors_per_file" && type == TypeDesc::INT) {
+        m_max_errors_per_file = *(const int *)val;
+    }
     else if (name == "autotile" && type == TypeDesc::INT) {
         int a = pow2roundup (*(const int *)val);  // guarantee pow2
         // Clamp to minimum 8x8 tiles to protect against stupid user who
@@ -1791,56 +2029,56 @@ ImageCacheImpl::attribute (string_view name, TypeDesc type,
         }
     }
     else if (name == "autoscanline" && type == TypeDesc::INT) {
-        int a = *(const int *)val;
+        bool a = (*(const int *)val != 0);
         if (a != m_autoscanline) {
             m_autoscanline = a;
             do_invalidate = true;
         }
     }
     else if (name == "automip" && type == TypeDesc::INT) {
-        int a = *(const int *)val;
+        bool a = (*(const int *)val != 0);
         if (a != m_automip) {
             m_automip = a;
             do_invalidate = true;
         }
     }
     else if (name == "forcefloat" && type == TypeDesc::INT) {
-        int a = *(const int *)val;
+        bool a = (*(const int *)val != 0);
         if (a != m_forcefloat) {
             m_forcefloat = a;
             do_invalidate = true;
         }
     }
     else if (name == "accept_untiled" && type == TypeDesc::INT) {
-        int a = *(const int *)val;
+        bool a = (*(const int *)val != 0);
         if (a != m_accept_untiled) {
             m_accept_untiled = a;
             do_invalidate = true;
         }
     }
     else if (name == "accept_unmipped" && type == TypeDesc::INT) {
-        int a = *(const int *)val;
+        bool a = (*(const int *)val != 0);
         if (a != m_accept_unmipped) {
             m_accept_unmipped = a;
             do_invalidate = true;
         }
     }
     else if (name == "read_before_insert" && type == TypeDesc::INT) {
-        int r = *(const int *)val;
+        bool r = (*(const int *)val != 0);
         if (r != m_read_before_insert) {
             m_read_before_insert = r;
             do_invalidate = true;
         }
     }
     else if (name == "deduplicate" && type == TypeDesc::INT) {
-        int r = *(const int *)val;
+        bool r = (*(const int *)val != 0);
         if (r != m_deduplicate) {
             m_deduplicate = r;
             do_invalidate = true;
         }
     }
     else if (name == "unassociatedalpha" && type == TypeDesc::INT) {
-        int r = *(const int *)val;
+        bool r = (*(const int *)val != 0);
         if (r != m_unassociatedalpha) {
             m_unassociatedalpha = r;
             do_invalidate = true;
@@ -1872,7 +2110,7 @@ ImageCacheImpl::attribute (string_view name, TypeDesc type,
 
 bool
 ImageCacheImpl::getattribute (string_view name, TypeDesc type,
-                              void *val)
+                              void *val) const
 {
 #define ATTR_DECODE(_name,_ctype,_src)                                  \
     if (name == _name && type == BaseTypeFromC<_ctype>::value) {        \
@@ -1884,6 +2122,7 @@ ImageCacheImpl::getattribute (string_view name, TypeDesc type,
     ATTR_DECODE ("max_memory_MB", float, m_max_memory_bytes/(1024.0*1024.0));
     ATTR_DECODE ("max_memory_MB", int, m_max_memory_bytes/(1024*1024));
     ATTR_DECODE ("statistics:level", int, m_statslevel);
+    ATTR_DECODE ("max_errors_per_file", int, m_max_errors_per_file);
     ATTR_DECODE ("autotile", int, m_autotile);
     ATTR_DECODE ("autoscanline", int, m_autoscanline);
     ATTR_DECODE ("automip", int, m_automip);
@@ -1894,6 +2133,7 @@ ImageCacheImpl::getattribute (string_view name, TypeDesc type,
     ATTR_DECODE ("deduplicate", int, m_deduplicate);
     ATTR_DECODE ("unassociatedalpha", int, m_unassociatedalpha);
     ATTR_DECODE ("failure_retries", int, m_failure_retries);
+    ATTR_DECODE ("total_files", int, m_files.size());
 
     // The cases that don't fit in the simple ATTR_DECODE scheme
     if (name == "searchpath" && type == TypeDesc::STRING) {
@@ -1922,17 +2162,26 @@ ImageCacheImpl::getattribute (string_view name, TypeDesc type,
         *(const char **)val = m_substitute_image.c_str();
         return true;
     }
+    if (name == "all_filenames" && type.basetype == TypeDesc::STRING &&
+            type.is_sized_array()) {
+        ustring *names = (ustring *) val;
+        int n = type.arraylen;
+        for (FilenameMap::iterator f = m_files.begin(); f != m_files.end() && n-- > 0; ++f) {
+            *names++ = f->second->filename();
+        }
+        return true;
+    }
 
-    // Stats we can just grab
-    ATTR_DECODE ("stat:cache_memory_used", long long, m_mem_used);
-    ATTR_DECODE ("stat:tiles_created", int, m_stat_tiles_created);
-    ATTR_DECODE ("stat:tiles_current", int, m_stat_tiles_current);
-    ATTR_DECODE ("stat:tiles_peak", int, m_stat_tiles_peak);
-    ATTR_DECODE ("stat:open_files_created", int, m_stat_open_files_created);
-    ATTR_DECODE ("stat:open_files_current", int, m_stat_open_files_current);
-    ATTR_DECODE ("stat:open_files_peak", int, m_stat_open_files_peak);
+    if (Strutil::starts_with(name, "stat:")) {
+        // Stats we can just grab
+        ATTR_DECODE ("stat:cache_memory_used", long long, m_mem_used);
+        ATTR_DECODE ("stat:tiles_created", int, m_stat_tiles_created);
+        ATTR_DECODE ("stat:tiles_current", int, m_stat_tiles_current);
+        ATTR_DECODE ("stat:tiles_peak", int, m_stat_tiles_peak);
+        ATTR_DECODE ("stat:open_files_created", int, m_stat_open_files_created);
+        ATTR_DECODE ("stat:open_files_current", int, m_stat_open_files_current);
+        ATTR_DECODE ("stat:open_files_peak", int, m_stat_open_files_peak);
 
-    if (boost::algorithm::starts_with(name, "stat:")) {
         // All the other stats are those that need to be summed from all
         // the threads.
         ImageCacheStatistics stats;
@@ -1940,7 +2189,9 @@ ImageCacheImpl::getattribute (string_view name, TypeDesc type,
         ATTR_DECODE ("stat:find_tile_calls", long long, stats.find_tile_calls);
         ATTR_DECODE ("stat:find_tile_microcache_misses", long long, stats.find_tile_microcache_misses);
         ATTR_DECODE ("stat:find_tile_cache_misses", int, stats.find_tile_cache_misses);
-        ATTR_DECODE ("stat:files_totalsize", long long, stats.files_totalsize);
+        ATTR_DECODE ("stat:files_totalsize", long long, stats.files_totalsize); // Old name
+        ATTR_DECODE ("stat:image_size", long long, stats.files_totalsize);
+        ATTR_DECODE ("stat:file_size", long long, stats.files_totalsize_ondisk);
         ATTR_DECODE ("stat:bytes_read", long long, stats.bytes_read);
         ATTR_DECODE ("stat:unique_files", int, stats.unique_files);
         ATTR_DECODE ("stat:fileio_time", float, stats.fileio_time);
@@ -2093,7 +2344,7 @@ ImageCacheImpl::check_max_mem (ImageCachePerThreadInfo *thread_info)
     // looking up the first entry in the tile cache.
     if (m_tile_sweep_id.empty()) {
         TileCache::iterator sweep = m_tilecache.begin();
-        ASSERT (sweep != m_tilecache.end() &&
+        DASSERT (sweep != m_tilecache.end() &&
                 "no way m_tilecache can be empty and use too much memory");
         m_tile_sweep_id = (*sweep).first;
     }
@@ -2165,7 +2416,7 @@ ImageCacheImpl::resolve_filename (const std::string &filename) const
     // go looking for a file.
     ImageInput *input = ImageInput::create (filename);
     bool procedural = input ? input->supports ("procedural") : false;
-    delete input;
+    ImageInput::destroy (input);
     if (procedural)
         return filename;
 
@@ -2182,6 +2433,30 @@ ImageCacheImpl::get_image_info (ustring filename, int subimage, int miplevel,
 {
     ImageCachePerThreadInfo *thread_info = get_perthread_info ();
     ImageCacheFile *file = find_file (filename, thread_info, NULL, true);
+    if (!file && dataname != s_exists) {
+        error ("Invalid image file \"%s\"", filename);
+        return false;
+    }
+    return get_image_info (file, thread_info, subimage, miplevel,
+                           dataname, datatype, data);
+}
+
+
+
+bool
+ImageCacheImpl::get_image_info (ImageCacheFile *file,
+                                ImageCachePerThreadInfo *thread_info,
+                                int subimage, int miplevel,
+                                ustring dataname,
+                                TypeDesc datatype, void *data)
+{
+#define ATTR_DECODE(_name,_ctype,_src)                                   \
+    if (dataname == _name && datatype == BaseTypeFromC<_ctype>::value) { \
+        *(_ctype *)(data) = (_ctype)(_src);                              \
+        return true;                                                     \
+    }
+
+    file = verify_file (file, thread_info, true);
     if (dataname == s_exists && datatype == TypeDesc::TypeInt) {
         // Just check for existence.  Need to do this before the invalid
         // file error below, since in this one case, it's not an error
@@ -2190,9 +2465,60 @@ ImageCacheImpl::get_image_info (ustring filename, int subimage, int miplevel,
         (void) geterror();  // eat any error generated by find_file
         return true;
     }
-    if (!file || file->broken()) {
-        error ("Invalid image file \"%s\"", filename.c_str());
+    if (!file) {
+        error ("Invalid image file");
         return false;
+    }
+    ATTR_DECODE (s_broken, int, file->broken());
+    if (Strutil::starts_with (dataname, "stat:")) {
+        ATTR_DECODE ("stat:tilesread", long long, file->m_tilesread);
+        ATTR_DECODE ("stat:bytesread", long long, file->m_bytesread);
+        ATTR_DECODE ("stat:redundant_tiles", long long, file->m_redundant_tiles);
+        ATTR_DECODE ("stat:redundant_bytesread", long long, file->m_redundant_bytesread);
+        ATTR_DECODE ("stat:timesopened", int, file->m_timesopened);
+        ATTR_DECODE ("stat:iotime", float, file->m_iotime);
+        ATTR_DECODE ("stat:mipused", int, file->m_mipused);
+        ATTR_DECODE ("stat:is_duplicate", int, bool(file->duplicate()));
+        ATTR_DECODE ("stat:image_size", long long, file->m_total_imagesize);
+        ATTR_DECODE ("stat:file_size", long long, file->m_total_imagesize_ondisk);
+    }
+
+    if (file->broken()) {
+        if (file->errors_should_issue())
+            error ("Invalid image file \"%s\"", file->filename());
+        return false;
+    }
+    // No other queries below are expected to work with broken
+
+    if (dataname == s_UDIM && datatype == TypeDesc::TypeInt) {
+        // Just check for existence.  Need to do this before the invalid
+        // file error below, since in this one case, it's not an error
+        // for the file to be nonexistant or broken!
+        *(int *)data = file->is_udim();
+        return true;
+    }
+    if (file->is_udim() && dataname == s_channels) {
+        // Special case -- it's ok to ask for a UDIM's channels. It'll
+        // search for a concrete file. Beware, this will cause trouble
+        // if different panels of the same UDIM scheme have different
+        // numbers of channels! Search the 10x100 files for a match, give
+        // up if not found.
+        for (int j = 0; j < 100; ++j) {
+            for (int i = 0; i < 10; ++i) {
+                float s = i + 0.5f, t = j + 0.5f;
+                ImageCacheFile *concretefile = resolve_udim (file, s, t);
+                concretefile = verify_file (concretefile, thread_info, true);
+                if (concretefile && !concretefile->broken()) {
+                    // Recurse to try again with the concrete file
+                    return get_image_info (concretefile, thread_info, subimage,
+                                           miplevel, dataname, datatype, data);
+                }
+            }
+        }
+    }
+
+    if (file->is_udim()) {
+        return false;     // UDIM-like files fail all other queries
     }
     if (dataname == s_subimages && datatype == TypeDesc::TypeInt) {
         *(int *)data = file->subimages();
@@ -2265,6 +2591,7 @@ ImageCacheImpl::get_image_info (ustring filename, int subimage, int miplevel,
             d[4] = spec.y + spec.height - 1;
             d[5] = spec.z + spec.depth - 1;
         }
+        return true;
     }
     if (dataname == s_displaywindow && datatype.basetype == TypeDesc::INT &&
         (datatype == TypeDesc(TypeDesc::INT,4) ||
@@ -2283,6 +2610,7 @@ ImageCacheImpl::get_image_info (ustring filename, int subimage, int miplevel,
             d[4] = spec.full_y + spec.full_height - 1;
             d[5] = spec.full_z + spec.full_depth - 1;
         }
+        return true;
     }
     if (dataname == s_averagecolor && datatype.basetype == TypeDesc::FLOAT) {
         int datalen = datatype.numelements() * datatype.aggregate;
@@ -2309,7 +2637,6 @@ ImageCacheImpl::get_image_info (ustring filename, int subimage, int miplevel,
             return false;   // Fail if it's not a constant image
     }
 
-
     // general case -- handle anything else that's able to be found by
     // spec.find_attribute().
     const ImageIOParameter *p = spec.find_attribute (dataname.string());
@@ -2329,6 +2656,8 @@ ImageCacheImpl::get_image_info (ustring filename, int subimage, int miplevel,
     }
 
     return false;
+
+#undef ATTR_DECODE
 }
 
 
@@ -2348,6 +2677,23 @@ ImageCacheImpl::get_imagespec (ustring filename, ImageSpec &spec,
 
 
 
+bool
+ImageCacheImpl::get_imagespec (ImageCacheFile *file,
+                               ImageCachePerThreadInfo *thread_info,
+                               ImageSpec &spec,
+                               int subimage, int miplevel, bool native)
+{
+    const ImageSpec *specptr = imagespec (file, thread_info, subimage, miplevel, native);
+    if (specptr) {
+        spec = *specptr;
+        return true;
+    } else {
+        return false;  // imagespec() already handled the errors
+    }
+}
+
+
+
 const ImageSpec *
 ImageCacheImpl::imagespec (ustring filename, int subimage, int miplevel,
                            bool native)
@@ -2355,20 +2701,45 @@ ImageCacheImpl::imagespec (ustring filename, int subimage, int miplevel,
     ImageCachePerThreadInfo *thread_info = get_perthread_info ();
     ImageCacheFile *file = find_file (filename, thread_info, NULL, true);
     if (! file) {
-        error ("Image file \"%s\" not found", filename.c_str());
+        error ("Image file \"%s\" not found", filename);
         return NULL;
     }
-    if (file->broken()) {
-        error ("Invalid image file \"%s\"", filename.c_str());
+    return imagespec (file, thread_info, subimage, miplevel, native);
+}
+
+
+
+const ImageSpec *
+ImageCacheImpl::imagespec (ImageCacheFile *file,
+                           ImageCachePerThreadInfo *thread_info,
+                           int subimage, int miplevel, bool native)
+{
+    if (! file) {
+        error ("Image file handle was NULL");
         return NULL;
+    }
+    if (! thread_info)
+        thread_info = get_perthread_info ();
+    file = verify_file (file, thread_info, true);
+    if (file->broken()) {
+        if (file->errors_should_issue())
+            error ("Invalid image file \"%s\"", file->filename());
+        return NULL;
+    }
+    if (file->is_udim()) {
+        error ("Cannot retrieve ImageSpec of a UDIM-like virtual file");
+        return NULL;     // UDIM-like files don't have an ImageSpec
     }
     if (subimage < 0 || subimage >= file->subimages()) {
-        error ("Unknown subimage %d (out of %d)", subimage, file->subimages());
+        if (file->errors_should_issue())
+            error ("Unknown subimage %d (out of %d)",
+                   subimage, file->subimages());
         return NULL;
     }
     if (miplevel < 0 || miplevel >= file->miplevels(subimage)) {
-        error ("Unknown mip level %d (out of %d)", miplevel,
-               file->miplevels(subimage));
+        if (file->errors_should_issue())
+            error ("Unknown mip level %d (out of %d)",
+                   miplevel, file->miplevels(subimage));
         return NULL;
     }
     const ImageSpec *spec = native ? &file->nativespec (subimage,miplevel)
@@ -2404,51 +2775,79 @@ ImageCacheImpl::get_pixels (ustring filename, int subimage, int miplevel,
 
 
 bool
-ImageCacheImpl::get_pixels (ustring filename,
+ImageCacheImpl::get_pixels (ImageCacheFile *file,
+                            ImageCachePerThreadInfo *thread_info,
                             int subimage, int miplevel,
                             int xbegin, int xend, int ybegin, int yend,
-                            int zbegin, int zend, int chbegin, int chend,
-                            TypeDesc format, void *result, stride_t xstride,
-                            stride_t ystride, stride_t zstride)
+                            int zbegin, int zend,
+                            TypeDesc format, void *result)
 {
-    ImageCachePerThreadInfo *thread_info = get_perthread_info ();
-    ImageCacheFile *file = find_file (filename, thread_info);
-    if (! file) {
-        error ("Image file \"%s\" not found", filename.c_str());
-        return false;
-    }
-    if (file->broken()) {
-        error ("Invalid image file \"%s\"", filename.c_str());
-        return false;
-    }
-    if (subimage < 0 || subimage >= file->subimages()) {
-        error ("get_pixels asked for nonexistant subimage %d of \"%s\"",
-               subimage, filename.c_str());
-        return false;
-    }
-    if (miplevel < 0 || miplevel >= file->miplevels(subimage)) {
-        error ("get_pixels asked for nonexistant MIP level %d of \"%s\"",
-               miplevel, filename.c_str());
-        return false;
-    }
-
     return get_pixels (file, thread_info, subimage, miplevel,
                        xbegin, xend, ybegin, yend, zbegin, zend,
-                       chbegin, chend, format, result,
-                       xstride, ystride, zstride);
+                       0, -1, format, result);
 }
 
 
 
 bool
-ImageCacheImpl::get_pixels (ImageCacheFile *file, 
+ImageCacheImpl::get_pixels (ustring filename,
+                            int subimage, int miplevel,
+                            int xbegin, int xend, int ybegin, int yend,
+                            int zbegin, int zend, int chbegin, int chend,
+                            TypeDesc format, void *result, stride_t xstride,
+                            stride_t ystride, stride_t zstride,
+                            int cache_chbegin, int cache_chend)
+{
+    ImageCachePerThreadInfo *thread_info = get_perthread_info ();
+    ImageCacheFile *file = find_file (filename, thread_info);
+    if (! file) {
+        error ("Image file \"%s\" not found", filename);
+        return false;
+    }
+    return get_pixels (file, thread_info, subimage, miplevel,
+                       xbegin, xend, ybegin, yend, zbegin, zend,
+                       chbegin, chend, format, result,
+                       xstride, ystride, zstride,
+                       cache_chbegin, cache_chend);
+}
+
+
+
+bool
+ImageCacheImpl::get_pixels (ImageCacheFile *file,
                             ImageCachePerThreadInfo *thread_info,
                             int subimage, int miplevel,
                             int xbegin, int xend, int ybegin, int yend,
                             int zbegin, int zend, int chbegin, int chend,
                             TypeDesc format, void *result,
-                            stride_t xstride, stride_t ystride, stride_t zstride)
+                            stride_t xstride, stride_t ystride, stride_t zstride,
+                            int cache_chbegin, int cache_chend)
 {
+    if (! thread_info)
+        thread_info = get_perthread_info ();
+    file = verify_file (file, thread_info);
+    if (file->broken()) {
+        if (file->errors_should_issue())
+            error ("Invalid image file \"%s\"", file->filename());
+        return false;
+    }
+    if (file->is_udim()) {
+        error ("Cannot get_pixels() of a UDIM-like virtual file");
+        return false;     // UDIM-like files don't have pixels
+    }
+    if (subimage < 0 || subimage >= file->subimages()) {
+        if (file->errors_should_issue())
+            error ("get_pixels asked for nonexistant subimage %d of \"%s\"",
+                   subimage, file->filename());
+        return false;
+    }
+    if (miplevel < 0 || miplevel >= file->miplevels(subimage)) {
+        if (file->errors_should_issue())
+            error ("get_pixels asked for nonexistant MIP level %d of \"%s\"",
+                   miplevel, file->filename());
+        return false;
+    }
+
     if (! thread_info)
         thread_info = get_perthread_info ();
     const ImageSpec &spec (file->spec(subimage, miplevel));
@@ -2460,20 +2859,27 @@ ImageCacheImpl::get_pixels (ImageCacheFile *file,
         chbegin = 0;
         chend = spec.nchannels;
     }
-    int nchans = chend - chbegin;
-    ImageSpec::auto_stride (xstride, ystride, zstride, format, nchans,
+    int result_nchans = chend - chbegin;
+    if (cache_chbegin < 0 || cache_chend < 0 ||
+            cache_chbegin > chbegin || cache_chend < chend) {
+        cache_chbegin = 0;
+        cache_chend = spec.nchannels;
+    }
+    int cache_nchans = cache_chend - cache_chbegin;
+    ImageSpec::auto_stride (xstride, ystride, zstride, format, result_nchans,
                             xend-xbegin, yend-ybegin);
 
-    // formatpixelsize, scanlinesize, and zplanesize assume contiguous
+    // result_pixelsize, scanlinesize, and zplanesize assume contiguous
     // layout.  This may or may not be the same as the strides passed by
     // the caller.
     TypeDesc cachetype = file->datatype(subimage);
     const size_t cachesize = cachetype.size();
-    const stride_t cache_stride = cachesize * spec.nchannels;
+    const stride_t cache_stride = cachesize * cache_nchans;
     size_t formatsize = format.size();
-    stride_t formatpixelsize = nchans * formatsize;
-    bool xcontig = (formatpixelsize == xstride && nchans == spec.nchannels);
-    stride_t scanlinesize = (xend-xbegin) * formatpixelsize;
+    stride_t result_pixelsize = result_nchans * formatsize;
+    bool xcontig = (result_pixelsize == xstride &&
+                    result_nchans == cache_nchans);
+    stride_t scanlinesize = (xend-xbegin) * result_pixelsize;
     stride_t zplanesize = (yend-ybegin) * scanlinesize;
     DASSERT (spec.depth >= 1 && spec.tile_depth >= 1);
 
@@ -2481,7 +2887,7 @@ ImageCacheImpl::get_pixels (ImageCacheFile *file,
     for (int z = zbegin;  z < zend;  ++z, zptr += zstride) {
         if (z < spec.z || z >= (spec.z+spec.depth)) {
             // nonexistant planes
-            if (xstride == formatpixelsize && ystride == scanlinesize) {
+            if (xstride == result_pixelsize && ystride == scanlinesize) {
                 // Can zero out the plane in one shot
                 memset (zptr, 0, zplanesize);
             } else {
@@ -2490,7 +2896,7 @@ ImageCacheImpl::get_pixels (ImageCacheFile *file,
                 for (int y = ybegin;  y < yend;  ++y, yptr += ystride) {
                     char *xptr = yptr;
                     for (int x = xbegin;  x < xend;  ++x, xptr += xstride)
-                        memset (xptr, 0, formatpixelsize);
+                        memset (xptr, 0, result_pixelsize);
                 }
             }
             continue;
@@ -2507,14 +2913,14 @@ ImageCacheImpl::get_pixels (ImageCacheFile *file,
             }
             if (y < spec.y || y >= (spec.y+spec.height)) {
                 // nonexistant scanlines
-                if (xstride == formatpixelsize) {
+                if (xstride == result_pixelsize) {
                     // Can zero out the scanline in one shot
                     memset (yptr, 0, scanlinesize);
                 } else {
                     // Non-contiguous strides -- zero out individual pixels
                     char *xptr = yptr;
                     for (int x = xbegin;  x < xend;  ++x, xptr += xstride)
-                        memset (xptr, 0, formatpixelsize);
+                        memset (xptr, 0, result_pixelsize);
                 }
                 continue;
             }
@@ -2524,14 +2930,15 @@ ImageCacheImpl::get_pixels (ImageCacheFile *file,
             for (int x = xbegin;  x < xend;  ++x, xptr += xstride) {
                 if (x < spec.x || x >= (spec.x+spec.width)) {
                     // nonexistant columns
-                    memset (xptr, 0, formatpixelsize);
+                    memset (xptr, 0, result_pixelsize);
                     continue;
                 }
                 int tx = x - ((x - spec.x) % spec.tile_width);
                 if (old_tx != tx || old_ty != ty || old_tz != tz) {
                     // Only do a find_tile and re-setup of the data
                     // pointer when we move across a tile boundary.
-                    TileID tileid (*file, subimage, miplevel, tx, ty, tz);
+                    TileID tileid (*file, subimage, miplevel, tx, ty, tz,
+                                   cache_chbegin, cache_chend);
                     ok &= find_tile (tileid, thread_info);
                     if (! ok)
                         return false;  // Just stop if file read failed
@@ -2543,21 +2950,20 @@ ImageCacheImpl::get_pixels (ImageCacheFile *file,
                 if (! data) {
                     ImageCacheTileRef &tile (thread_info->tile);
                     ASSERT (tile);
-                    data = (const char *)tile->data (x, y, z);
+                    data = (const char *)tile->data (x, y, z, chbegin);
                     ASSERT (data);
-                    data += chbegin*cachesize;
                 }
                 if (xcontig) {
                     // Special case for a contiguous span within one tile
                     int spanend = std::min (tx + spec.tile_width, xend);
                     stride_t span = spanend - x;
-                    convert_types (cachetype, data, format, xptr, nchans*span);
+                    convert_types (cachetype, data, format, xptr, result_nchans*span);
                     x += (span-1);
                     xptr += xstride * (span-1);
                     // no need to increment data, since next read will
                     // be from a different tile
                 } else {
-                    convert_types (cachetype, data, format, xptr, nchans);
+                    convert_types (cachetype, data, format, xptr, result_nchans);
                     data += cache_stride;
                 }
             }
@@ -2571,11 +2977,25 @@ ImageCacheImpl::get_pixels (ImageCacheFile *file,
 
 ImageCache::Tile *
 ImageCacheImpl::get_tile (ustring filename, int subimage, int miplevel,
-                          int x, int y, int z)
+                          int x, int y, int z, int chbegin, int chend)
 {
     ImageCachePerThreadInfo *thread_info = get_perthread_info ();
     ImageCacheFile *file = find_file (filename, thread_info);
-    if (! file || file->broken())
+    return get_tile (file, thread_info, subimage, miplevel,
+                     x, y, z, chbegin, chend);
+}
+
+
+
+ImageCache::Tile *
+ImageCacheImpl::get_tile (ImageHandle *file, Perthread *thread_info,
+                          int subimage, int miplevel,
+                          int x, int y, int z, int chbegin, int chend)
+{
+    if (! thread_info)
+        thread_info = get_perthread_info ();
+    file = verify_file (file, thread_info);
+    if (! file || file->broken() || file->is_udim())
         return NULL;
     const ImageSpec &spec (file->spec(subimage,miplevel));
     // Snap x,y,z to the corner of the tile
@@ -2585,7 +3005,9 @@ ImageCacheImpl::get_tile (ustring filename, int subimage, int miplevel,
     x = spec.x + xtile * spec.tile_width;
     y = spec.y + ytile * spec.tile_height;
     z = spec.z + ztile * spec.tile_depth;
-    TileID id (*file, subimage, miplevel, x, y, z);
+    if (chend < chbegin)
+        chend = spec.nchannels;
+    TileID id (*file, subimage, miplevel, x, y, z, chbegin, chend);
     if (find_tile(id, thread_info)) {
         ImageCacheTileRef tile(thread_info->tile);
         tile->_incref();   // Fake an extra reference count
@@ -2610,6 +3032,29 @@ ImageCacheImpl::release_tile (ImageCache::Tile *tile) const
 
 
 
+TypeDesc
+ImageCacheImpl::tile_format (const Tile *tile) const
+{
+    const TileID &id (((const ImageCacheTile *)tile)->id());
+    const ImageSpec &spec (id.file().spec (id.subimage(), id.miplevel()));
+    return spec.format;
+}
+
+
+
+ROI
+ImageCacheImpl::tile_roi (const Tile *tile) const
+{
+    const TileID &id (((const ImageCacheTile *)tile)->id());
+    const ImageSpec &spec (id.file().spec (id.subimage(), id.miplevel()));
+    return ROI (id.x(), id.x()+spec.tile_width,
+                id.y(), id.y()+spec.tile_height,
+                id.z(), id.z()+spec.tile_depth,
+                id.chbegin(), id.chend());
+}
+
+
+
 const void *
 ImageCacheImpl::tile_pixels (ImageCache::Tile *tile, TypeDesc &format) const
 {
@@ -2629,7 +3074,8 @@ ImageCacheImpl::add_file (ustring filename, ImageInput::Creator creator,
     ImageCachePerThreadInfo *thread_info = get_perthread_info ();
     ImageCacheFile *file = find_file (filename, thread_info, creator,
                                       false, config);
-    if (!file || file->broken())
+    file = verify_file (file, thread_info);
+    if (!file || file->broken() || file->is_udim())
         return false;
     return true;
 }
@@ -2638,22 +3084,30 @@ ImageCacheImpl::add_file (ustring filename, ImageInput::Creator creator,
 
 bool
 ImageCacheImpl::add_tile (ustring filename, int subimage, int miplevel,
-                          int x, int y, int z,
+                          int x, int y, int z, int chbegin, int chend,
                           TypeDesc format, const void *buffer,
                           stride_t xstride, stride_t ystride, stride_t zstride)
 {
     ImageCachePerThreadInfo *thread_info = get_perthread_info ();
     ImageCacheFile *file = find_file (filename, thread_info);
+    file = verify_file (file, thread_info);
     if (! file || file->broken()) {
-        error ("Cannot add_tile for an image file that was not set up with add_file()");
+        if (!file || file->errors_should_issue())
+            error ("Cannot add_tile for an image file that was not set up with add_file()");
         return false;
     }
-
-    TileID tileid (*file, subimage, miplevel, x, y, z);
+    if (file->is_udim()) {
+        error ("Cannot add_tile to a UDIM-like virtual file");
+        return false;
+    }
+    if (chend < chbegin)
+        chend = file->spec(subimage,miplevel).nchannels;
+    TileID tileid (*file, subimage, miplevel, x, y, z, chbegin, chend);
     ImageCacheTileRef tile = new ImageCacheTile (tileid, buffer, format,
                                                  xstride, ystride, zstride);
     if (! tile || ! tile->valid()) {
-        error ("Could not construct the tile; unknown reasons.");
+        if (file->errors_should_issue())
+            error ("Could not construct the tile; unknown reasons.");
         return false;
     }
     add_tile_to_cache (tile, thread_info);
@@ -2755,16 +3209,27 @@ ImageCacheImpl::invalidate_all (bool force)
             all_files.push_back (name);
             continue;
         }
-        // Invalidate if any unmipped subimage...
-        // ... didn't automip, but automip is now on
-        // ... did automip, but automip is now off
         for (int s = 0;  s < f->subimages();  ++s) {
-            ImageCacheFile::SubimageInfo &sub (f->subimageinfo(s));
+            const ImageCacheFile::SubimageInfo &sub (f->subimageinfo(s));
+            // Invalidate if any unmipped subimage didn't automip but
+            // automip is now on, or did automip but automip is now off.
             if (sub.unmipped &&
                 ((m_automip && f->miplevels(s) <= 1) ||
                  (!m_automip && f->miplevels(s) > 1))) {
                 all_files.push_back (name);
                 break;
+            }
+            // Invalidate if any untiled subimage doesn't match the current
+            // auto-tile setting.
+            if (sub.untiled) {
+                for (int m = 0, mend = f->miplevels(s); m < mend; ++m) {
+                    const ImageCacheFile::LevelInfo &level (f->levelinfo(s,m));
+                    if (level.spec.tile_width != m_autotile ||
+                        level.spec.tile_height != m_autotile) {
+                        all_files.push_back (name);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -2781,21 +3246,119 @@ ImageCacheImpl::invalidate_all (bool force)
 
 
 
-ImageCachePerThreadInfo *
-ImageCacheImpl::get_perthread_info ()
+namespace {
+// Mutex to protect all the UDIM table access.
+static mutex_pool<spin_rw_mutex,ustring,ustringHash,8> udim_lookup_mutex_pool;
+// static spin_rw_mutex udim_lookup_mutex;
+}
+
+
+
+ImageCacheFile *
+ImageCacheImpl::resolve_udim (ImageCacheFile *udimfile, float &s, float &t)
 {
-    ImageCachePerThreadInfo *p = m_perthread_info.get();
+    // Find the u and v tile IDs, and adjust s,t to take their floors
+    int utile = std::max (0, int(s));
+    int vtile = std::max (0, int(t));
+    s = s - utile;
+    t = t - vtile;
+
+    // Synthesized a single combined ID that we'll use as an index.
+    uint64_t id = (uint64_t(vtile) << 32) + uint64_t(utile);
+
+    // Which is our mutex from the pool? Use a hash baseed on the filename.
+    spin_rw_mutex &udim_lookup_mutex (udim_lookup_mutex_pool[udimfile->filename()]);
+
+    // First, try a read lock and see if we already have an entry
+    ImageCacheFile *realfile = NULL;
+    {
+        spin_rw_mutex::read_lock_guard rlock (udim_lookup_mutex);
+        UdimLookupMap::iterator f = udimfile->m_udim_lookup.find (id);
+        if (f != udimfile->m_udim_lookup.end())
+            realfile = f->second;
+    }
+    // If that didn't work, get a write lock and we'll make the entry for
+    // the first time.
+    if (! realfile) {
+        // Here's the one spot where we do string manipulation -- only the
+        // first time a particular tiled region is needed. Just go ahead and
+        // do all possible substitutions we support!
+        ustring realname = udimfile->filename();
+        int udim_tile = 1001 + utile + 10*vtile;
+        realname = Strutil::replace (realname, "<UDIM>",
+                                     Strutil::format("%04d", udim_tile), true);
+        realname = Strutil::replace (realname, "<u>",
+                                     Strutil::format("u%d", utile), true);
+        realname = Strutil::replace (realname, "<v>",
+                                     Strutil::format("v%d", vtile), true);
+        realname = Strutil::replace (realname, "<U>",
+                                     Strutil::format("u%d", utile+1), true);
+        realname = Strutil::replace (realname, "<V>",
+                                     Strutil::format("v%d", vtile+1), true);
+        realfile = find_file (realname, get_perthread_info());
+        // Now grab the actual write lock, and double check that it hasn't
+        // been added by another thread during the brief time when we
+        // weren't holding any lock.
+        spin_rw_mutex::write_lock_guard rlock (udim_lookup_mutex);
+        UdimLookupMap::iterator f = udimfile->m_udim_lookup.find (id);
+        if (f == udimfile->m_udim_lookup.end()) {
+            // Not yet in the lookup table, so create one so we don't have
+            // to do that lookup again.
+            udimfile->m_udim_lookup[id] = realfile;
+            // std::cout << "Associate " << id << " with " << (void*)realfile << "\n";
+        }
+    }
+    return realfile;
+}
+
+
+
+ImageCachePerThreadInfo *
+ImageCacheImpl::create_thread_info ()
+{
+    ImageCachePerThreadInfo *p = new ImageCachePerThreadInfo;
+    // printf ("New perthread %p\n", (void *)p);
+    spin_lock lock (m_perthread_info_mutex);
+    m_all_perthread_info.push_back (p);
+    p->shared = true;  // both the IC and the caller point to it
+    return p;
+}
+
+
+
+void
+ImageCacheImpl::destroy_thread_info (ImageCachePerThreadInfo *thread_info)
+{
+    if (! thread_info)
+        return;
+    spin_lock lock (m_perthread_info_mutex);
+    for (size_t i = 0;  i < m_all_perthread_info.size();  ++i) {
+        if (m_all_perthread_info[i] == thread_info) {
+            m_all_perthread_info[i] = NULL;
+            break;
+        }
+    }
+    delete thread_info;
+}
+
+
+
+ImageCachePerThreadInfo *
+ImageCacheImpl::get_perthread_info (ImageCachePerThreadInfo *p)
+{
+    if (!p)
+        p = m_perthread_info.get();
     if (! p) {
         p = new ImageCachePerThreadInfo;
         m_perthread_info.reset (p);
         // printf ("New perthread %p\n", (void *)p);
-        lock_guard lock (m_perthread_info_mutex);
+        spin_lock lock (m_perthread_info_mutex);
         m_all_perthread_info.push_back (p);
         p->shared = true;  // both the IC and the thread point to it
     }
     if (p->purge) {  // has somebody requested a tile purge?
         // This is safe, because it's our thread.
-        lock_guard lock (m_perthread_info_mutex);
+        spin_lock lock (m_perthread_info_mutex);
         p->tile = NULL;
         p->lasttile = NULL;
         p->purge = 0;
@@ -2812,7 +3375,7 @@ ImageCacheImpl::get_perthread_info ()
 void
 ImageCacheImpl::erase_perthread_info ()
 {
-    lock_guard lock (m_perthread_info_mutex);
+    spin_lock lock (m_perthread_info_mutex);
     for (size_t i = 0;  i < m_all_perthread_info.size();  ++i) {
         ImageCachePerThreadInfo *p = m_all_perthread_info[i];
         if (p) {
@@ -2838,7 +3401,7 @@ ImageCacheImpl::erase_perthread_info ()
 void
 ImageCacheImpl::cleanup_perthread_info (ImageCachePerThreadInfo *p)
 {
-    lock_guard lock (m_perthread_info_mutex);
+    spin_lock lock (m_perthread_info_mutex);
     if (p) {
         // Clear the microcache.
         p->tile = NULL;
@@ -2856,7 +3419,7 @@ void
 ImageCacheImpl::purge_perthread_microcaches ()
 {
     // Mark the per-thread microcaches as invalid
-    lock_guard lock (m_perthread_info_mutex);
+    spin_lock lock (m_perthread_info_mutex);
     for (size_t i = 0, e = m_all_perthread_info.size();  i < e;  ++i)
         if (m_all_perthread_info[i])
             m_all_perthread_info[i]->purge = 1;
@@ -2956,5 +3519,4 @@ ImageCache::destroy (ImageCache *x)
     destroy (x, false);
 }
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END

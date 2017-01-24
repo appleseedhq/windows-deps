@@ -283,6 +283,7 @@ not found in OIIO's ``lib'' directory.)
 
 \apiitem{int autotile \\
 int autoscanline}
+\label{imagecacheattr:autotile}
 These attributes control how the image cache deals with images that
 are not ``tiled'' (i.e., are stored as scanlines). 
 
@@ -376,6 +377,14 @@ converting to associated alpha upon reading the pixels.  The default is
 0, meaning that the automatic conversion will take place.
 \apiend
 
+\apiitem{int max_errors_per_file}
+\NEW % 1.7
+The maximum number of errors that will be printed for each file. The default
+is 100. If your output is cluttered with error messages and after the first
+few for each file you aren't getting any helpful additional information,
+this can cut down on the clutter and the runtime.
+\apiend
+
 \apiitem{string options}
 This catch-all is simply a comma-separated list of {\cf name=value}
 settings of named options.  For example,
@@ -384,16 +393,156 @@ settings of named options.  For example,
 \end{code}
 \apiend
 
+\apiitem{int max_open_files}
+The maximum number of file handles that the image cache will
+hold open simultaneously.  (Default = 100)
+\apiend
+
+\apiitem{int total_files {\rm ~(read only)}}
+The total number of unique file names referenced by calls to the \ImageCache.
+\apiend
+
+\apiitem{string[] all_filenames {\rm ~(read only)}}
+An array that will be filled with the list of the names of all files
+referenced by calls to the \ImageCache. (The array is of {\cf ustring}s or
+{\cf char*}'s.)
+\apiend
+
+\apiitem{int64 stat:cache_memory_used {\rm ~(read only)}}
+Total bytes used by tile cache.
+\apiend
+
+\apiitem{int stat:tiles_created {\rm ~(read only)} \\
+int stat:tiles_current {\rm ~(read only)} \\
+int stat:tiles_peak {\rm ~(read only)}}
+Total times created, still allocated (at the time of the query), and the
+peak number of tiles in memory at any time.
+\apiend
+
+\apiitem{int stat:open_files_created {\rm ~(read only)} \\
+int stat:open_files_current {\rm ~(read only)} \\
+int stat:open_files_peak {\rm ~(read only)}}
+Total number of times a file was opened, number still opened (at the time of
+the query), and the peak number of files opened at any time.
+\apiend
+
+\apiitem{int stat:find_tile_calls {\rm ~(read only)}}
+Number of times a filename was looked up in the file cache.
+\apiend
+
+\apiitem{int64 stat:image_size {\rm ~(read only)}}
+Total size (uncompressed bytes of pixel data) of all images referenced
+by the \ImageCache. (Note: Prior to 1.7, this was called \qkw{stat:files_totalsize}.)
+\apiend
+
+\apiitem{int64 stat:file_size {\rm ~(read only)}}
+\NEW   % 1.7
+Total size of all files (as on disk, possibly compressed) of all images
+referenced by the \ImageCache.
+\apiend
+
+\apiitem{int64 stat:bytes_read {\rm ~(read only)}}
+Total size (uncompressed bytes of pixel data) read.
+\apiend
+
+\apiitem{int stat:unique_files {\rm ~(read only)}}
+Number of unique files opened.
+\apiend
+
+\apiitem{float stat:fileio_time {\rm ~(read only)}}
+Total I/O-related time (seconds).
+\apiend
+
+\apiitem{float stat:fileopen_time {\rm ~(read only)}}
+I/O time related to opening and reading headers (but not pixel I/O).
+\apiend
+
+\apiitem{float stat:file_locking_time {\rm ~(read only)}}
+Total time (across all threads) that threads blocked waiting for access to
+the file data structures.
+\apiend
+
+\apiitem{float stat:tile_locking_time {\rm ~(read only)}}
+Total time (across all threads) that threads blocked waiting for access to
+the tile cache data structures.
+\apiend
+
+\apiitem{float stat:find_file_time {\rm ~(read only)}}
+Total time (across all threads) that threads spent looking up files by name.
+\apiend
+
+\apiitem{float stat:find_tile_time {\rm ~(read only)}}
+Total time (across all threads) that threads spent looking up individual tiles.
+\apiend
+
+
+
 \bigskip
+
+\subsection{Opaque data for performance lookups}
+\label{sec:imagecache:api:opaque}
+
+\apiitem{Perthread * {\ce get_perthread_info} (Perthread *thread_info=NULL) \\
+Perthread * {\ce create_perthread_info} () \\
+void {\ce destroy_perthread_info} (Perthread *thread_info)}
+\indexapi{get_perthread_info}
+\indexapi{create_perthread_info} \indexapi{destroy_perthread_info}
+
+The \ImageCache implementation needs to maintain certain per-thread
+state, and some \ImageCache methods take an opaque {\cf Perthread} pointer
+to this record. There are three options for how to deal with it:
+
+1. Don't worry about it at all: don't use the methods that want {\cf
+Perthread} pointers, or always pass {\cf NULL} for any {\cf Perthread*}
+arguments, and \ImageCache will do thread-specific-pointer retrieval as
+necessary (though at some small cost).
+
+2. If your app already stores per-thread information of its own, you may
+call {\cf get_perthread_info(NULL)} to retrieve it for that thread, and then
+pass it into the functions that allow it (thus sparing them the need and
+expense of retrieving the thread-specific pointer). However, it is crucial
+that this pointer not be shared between multiple threads. In this case,
+the \ImageCache manages the storage, which will automatically be released
+when the thread terminates.
+
+3. If your app also wants to manage the storage of the {\cf Perthread},
+it can explicitly create one with {\cf create_perthread_info}, pass it around,
+and eventually be responsible for destroying it with {\cf destroy_perthread_info}.
+When managing the storage, the app may reuse the {\cf Perthread} for another
+thread after the first is terminated, but still may not use the same
+{\cf Perthread} for two threads running concurrently.
+\apiend
+
+
+\apiitem{ImageHandle * {\ce get_image_handle} (ustring filename,\\
+\bigspc\bigspc\spc\spc  Perthread *thread_info=NULL)}
+\indexapi{get_image_handle}
+Retrieve an opaque handle for fast \ImageCache lookups.  The optional opaque
+pointer {\cf thread_info} is thread-specific information returned by
+{\cf get_perthread_info()}.  Return {\cf NULL} if something has gone
+horribly wrong.
+\apiend
+
+\apiitem{bool {\ce good} (ImageHandle *file)}
+\indexapi{good}
+Return true if the image handle (previously returned by
+{\cf get_image_handle()}) is a valid image that can be subsequently read.
+\apiend
+
 
 \subsection{Getting information about images}
 \label{sec:imagecache:api:getimageinfo}
 \label{sec:imagecache:api:getimagespec}
 
+
 \apiitem{bool {\ce get_image_info} (ustring filename, int subimage, int
   miplevel, \\
+  \bigspc\bigspc ustring dataname, TypeDesc datatype, void *data) \\
+bool {\ce get_image_info} (ImageHandle *file, Perthread *thread_info,\\
+  \bigspc\bigspc int subimage, int miplevel, \\
   \bigspc\bigspc ustring dataname, TypeDesc datatype, void *data)}
-Retrieves information about the image named by {\cf filename}.
+Retrieves information about the image named by {\cf filename} (or specified
+by the opaque image handle).
 The {\cf dataname} is a keyword indcating what information should
 be retrieved, {\cf datatype} is the type of data expected, and
 {\cf data} points to caller-owned memory where the results should be
@@ -414,11 +563,15 @@ Supported {\cf dataname} values include:
 \item[\spc] \spc
 \vspace{-12pt} 
 
-\item[\rm \kw{exists}] Stores the value 1 (as an {\cf int} if the file
+\item[\rm \kw{exists}] Stores the value 1 (as an {\cf int}) if the file
 exists and is an image format that \product can read, or 0 if the file
 does not exist, or could not be properly read as an image. Note that
 unlike all other queries, this query will ``succeed'' (return {\cf true})
 even if the file does not exist.
+
+\item[\rm \kw{udim}] Stores the value 1 (as an {\cf int}) if the file
+is a ``virtual UDIM'' or texture atlas file (as described in
+Section~\ref{sec:texturesys:udim}) or 0 otherwise.
 
 \item[\rm \kw{subimages}] The number of subimages in the file, as an integer.
 
@@ -479,6 +632,56 @@ giving the matrix that projected points from world space into a 2D screen
 coordinate system where $x$ and $y$ range from $-1$ to $+1$.  Generally,
 only rendered images will have this.
 
+\item[\rm \kw{averagecolor}] If available in the metadata (generally only
+for files that have been processed by {\cf maketx}), this will return the
+average color of the texture (into an array of floats).
+
+\item[\rm \kw{averagealpha}] If available in the metadata (generally only
+for files that have been processed by {\cf maketx}), this will return the
+average alpha value of the texture (into a float).
+
+\item[\rm \kw{constantcolor}] If the metadata (generally only for files that
+have been processed by {\cf maketx}) indicates that the texture has the same
+values for all pixels in the texture, this will retrieve the constant color
+of the texture (into an array of floats). A non-constant image (or one that
+does not have the special metadata tag identifying it as a constant texture)
+will fail this query (return false).
+
+\item[\rm \kw{constantalpha}] If the metadata indicates that the texture has
+the same values for all pixels in the texture, this will retrieve the
+constant alpha value of the texture (into a float). A non-constant image (or
+one that does not have the special metadata tag identifying it as a constant
+texture) will fail this query (return false).
+
+\item[\rm \kw{stat:tilesread}] Number of tiles read from this file ({\cf int64}).
+
+\item[\rm \kw{stat:bytesread}] Number of bytes of uncompressed pixel data read
+from this file ({cf int64}).
+
+\item[\rm \kw{stat:redundant_tiles}] Number of times a tile was read, where
+the same tile had been rad before. ({\cf int64}).
+
+\item[\rm \kw{stat:redundant_bytesread}] Number of bytes (of uncompressed pixel
+data) in tiles that were read redundantly. ({\cf int64}).
+
+\item[\rm \kw{stat:redundant_bytesread}] Number of tiles read from this file ({\cf int}).
+
+\item[\rm \kw{stat:image_size}] Size of the uncompressed image pixel data
+of this image, in bytes ({\cf int64}).
+
+\item[\rm \kw{stat:file_size}] Size of the disk file (possibly compressed)
+for this image, in bytes ({\cf int64}).
+
+\item[\rm \kw{stat:timesopened}] Number of times this file was opened ({\cf int}).
+
+\item[\rm \kw{stat:iotime}] Time (in seconds) spent on all I/O for this file ({\cf float}).
+
+\item[\rm \kw{stat:mipsused}] Stores 1 if any MIP levels beyond the highest
+resolution were accesed, otherwise 0. ({\cf int})
+
+\item[\rm \kw{stat:is_duplicate}] Stores 1 if this file was a duplicate of
+another image, otherwise 0. ({\cf int})
+
 \item[Anything else] -- For all other data names, the
 the metadata of the image file will be searched for an item that
 matches both the name and data type.
@@ -487,15 +690,21 @@ matches both the name and data type.
 \apiend
 
 \apiitem{bool {\ce get_imagespec} (ustring filename, ImageSpec \&spec,\\
-\bigspc  int subimage=0, int miplevel=0, bool native=false)}
+\bigspc\spc\spc  int subimage=0, int miplevel=0, bool native=false)\\
+bool {\ce get_imagespec} (ImageHandle *file,  Perthread *thread_info,\\
+  \bigspc\bigspc ImageSpec \&spec, int subimage=0, \\
+  \bigspc\bigspc int miplevel=0, bool native=false)}
 
-If the named image (and the specific subimage and MIP level) is found and able to be opened by an available
+If the image (and the specific subimage and MIP level) is found and able to
+be opened by an available
 image format plugin, and the designated subimage exists, this function copies
 its image specification for that subimage into {\cf spec} and returns
 {\cf true}.  Otherwise, if the file is not found, could not be opened,
 is not of a format readable by any plugin that could be found, or
 the designated subimage did not exist in the file, the return value is
 {\cf false} and {\cf spec} will not be modified.
+The image may be specified either by name, or by the opaque handle returned
+by {\cf get_image_handle()}.
 
 If {\cf native} is {\cf false} (the default), then the spec retrieved
 will accurately describe the image stored internally in the cache,
@@ -507,14 +716,18 @@ settings such as \qkw{forcefloat} or \qkw{autotile}.
 
 \apiitem{const ImageSpec * {\ce imagespec} (ustring filename, int
   subimage=0, \\
-      \bigspc\bigspc\spc int miplevel=0, bool native=false)}
+      \bigspc\bigspc\spc int miplevel=0, bool native=false) \\
+const ImageSpec * {\ce imagespec} (ImageHandle *file, Perthread *thread_info,\\
+  \bigspc\bigspc int subimage=0, int miplevel=0, bool native=false)}
 
-If the named image is found and able to be opened by an available
+If the image is found and able to be opened by an available
 image format plugin, and the designated subimage exists, this function
 returns a pointer to an \ImageSpec that describes it.  Otherwise, if the
 file is not found, could not be opened, is not of a format readable by
 any plugin that could be find, or the designated subimage did
 not exist in the file, the return value is NULL.
+The image may be specified either by name, or by the opaque handle returned
+by {\cf get_image_handle()}.
 
 If {\cf native} is {\cf false} (the default), then the spec retrieved
 will accurately describe the image stored internally in the cache,
@@ -541,8 +754,14 @@ applied.
 \apiitem{bool {\ce get\_pixels} (ustring filename, int subimage, int miplevel, \\
          \bigspc\spc int xbegin, int xend, int ybegin, int yend, \\
          \bigspc\spc int zbegin, int zend, \\
+         \bigspc\spc TypeDesc format, void *result) \\
+bool {\ce get\_pixels} (ImageHandle *file, Perthread *thread_info, \\
+         \bigspc\spc int subimage, int miplevel, \\
+         \bigspc\spc int xbegin, int xend, int ybegin, int yend, \\
+         \bigspc\spc int zbegin, int zend, \\
          \bigspc\spc TypeDesc format, void *result)}
-Retrieve the rectangle of pixels
+For an image specified by either name or handle,
+retrieve the rectangle of pixels
 of the designated {\cf subimage} and {\cf miplevel}, storing the pixel values
 beginning at the address specified by result.  The pixel values will be
 converted to the type specified by {\cf format}.  It is up to the caller
@@ -559,8 +778,17 @@ image file will be filled with zero values.
          \bigspc\spc int xbegin, int xend, int ybegin, int yend, \\
          \bigspc\spc int zbegin, int zend, int chbegin, int chend,\\
          \bigspc\spc TypeDesc format, void *result, \\
-         \bigspc\spc stride_t xstride, stride_t ystride, stride_t zstride)}
-Retrieve the rectangle of pixels and subset of channels
+         \bigspc\spc stride_t xstride, stride_t ystride, stride_t zstride,\\
+         \bigspc\spc int cache_chbegin=0, int cache_chend=-1) \\
+bool {\ce get\_pixels} (ImageHandle *file, Perthread *thread_info, \\
+         \bigspc\spc int subimage, int miplevel, \\
+         \bigspc\spc int xbegin, int xend, int ybegin, int yend, \\
+         \bigspc\spc int zbegin, int zend, int chbegin, int chend,\\
+         \bigspc\spc TypeDesc format, void *result, \\
+         \bigspc\spc stride_t xstride, stride_t ystride, stride_t zstride,\\
+         \bigspc\spc int cache_chbegin=0, int cache_chend=-1)}
+For an image specified by either name or handle,
+retrieve the rectangle of pixels and subset of channels
 of the designated {\cf subimage} and {\cf miplevel}, storing the pixel values
 beginning at the address specified by result and with the given strides.
 The pixel values will be
@@ -574,7 +802,10 @@ The rectangular region and channel set to be retrieved includes
 {\cf begin} but does not
 include {\cf end} (much like STL begin/end usage).
 Requested pixels that are not part of the valid pixel data region of the
-image file will be filled with zero values.
+image file will be filled with zero values. The optional parameters
+{\cf cache_chbegin} and {\cf cache_chend} can be used to tell the
+\ImageCache to read and cache a subset of channels (if not specified,
+all the channels of the file will be stored in the cached tile).
 \apiend
 
 
@@ -582,9 +813,15 @@ image file will be filled with zero values.
 \label{sec:imagecache:api:tiles}
 
 \apiitem{ImageCache::Tile * {\ce get_tile} (ustring filename, int subimage, int miplevel, \\
-  \bigspc \bigspc int x, int y, int z)}
-Find a tile given by an image {\cf filename}, {\cf subimage}, and pixel
-coordinates.  An opaque pointer to the tile will be returned,
+  \bigspc \bigspc int x, int y, int z, int chbegin=0, int chend=-1) \\
+ImageCache::Tile * {\ce get_tile} (ImageHandle *file, Perthread *thread_info, \\
+\bigspc\bigspc int subimage, int miplevel, \\
+  \bigspc \bigspc int x, int y, int z, int chbegin=0, int chend=-1)}
+Find a tile of an image (identified by either name or handle)
+for the requested {\cf subimage}, pixel
+coordinates, and channel range (if {\cf chend < chbegin}, the full
+range of channels in the file will be used).
+An opaque pointer to the tile will be returned,
 or {\cf NULL} if no such file (or tile within the file) exists or can
 be read.  The tile will not be purged from the cache until 
 after {\cf release_tile()} is called on the tile pointer.  This is
@@ -656,7 +893,6 @@ images, among other things.  Also, this is the method you use to set
 up a ``writeable'' \ImageCache images (perhaps with a type of
 \ImageInput that's just a stub that does as little as possible).
 
-\NEW  % 1.5
 If {\cf config} is not NULL, it points to an \ImageSpec with configuration
 options/hints that will be passed to the underlying
 {\cf ImageInput::open()} call. Thus, this can be used to ensure that the
@@ -670,12 +906,14 @@ a particular filename is referenced in the lifetime of the
 \apiend
 
 \apiitem{bool {\ce add_tile} (ustring filename, int subimage, int miplevel,\\
-\bigspc        int x, int y, int z, TypeDesc format, const void *buffer,\\
+\bigspc        int x, int y, int z, int chbegin, int chend, \\
+\bigspc        TypeDesc format, const void *buffer,\\
 \bigspc        stride_t xstride=AutoStride, stride_t ystride=AutoStride, \\
 \bigspc        stride_t zstride=AutoStride}
 Preemptively add a tile corresponding to the named image, at the
 given subimage and MIP level.  The tile added is the one whose
-corner is (x,y,z), and buffer points to the pixels (in the given
+corner is (x,y,z), with the given channel range,
+and buffer points to the pixels (in the given
 format, with supplied strides) which will be copied and inserted
 into the cache and made available for future lookups.
 \apiend
@@ -703,10 +941,10 @@ esoteric information.
 
 \apiitem{void {\ce reset_stats} ()}
 Reset most statistics to be as they were with a fresh
-\TextureSystem.  Caveat emptor: this does not flush the cache
+\ImageCache.  Caveat emptor: this does not flush the cache
 itelf, so the resulting statistics from the next set of texture
 requests will not match the number of tile reads, etc., that
-would have resulted from a new \TextureSystem.
+would have resulted from a new \ImageCache.
 \apiend
 
 

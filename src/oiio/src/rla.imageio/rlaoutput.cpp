@@ -58,7 +58,7 @@ public:
     RLAOutput ();
     virtual ~RLAOutput ();
     virtual const char * format_name (void) const { return "rla"; }
-    virtual bool supports (const std::string &feature) const;
+    virtual int supports (string_view feature) const;
     virtual bool open (const std::string &name, const ImageSpec &spec,
                        OpenMode mode=Create);
     virtual bool close ();
@@ -150,8 +150,8 @@ RLAOutput::~RLAOutput ()
 
 
 
-bool
-RLAOutput::supports (const std::string &feature) const
+int
+RLAOutput::supports (string_view feature) const
 {
     if (feature == "random_access")
         return true;
@@ -164,6 +164,8 @@ RLAOutput::supports (const std::string &feature) const
     if (feature == "alpha")
         return true;
     if (feature == "nchannels")
+        return true;
+    if (feature == "channelformats")
         return true;
     // Support nothing else nonstandard
     return false;
@@ -222,13 +224,13 @@ RLAOutput::open (const std::string &name, const ImageSpec &userspec,
     // frame and window coordinates
     m_rla.WindowLeft = m_spec.full_x;
     m_rla.WindowRight = m_spec.full_x + m_spec.full_width - 1;
-    m_rla.WindowBottom = -m_spec.full_y;
-    m_rla.WindowTop = m_spec.full_height - m_spec.full_y - 1;
+    m_rla.WindowTop = m_spec.full_height-1 - m_spec.full_y;
+    m_rla.WindowBottom = m_rla.WindowTop - m_spec.full_height + 1;
     
     m_rla.ActiveLeft = m_spec.x;
     m_rla.ActiveRight = m_spec.x + m_spec.width - 1;
-    m_rla.ActiveBottom = -m_spec.y;
-    m_rla.ActiveTop = m_spec.height - m_spec.y - 1;
+    m_rla.ActiveTop = m_spec.height-1 - m_spec.y;
+    m_rla.ActiveBottom = m_rla.ActiveTop - m_spec.height + 1;
 
     m_rla.FrameNumber = m_spec.get_int_attribute ("rla:FrameNumber", 0);
 
@@ -238,24 +240,27 @@ RLAOutput::open (const std::string &name, const ImageSpec &userspec,
         int streak;
         // accomodate first 3 channels of the same type as colour ones
         for (streak = 1; streak <= 3 && remaining > 0; ++streak, --remaining)
-            if (m_spec.channelformats[streak] != m_spec.channelformats[0])
+            if (m_spec.channelformats[streak] != m_spec.channelformats[0] ||
+                m_spec.alpha_channel == streak || m_spec.z_channel == streak)
                 break;
-        m_rla.ColorChannelType = m_spec.channelformats[0] == TypeDesc::FLOAT
-            ? CT_FLOAT : CT_BYTE;
+        m_rla.ColorChannelType = rla_type(m_spec.channelformats[0]);
         int bits = m_spec.get_int_attribute ("oiio:BitsPerSample", 0);
         m_rla.NumOfChannelBits = bits ? bits : m_spec.channelformats[0].size () * 8;
         // limit to 3 in case the loop went further
         m_rla.NumOfColorChannels = std::min (streak, 3);
-        // if we have anything left, treat it as alpha
-        if (remaining) {
+        // if we have anything left and it looks like alpha, treat it as alpha
+        if (remaining && m_spec.z_channel != m_rla.NumOfColorChannels) {
             for (streak = 1; remaining > 0; ++streak, --remaining)
                 if (m_spec.channelformats[m_rla.NumOfColorChannels + streak]
                     != m_spec.channelformats[m_rla.NumOfColorChannels])
                     break;
-            m_rla.MatteChannelType = m_spec.channelformats[m_rla.NumOfColorChannels]
-                == TypeDesc::FLOAT ? CT_FLOAT : CT_BYTE;
+            m_rla.MatteChannelType = rla_type(m_spec.channelformats[m_rla.NumOfColorChannels]);
             m_rla.NumOfMatteBits = bits ? bits : m_spec.channelformats[m_rla.NumOfColorChannels].size () * 8;
             m_rla.NumOfMatteChannels = streak;
+        } else {
+            m_rla.MatteChannelType = CT_BYTE;
+            m_rla.NumOfMatteBits = 8;
+            m_rla.NumOfMatteChannels = 0;
         }
         // and if there's something more left, put it in auxiliary
         if (remaining) {
@@ -265,16 +270,15 @@ RLAOutput::open (const std::string &name, const ImageSpec &userspec,
                     != m_spec.channelformats[m_rla.NumOfColorChannels
                         + m_rla.NumOfMatteChannels])
                     break;
-            m_rla.MatteChannelType = m_spec.channelformats[m_rla.NumOfColorChannels
-                    + m_rla.NumOfMatteChannels]
-                == TypeDesc::FLOAT ? CT_FLOAT : CT_BYTE;
+            m_rla.AuxChannelType = rla_type (m_spec.channelformats[m_rla.NumOfColorChannels
+                                                                     + m_rla.NumOfMatteChannels]);
             m_rla.NumOfAuxBits = m_spec.channelformats[m_rla.NumOfColorChannels
                 + m_rla.NumOfMatteChannels].size () * 8;
             m_rla.NumOfAuxChannels = streak;
         }
     } else {
         m_rla.ColorChannelType = m_rla.MatteChannelType = m_rla.AuxChannelType =
-            m_spec.format == TypeDesc::FLOAT ? CT_FLOAT : CT_BYTE;
+            rla_type(m_spec.format);
         int bits = m_spec.get_int_attribute ("oiio:BitsPerSample", 0);
         if (bits) {
             m_rla.NumOfChannelBits = bits;
@@ -295,13 +299,16 @@ RLAOutput::open (const std::string &name, const ImageSpec &userspec,
             --remaining;
         }
         // if there's at least 1 more channel, it's alpha
-        if (remaining-- > 0)
+        if (remaining  && m_spec.z_channel != m_rla.NumOfColorChannels) {
+            --remaining;
             ++m_rla.NumOfMatteChannels;
+        }
         // anything left is auxiliary
         if (remaining > 0)
             m_rla.NumOfAuxChannels = remaining;
     }
-    
+    // std::cout << "color chans " << m_rla.NumOfColorChannels << " a "
+    //           << m_rla.NumOfMatteChannels << " z " << m_rla.NumOfAuxChannels << "\n";
     m_rla.Revision = 0xFFFE;
     
     std::string s = m_spec.get_string_attribute ("oiio:ColorSpace", "Unknown");
@@ -435,7 +442,7 @@ RLAOutput::close ()
         std::vector<unsigned char>().swap (m_tilebuffer);
     }
 
-    // Now that all scanlines ahve been output, return to write the
+    // Now that all scanlines have been output, return to write the
     // correct scanline offset table to file and close the stream.
     fseek (m_file, sizeof(RLAHeader), SEEK_SET);
     write (&m_sot[0], m_sot.size());
@@ -558,6 +565,7 @@ RLAOutput::write_scanline (int y, int z, TypeDesc format,
     const void *origdata = data;
     data = to_native_scanline (format, data, xstride, m_scratch,
                                m_dither, y, z);
+    ASSERT (data != NULL);
     if (data == origdata) {
         m_scratch.assign ((unsigned char *)data,
                           (unsigned char *)data+m_spec.scanline_bytes());
@@ -566,7 +574,7 @@ RLAOutput::write_scanline (int y, int z, TypeDesc format,
     
     // store the offset to the scanline.  We'll swap_endian if necessary
     // when we go to actually write it.
-    m_sot[m_spec.height - y - 1] = (uint32_t)ftell (m_file);
+    m_sot[m_spec.height-1 - (y-m_spec.y)] = (uint32_t)ftell (m_file);
 
     size_t pixelsize = m_spec.pixel_bytes (true /*native*/);
     int offset = 0;

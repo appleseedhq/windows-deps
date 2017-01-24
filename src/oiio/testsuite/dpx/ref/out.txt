@@ -33,7 +33,7 @@ Reading ../../../../../oiio-images/dpx_nuke_10bits_rgb.dpx
     dpx:WhiteLevel: 0
     dpx:IntegrationTimes: 0
     dpx:Packing: "Filled, method A"
-    smpte:TimeCode: 0, 0
+    smpte:TimeCode: 0, 0 (00:00:00:00)
     dpx:TimeCode: "00:00:00:00"
     dpx:UserBits: 0
     dpx:Signal: "Undefined"
@@ -74,17 +74,17 @@ Reading ../../../../../oiio-images/dpx_nuke_16bits_rgba.dpx
     dpx:WhiteLevel: 0
     dpx:IntegrationTimes: 0
     dpx:Packing: "Filled, method A"
-    smpte:TimeCode: 0, 0
+    smpte:TimeCode: 0, 0 (00:00:00:00)
     dpx:TimeCode: "00:00:00:00"
     dpx:UserBits: 0
     dpx:Signal: "Undefined"
 Comparing "../../../../../oiio-images/dpx_nuke_16bits_rgba.dpx" and "dpx_nuke_16bits_rgba.dpx"
 PASS
-Comparing "input_rgb_mattes.tif" and "output_rgb_mattes.dpx"
+Comparing "src/input_rgb_mattes.tif" and "output_rgb_mattes.dpx"
 PASS
 Reading stereo.dpx
 stereo.dpx           :   80 x   60, 3 channel, uint10 dpx
-    2 subimages: 80x60 80x60 
+    2 subimages: 80x60 [u10,u10,u10], 80x60 [u10,u10,u10]
  subimage  0:   80 x   60, 3 channel, uint10 dpx
     channel list: R, G, B
     oiio:BitsPerSample: 10

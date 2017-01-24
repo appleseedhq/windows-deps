@@ -15,7 +15,7 @@ Resetting to be a writeable 640x480,3 Float:
   z channel =  -1
   deep =  False
 
-Testing read of grid.tx:
+Testing read of ../common/textures/grid.tx:
 subimage: 0  /  1
 miplevel: 0  /  11
 channels: 4
@@ -105,6 +105,38 @@ Interpolating NDC bicubic 0.25,0.5 -> (0.319444477558136, 0.0798611268401146, 0.
 The whole image is:  array('f', [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
 
 Saving file...
+
+Writing deep buffer...
+
+Reading back deep buffer:
+Pixel 0 1 had 3 samples
+Sample 0
+	c 0 : 0.420
+	c 1 : 0.000
+	c 2 : 0.000
+	c 3 : 0.000
+	c 4 : 42.000
+Sample 1
+	c 0 : 0.100
+	c 1 : 0.200
+	c 2 : 0.300
+	c 3 : 42.500
+	c 4 : 0.000
+Sample 2
+	c 0 : 0.470
+	c 1 : 0.000
+	c 2 : 0.000
+	c 3 : 0.000
+	c 4 : 43.000
+
 Done.
 Comparing "out.tif" and "ref/out.tif"
+PASS
+Comparing "outtuple.tif" and "ref/outtuple.tif"
+PASS
+Comparing "outarray.tif" and "ref/outarray.tif"
+PASS
+Comparing "outarrayB.tif" and "ref/outarrayB.tif"
+PASS
+Comparing "outarrayH.tif" and "ref/outarrayH.tif"
 PASS

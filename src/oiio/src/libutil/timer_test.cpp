@@ -115,11 +115,15 @@ main (int argc, char **argv)
     //     $ sudo sysctl -w kern.timer.coalescing_enabled=0
     // But you want better power use, so instead we just increase the timing
     // tolereance on Apple to make this test pass.
+# if defined(OIIO_CI) || defined(OIIO_CODECOV)
+    // It seems especially bad on Travis, give extra time slop.
+    eps *= 3;
+# endif
 #endif
 
     // Verify that Timer(false) doesn't start
-    Timer all(true);
-    Timer selective(false);
+    Timer all (Timer::StartNow);
+    Timer selective (Timer::DontStartNow);
     Sysutil::usleep (interval);
     OIIO_CHECK_EQUAL_THRESH (selective(), 0.0, eps);
     OIIO_CHECK_EQUAL_THRESH (all(),       0.1, eps);

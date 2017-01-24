@@ -36,9 +36,6 @@
 #include <limits>
 #include <sstream>
 
-#include <boost/version.hpp>
-#include <boost/filesystem.hpp>
-#include <boost/regex.hpp>
 #include <OpenEXR/ImathMatrix.h>
 
 #include "OpenImageIO/argparse.h"
@@ -63,7 +60,7 @@ static std::string full_command_line;
 static std::vector<std::string> filenames;
 static std::string outputfilename;
 static bool verbose = false;
-static bool stats = false;
+static bool runstats = false;
 static int nthreads = 0;    // default: use #cores threads if available
 
 // Conversion modes.  If none are true, we just make an ordinary texture.
@@ -227,8 +224,6 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
                   "--help", &help, "Print help message",
                   "-v", &verbose, "Verbose status messages",
                   "-o %s", &outputfilename, "Output filename",
-                  "--new", NULL, "",
-                  "--old", NULL, "Old mode",
                   "--threads %d", &nthreads, "Number of threads (default: #cores)",
                   "-u", &updatemode, "Update mode",
                   "--format %s", &fileformatname, "Specify output file format (default: guess from extension)",
@@ -265,7 +260,6 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
                           &Mscr[2][0], &Mscr[2][1], &Mscr[2][2], &Mscr[2][3], 
                           &Mscr[3][0], &Mscr[3][1], &Mscr[3][2], &Mscr[3][3], 
                           "Set the screen matrix",
-                  "--hash", NULL, "",
                   "--prman-metadata", &prman_metadata, "Add prman specific metadata",
                   "--attrib %L %L", &any_attrib_names, &any_attrib_values, "Sets metadata attribute (name, value)",
                   "--sattrib %L %L", &string_attrib_names, &string_attrib_values, "Sets string metadata attribute (name, value)",
@@ -275,7 +269,8 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
                   "--opaque-detect", &opaque_detect, "Drop alpha channel that is always 1.0",
                   "--no-compute-average %!", &compute_average, "Don't compute and store average color",
                   "--ignore-unassoc", &ignore_unassoc, "Ignore unassociated alpha tags in input (don't autoconvert)",
-                  "--stats", &stats, "Print runtime statistics",
+                  "--runstats", &runstats, "Print runtime statistics",
+                  "--stats", &runstats, "", // DEPRECATED 1.6
                   "--mipimage %L", &mipimages, "Specify an individual MIP level",
                   "<SEPARATOR>", "Basic modes (default is plain texture):",
                   "--shadow", &shadowmode, "Create shadow map",
@@ -297,9 +292,14 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
         ap.usage ();
         exit (EXIT_FAILURE);
     }
-    if (help || filenames.empty()) {
+    if (help) {
         ap.usage ();
         exit (EXIT_FAILURE);
+    }
+    if (filenames.empty()) {
+        ap.briefusage ();
+        std::cout << "\nFor detailed help: maketx --help\n";
+        exit (EXIT_SUCCESS);
     }
 
     int optionsum = ((int)shadowmode + (int)envlatlmode + (int)envcubemode +
@@ -307,7 +307,6 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
     if (optionsum > 1) {
         std::cerr << "maketx ERROR: At most one of the following options may be set:\n"
                   << "\t--shadow --envlatl --envcube --lightprobe\n";
-        ap.usage ();
         exit (EXIT_FAILURE);
     }
     if (optionsum == 0)
@@ -317,7 +316,6 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
         std::cerr << "maketx ERROR: '--prman' compatibility, and '--oiio' optimizations are mutually exclusive.\n";
         std::cerr << "\tIf you'd like both prman and oiio compatibility, you should choose --prman\n";
         std::cerr << "\t(at the expense of oiio-specific optimizations)\n";
-        ap.usage ();
         exit (EXIT_FAILURE);
     }
 
@@ -367,7 +365,7 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
     configspec.attribute ("wrapmodes", wrapmodes);
 
     configspec.attribute ("maketx:verbose", verbose);
-    configspec.attribute ("maketx:stats", stats);
+    configspec.attribute ("maketx:runstats", runstats);
     configspec.attribute ("maketx:resize", doresize);
     configspec.attribute ("maketx:nomipmap", nomipmap);
     configspec.attribute ("maketx:updatemode", updatemode);
@@ -468,7 +466,7 @@ main (int argc, char *argv[])
     bool ok = ImageBufAlgo::make_texture (mode, filenames[0],
                                           outputfilename, configspec,
                                           &std::cout);
-    if (stats)
+    if (runstats)
         std::cout << "\n" << ic->getstats();
 
     return ok ? 0 : EXIT_FAILURE;

@@ -39,6 +39,7 @@
 #include "OpenImageIO/typedesc.h"
 #include "OpenImageIO/imagecache.h"
 #include "OpenImageIO/imagebuf.h"
+#include "OpenImageIO/deepdata.h"
 
 
 #if PY_MAJOR_VERSION < 2 || (PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION < 5)
@@ -66,6 +67,15 @@ void declare_global();
 
 bool PyProgressCallback(void*, float);
 object C_array_to_Python_array (const char *data, TypeDesc type, size_t size);
+const char * python_array_code (TypeDesc format);
+TypeDesc typedesc_from_python_array_code (char code);
+
+
+// Given python array 'data', figure out its element type and number of
+// elements, and return the memory address of its contents.  Return NULL as
+// the address for an error.
+const void * python_array_address (numeric::array &data, TypeDesc &elementtype,
+                                   size_t &numelements);
 
 
 
@@ -92,6 +102,16 @@ void py_to_stdvector (std::vector<T> &vals, const tuple &tup)
 {
     for (int i = 0, e = len(tup); i < e; ++i)
         py_to_stdvector<T> (vals, tup[i]);
+}
+
+
+
+// Suck up a tuple of presumed T values into a vector<T>
+template<typename T>
+void py_to_stdvector (std::vector<T> &vals, const numeric::array &arr)
+{
+    for (int i = 0, e = len(arr); i < e; ++i)
+        vals.push_back (extract<T>(arr[i]));
 }
 
 
@@ -128,6 +148,107 @@ object C_to_val_or_tuple (const T *vals, TypeDesc type, FUNC f)
 
 
 
+template<typename T>
+void
+attribute_typed (T &myobj, string_view name, TypeDesc type, object &dataobj)
+{
+    if (type.basetype == TypeDesc::INT) {
+        std::vector<int> vals;
+        py_to_stdvector (vals, dataobj);
+        if (vals.size() == type.numelements()*type.aggregate)
+            myobj.attribute (name, type, &vals[0]);
+        return;
+    }
+    if (type.basetype == TypeDesc::FLOAT) {
+        std::vector<float> vals;
+        py_to_stdvector (vals, dataobj);
+        if (vals.size() == type.numelements()*type.aggregate)
+            myobj.attribute (name, type, &vals[0]);
+        return;
+    }
+    if (type.basetype == TypeDesc::STRING) {
+        std::vector<std::string> vals;
+        py_to_stdvector (vals, dataobj);
+        if (vals.size() == type.numelements()*type.aggregate) {
+            std::vector<ustring> u;
+            for (size_t i = 0, e = vals.size(); i < e; ++i)
+                u.push_back (ustring(vals[i]));
+            myobj.attribute (name, type, &u[0]);
+        }
+        return;
+    }
+}
+
+
+
+
+template<typename T>
+void
+attribute_tuple_typed (T &myobj, string_view name,
+                       TypeDesc type, tuple &dataobj)
+{
+    if (type.basetype == TypeDesc::INT) {
+        std::vector<int> vals;
+        py_to_stdvector (vals, dataobj);
+        if (vals.size() == type.numelements()*type.aggregate)
+            myobj.attribute (name, type, &vals[0]);
+        return;
+    }
+    if (type.basetype == TypeDesc::FLOAT) {
+        std::vector<float> vals;
+        py_to_stdvector (vals, dataobj);
+        if (vals.size() == type.numelements()*type.aggregate)
+            myobj.attribute (name, type, &vals[0]);
+        return;
+    }
+    if (type.basetype == TypeDesc::STRING) {
+        std::vector<std::string> vals;
+        py_to_stdvector (vals, dataobj);
+        if (vals.size() == type.numelements()*type.aggregate) {
+            std::vector<ustring> u;
+            for (size_t i = 0, e = vals.size(); i < e; ++i)
+                u.push_back (ustring(vals[i]));
+            myobj.attribute (name, type, &u[0]);
+        }
+        return;
+    }
+}
+
+
+
+template<typename T>
+object
+getattribute_typed (const T& obj, string_view name, TypeDesc type)
+{
+    if (type == TypeDesc::UNKNOWN)
+        return object();   // require a type
+    char *data = OIIO_ALLOCA (char, type.size());
+    bool ok = obj.getattribute (name, type, data);
+    if (! ok)
+        return object();   // None
+    if (type.basetype == TypeDesc::INT) {
+#if PY_MAJOR_VERSION >= 3
+        return C_to_val_or_tuple ((const int *)data, type, PyLong_FromLong);
+#else
+        return C_to_val_or_tuple ((const int *)data, type, PyInt_FromLong);
+#endif
+    }
+    if (type.basetype == TypeDesc::FLOAT) {
+        return C_to_val_or_tuple ((const float *)data, type, PyFloat_FromDouble);
+    }
+    if (type.basetype == TypeDesc::STRING) {
+#if PY_MAJOR_VERSION >= 3
+        return C_to_val_or_tuple ((const char **)data, type, PyUnicode_FromString);
+#else
+        return C_to_val_or_tuple ((const char **)data, type, PyString_FromString);
+#endif
+    }
+    return object();
+}
+
+
+
+
 // Helper class to release the GIL, allowing other Python threads to
 // proceed, then re-acquire it again when the scope ends.
 class ScopedGILRelease {
@@ -155,12 +276,12 @@ public:
     bool open_regular (const std::string &name);
     bool open_with_config(const std::string &name, const ImageSpec &config);
     const ImageSpec &spec() const;
-    bool supports (const std::string &feature) const;
+    int supports (const std::string &feature) const;
     bool close();
     int current_subimage() const;
     int current_miplevel() const;
     bool seek_subimage (int, int);
-    object read_image (TypeDesc);
+    object read_image (int chbegin, int chend, TypeDesc);
     object read_scanline (int y, int z, TypeDesc format);
     object read_scanlines (int ybegin, int yend, int z,
                            int chbegin, int chend, TypeDesc format);
@@ -179,7 +300,6 @@ public:
 
 class ImageOutputWrap {
 private:
-    friend class ImageBufWrap;
     ImageOutput *m_output;
     const void *make_read_buffer (object &buffer, imagesize_t size);
 public:
@@ -193,10 +313,12 @@ public:
                          stride_t xstride=AutoStride);
     bool write_scanline_bt (int, int, TypeDesc::BASETYPE,
                             boost::python::object&, stride_t xstride=AutoStride);
+    bool write_scanline_array (int, int, numeric::array&);
     bool write_scanlines (int, int, int, TypeDesc, boost::python::object&,
                          stride_t xstride=AutoStride);
     bool write_scanlines_bt (int, int, int, TypeDesc::BASETYPE,
                             boost::python::object&, stride_t xstride=AutoStride);
+    bool write_scanlines_array (int, int, int, numeric::array&);
     bool write_tile (int, int, int, TypeDesc, boost::python::object&,
                      stride_t xstride=AutoStride, stride_t ystride=AutoStride,
                      stride_t zstride=AutoStride);
@@ -204,6 +326,7 @@ public:
                         boost::python::object&, stride_t xstride=AutoStride,
                         stride_t ystride=AutoStride,
                         stride_t zstride=AutoStride);
+    bool write_tile_array (int, int, int, numeric::array&);
     bool write_tiles (int, int, int, int, int, int,
                       TypeDesc, boost::python::object&,
                       stride_t xstride=AutoStride, stride_t ystride=AutoStride,
@@ -213,6 +336,7 @@ public:
                          stride_t xstride=AutoStride,
                          stride_t ystride=AutoStride,
                          stride_t zstride=AutoStride);
+    bool write_tiles_array (int, int, int, int, int, int, numeric::array&);
     bool write_image (TypeDesc format, object &buffer,
                       stride_t xstride=AutoStride,
                       stride_t ystride=AutoStride,
@@ -221,6 +345,7 @@ public:
                          stride_t xstride=AutoStride,
                          stride_t ystride=AutoStride,
                          stride_t zstride=AutoStride);
+    bool write_image_array (numeric::array &buffer);
     bool write_deep_scanlines (int ybegin, int yend, int z,
                                const DeepData &deepdata);
     bool write_deep_tiles (int xbegin, int xend, int ybegin, int yend,
@@ -228,37 +353,33 @@ public:
     bool write_deep_image (const DeepData &deepdata);
     bool copy_image (ImageInputWrap *iiw);
     const char *format_name () const;
-    bool supports (const std::string&) const;
+    int supports (const std::string&) const;
     std::string geterror()const;
 };
 
 
 class ImageCacheWrap {
 private:
-    friend class ImageBufWrap;
     ImageCache *m_cache;
 public:
     static ImageCacheWrap *create (bool);
     static void destroy (ImageCacheWrap*);
-    void clear ();     
-    bool attribute (const std::string&, TypeDesc, const void*);    
-    bool attribute_int    (const std::string&, int );
-    bool attribute_float  (const std::string&, float);
-    bool attribute_double (const std::string&, double);
-    bool attribute_char   (const std::string&, const char*);
-    bool attribute_string (const std::string&, const std::string&);
-    bool getattribute(const std::string&, TypeDesc, void*);
-    bool getattribute_int (const std::string&, int&);
-    bool getattribute_float(const std::string&, float&);
-    bool getattribute_double(const std::string&, double&);
-    bool getattribute_char(const std::string&, char**);    
-    bool getattribute_string(const std::string&, std::string&);
-    std::string resolve_filename (const std::string&);
-    bool get_image_info_old (ustring, ustring, TypeDesc, void*);
-    bool get_image_info (ustring, int, int, ustring, TypeDesc, void*);
-    bool get_imagespec(ustring, ImageSpec&, int);
-    bool get_pixels (ustring, int, int, int, int, int, int, 
-                     int, int, TypeDesc, void*);
+    void attribute_int    (const std::string&, int );
+    void attribute_float  (const std::string&, float);
+    void attribute_string (const std::string&, const std::string&);
+    void attribute_typed  (const std::string&, TypeDesc, object &obj);
+    void attribute_tuple_typed (const std::string&, TypeDesc, tuple &obj);
+    object getattribute_typed (const std::string&, TypeDesc);
+    std::string resolve_filename (const std::string& filename);
+    // object get_image_info (const std::string &filename, int subimage,
+    //                        int miplevel, const std::string &dataname,
+    //                        TypeDesc datatype);
+    // object get_imagespec (const std::string &filename, int subimage=0,
+    //                       int miplevel=0, bool native=false);
+    object get_pixels (const std::string &filename,
+                       int subimage, int miplevel, int xbegin, int xend,
+                       int ybegin, int yend, int zbegin, int zend,
+                       TypeDesc datatype);
 
     //First needs to be exposed to python in imagecache.cpp
     /*

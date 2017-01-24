@@ -36,9 +36,15 @@
 #ifndef OPENIMAGEIO_IMAGECACHE_PVT_H
 #define OPENIMAGEIO_IMAGECACHE_PVT_H
 
-#include <boost/unordered_map.hpp>
+#include <boost/version.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/scoped_array.hpp>
+#include <boost/thread/tss.hpp>
+#if BOOST_VERSION >= 104900
+# include <boost/container/flat_map.hpp>
+#endif
+
+#include <OpenEXR/half.h>
 
 #include "OpenImageIO/export.h"
 #include "OpenImageIO/texture.h"
@@ -48,8 +54,7 @@
 #include "OpenImageIO/unordered_map_concurrent.h"
 
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
 
 namespace pvt {
 
@@ -63,12 +68,25 @@ namespace pvt {
 
 #define IMAGECACHE_USE_RW_MUTEX 1
 
+// Should we compute and store shadow matrices? Not if we don't support
+// shadow maps!
+#define USE_SHADOW_MATRICES 0
+
+
+using boost::thread_specific_ptr;
 
 class ImageCacheImpl;
-struct ImageCachePerThreadInfo;
+class ImageCachePerThreadInfo;
 
 const char * texture_format_name (TexFormat f);
 const char * texture_type_name (TexFormat f);
+
+#ifdef BOOST_CONTAINER_FLAT_MAP_HPP
+typedef boost::container::flat_map<uint64_t,ImageCacheFile*> UdimLookupMap;
+#else
+typedef unordered_map<uint64_t,ImageCacheFile*> UdimLookupMap;
+#endif
+
 
 
 /// Structure to hold IC and TS statistics.  We combine into a single
@@ -82,6 +100,7 @@ struct ImageCacheStatistics {
     long long find_tile_microcache_misses;
     int find_tile_cache_misses;
     long long files_totalsize;
+    long long files_totalsize_ondisk;
     long long bytes_read;
     // These stats are hard to deal with on a per-thread basis, so for
     // now, they are still atomics shared by the whole IC.
@@ -171,7 +190,7 @@ public:
     ///
     bool read_tile (ImageCachePerThreadInfo *thread_info,
                     int subimage, int miplevel, int x, int y, int z,
-                    TypeDesc format, void *data);
+                    int chbegin, int chend, TypeDesc format, void *data);
 
     /// Mark the file as recently used.
     ///
@@ -184,9 +203,12 @@ public:
 
     size_t channelsize (int subimage) const { return m_subimages[subimage].channelsize; }
     size_t pixelsize (int subimage) const { return m_subimages[subimage].pixelsize; }
-    bool eightbit (int subimage) const { return m_subimages[subimage].eightbit; }
+    TypeDesc::BASETYPE pixeltype (int subimage) const {
+        return (TypeDesc::BASETYPE) m_subimages[subimage].datatype.basetype;
+    }
     bool mipused (void) const { return m_mipused; }
     bool sample_border (void) const { return m_sample_border; }
+    bool is_udim (void) const { return m_is_udim; }
     const std::vector<size_t> &mipreadcount (void) const { return m_mipreadcount; }
 
     void invalidate ();
@@ -195,6 +217,12 @@ public:
     size_t tilesread () const { return m_tilesread; }
     imagesize_t bytesread () const { return m_bytesread; }
     double & iotime () { return m_iotime; }
+    size_t redundant_tiles () const { return (size_t) m_redundant_tiles.load(); }
+    imagesize_t redundant_bytesread () const { return (imagesize_t) m_redundant_bytesread.load(); }
+    void register_redundant_tile (imagesize_t bytesread) {
+        m_redundant_tiles += 1;
+        m_redundant_bytesread += (long long) bytesread;
+    }
 
     std::time_t mod_time () const { return m_mod_time; }
     ustring fingerprint () const { return m_fingerprint; }
@@ -214,7 +242,11 @@ public:
         bool onetile;               ///< Whole level fits on one tile
         mutable bool polecolorcomputed;     ///< Pole color was computed
         mutable std::vector<float> polecolor;///< Pole colors
+        int nxtiles, nytiles, nztiles; ///< Number of tiles in each dimension
+        atomic_ll *tiles_read;      ///< Bitfield for tiles read at least once
         LevelInfo (const ImageSpec &spec, const ImageSpec &nativespec);  ///< Initialize based on spec
+        LevelInfo (const LevelInfo &src); // needed for vector<LevelInfo>
+        ~LevelInfo () { delete [] tiles_read; }
     };
 
     /// Info for each subimage
@@ -228,7 +260,6 @@ public:
         bool unmipped;                  ///< Not really MIP-mapped
         bool volume;                    ///< It's a volume image
         bool full_pixel_range;          ///< pixel data window matches image window
-        bool eightbit;                  ///< Eight bit?  (or float)
         bool is_constant_image;         ///< Is the image a constant color?
         bool has_average_color;         ///< We have an average color
         std::vector<float> average_color; ///< Average color
@@ -243,7 +274,7 @@ public:
         SubimageInfo () : datatype(TypeDesc::UNKNOWN),
                           channelsize(0), pixelsize(0),
                           untiled(false), unmipped(false), volume(false),
-                          full_pixel_range(false), eightbit(false),
+                          full_pixel_range(false),
                           is_constant_image(false), has_average_color(false),
                           sscale(1.0f), soffset(0.0f),
                           tscale(1.0f), toffset(0.0f) { }
@@ -251,6 +282,7 @@ public:
         ImageSpec &spec (int m) { return levels[m].spec; }
         const ImageSpec &spec (int m) const { return levels[m].spec; }
         const ImageSpec &nativespec (int m) const { return levels[m].nativespec; }
+        int miplevels () const { return (int) levels.size(); }
     };
 
     const SubimageInfo &subimageinfo (int subimage) const {
@@ -282,6 +314,11 @@ public:
         m_validspec = false;
         m_subimages.clear ();
     }
+
+    /// Should we print an error message? Keeps track of whether the
+    /// number of errors so far, including this one, is a above the limit
+    /// set for errors to print for each file.
+    int errors_should_issue () const;
     
 private:
     ustring m_filename_original;    ///< original filename before search path
@@ -294,29 +331,39 @@ private:
     TextureOpt::Wrap m_swrap;       ///< Default wrap modes
     TextureOpt::Wrap m_twrap;       ///< Default wrap modes
     TextureOpt::Wrap m_rwrap;       ///< Default wrap modes
+#if USE_SHADOW_MATRICES
     Imath::M44f m_Mlocal;           ///< shadows: world-to-local (light) matrix
     Imath::M44f m_Mproj;            ///< shadows: world-to-pseudo-NDC
     Imath::M44f m_Mtex;             ///< shadows: world-to-pNDC with camera z
     Imath::M44f m_Mras;             ///< shadows: world-to-raster with camera z
+#endif
     EnvLayout m_envlayout;          ///< env map: which layout?
     bool m_y_up;                    ///< latlong: is y "up"? (else z is up)
     bool m_sample_border;           ///< are edge samples exactly on the border?
+    bool m_is_udim;                 ///< Is tiled/UDIM?
     ustring m_fileformat;           ///< File format name
     size_t m_tilesread;             ///< Tiles read from this file
     imagesize_t m_bytesread;        ///< Bytes read from this file
+    atomic_ll m_redundant_tiles;    ///< Redundant tile reads
+    atomic_ll m_redundant_bytesread;///< Redundant bytes read
     size_t m_timesopened;           ///< Separate times we opened this file
     double m_iotime;                ///< I/O time for this file
     bool m_mipused;                 ///< MIP level >0 accessed
-    std::vector<size_t> m_mipreadcount; ///< Tile reads per mip level
     volatile bool m_validspec;      ///< If false, reread spec upon open
+    mutable int m_errors_issued;    ///< Errors issued for this file
+    std::vector<size_t> m_mipreadcount; ///< Tile reads per mip level
     ImageCacheImpl &m_imagecache;   ///< Back pointer for ImageCache
     mutable recursive_mutex m_input_mutex; ///< Mutex protecting the ImageInput
     std::time_t m_mod_time;         ///< Time file was last updated
     ustring m_fingerprint;          ///< Optional cryptographic fingerprint
     ImageCacheFile *m_duplicate;    ///< Is this a duplicate?
     imagesize_t m_total_imagesize;  ///< Total size, uncompressed
+    imagesize_t m_total_imagesize_ondisk;  ///< Total size, compressed on disk
     ImageInput::Creator m_inputcreator; ///< Custom ImageInput-creator
     boost::scoped_ptr<ImageSpec> m_configspec; // Optional configuration hints
+    UdimLookupMap m_udim_lookup;    ///< Used for decoding udim tiles
+                                    // protected by mutex elsewhere!
+
 
     /// We will need to read pixels from the file, so be sure it's
     /// currently opened.  Return true if ok, false if error.
@@ -339,14 +386,14 @@ private:
     /// a seek_subimage to the right subimage and MIP level.
     bool read_untiled (ImageCachePerThreadInfo *thread_info,
                        int subimage, int miplevel, int x, int y, int z,
-                       TypeDesc format, void *data);
+                       int chbegin, int chend, TypeDesc format, void *data);
 
     /// Load the requested tile, from a file that's not really MIPmapped.
     /// Preconditions: the ImageInput is already opened, and we already did
     /// a seek_subimage to the right subimage.
     bool read_unmipped (ImageCachePerThreadInfo *thread_info,
                         int subimage, int miplevel, int x, int y, int z,
-                        TypeDesc format, void *data);
+                        int chbegin, int chend, TypeDesc format, void *data);
 
     void lock_input_mutex () {
         m_input_mutex.lock ();
@@ -374,9 +421,12 @@ typedef intrusive_ptr<ImageCacheFile> ImageCacheFileRef;
 
 
 /// Map file names to file references
-///
 typedef unordered_map_concurrent<ustring,ImageCacheFileRef,ustringHash,std::equal_to<ustring>, 8> FilenameMap;
+#if OIIO_CPLUSPLUS_VERSION >= 11
+typedef std::unordered_map<ustring,ImageCacheFileRef,ustringHash> FingerprintMap;
+#else /* FIXME(C++11): remove this after making C++11 the baseline */
 typedef boost::unordered_map<ustring,ImageCacheFileRef,ustringHash> FingerprintMap;
+#endif
 
 
 
@@ -392,10 +442,15 @@ public:
     /// Initialize a TileID based on full elaboration of image file,
     /// subimage, and tile x,y,z indices.
     TileID (ImageCacheFile &file, int subimage, int miplevel,
-            int x, int y, int z=0)
+            int x, int y, int z=0, int chbegin=0, int chend=-1)
         : m_x(x), m_y(y), m_z(z), m_subimage(subimage),
-          m_miplevel(miplevel), m_file(&file)
-    { }
+          m_miplevel(miplevel), m_chbegin(chbegin), m_chend(chend),
+          m_file(&file)
+    {
+        int nc = file.spec(subimage,miplevel).nchannels;
+        if (chend < chbegin || chend > nc)
+            m_chend = nc;
+    }
 
     /// Destructor is trivial, because we don't hold any resources
     /// of our own.  This is by design.
@@ -408,6 +463,9 @@ public:
     int x (void) const { return m_x; }
     int y (void) const { return m_y; }
     int z (void) const { return m_z; }
+    int chbegin () const { return m_chbegin; }
+    int chend () const { return m_chend; }
+    int nchannels () const { return m_chend - m_chbegin; }
 
     void x (int v) { m_x = v; }
     void y (int v) { m_y = v; }
@@ -425,7 +483,9 @@ public:
         // probable rejection if they really are unequal.
         return (a.m_x == b.m_x && a.m_y == b.m_y && a.m_z == b.m_z &&
                 a.m_subimage == b.m_subimage && 
-                a.m_miplevel == b.m_miplevel && (a.m_file == b.m_file));
+                a.m_miplevel == b.m_miplevel &&
+                (a.m_file == b.m_file) &&
+                a.m_chbegin == b.m_chbegin && a.m_chend == b.m_chend);
     }
 
     /// Do the two ID's refer to the same tile, given that the
@@ -434,12 +494,14 @@ public:
     friend bool equal_same_subimage (const TileID &a, const TileID &b) {
         DASSERT ((a.m_file == b.m_file) &&
                  a.m_subimage == b.m_subimage && a.m_miplevel == b.m_miplevel);
-        return (a.m_x == b.m_x && a.m_y == b.m_y && a.m_z == b.m_z);
+        return (a.m_x == b.m_x && a.m_y == b.m_y && a.m_z == b.m_z &&
+                a.m_chbegin == b.m_chbegin && a.m_chend == b.m_chend);
     }
 
     /// Do the two ID's refer to the same tile?  
     ///
     bool operator== (const TileID &b) const { return equal (*this, b); }
+    bool operator!= (const TileID &b) const { return ! equal (*this, b); }
 
     /// Digest the TileID into a size_t to use as a hash key.
     size_t hash () const {
@@ -451,7 +513,8 @@ public:
 #else
         // Good compromise!
         return bjhash::bjfinal (m_x+1543, m_y + 6151 + m_z*769,
-                                m_miplevel + (m_subimage<<8))
+                                m_miplevel + (m_subimage<<8) +
+                                (chbegin()<<4) + nchannels())
                            + m_file->filename().hash();
 #endif
     }
@@ -463,10 +526,19 @@ public:
         size_t operator() (const TileID &a) const { return a.hash(); }
     };
 
+    friend std::ostream& operator<< (std::ostream& o, const TileID &id) {
+        return (o << "{xyz=" << id.m_x << ',' << id.m_y << ',' << id.m_z
+                  << ", sub=" << id.m_subimage << ", mip=" << id.m_miplevel
+                  << ", chans=[" << id.chbegin() << "," << id.chend() << ")"
+                  << ' ' << (id.m_file ? ustring("nofile") : id.m_file->filename())
+                  << '}');
+    }
+
 private:
     int m_x, m_y, m_z;        ///< x,y,z tile index within the subimage
     int m_subimage;           ///< subimage
     int m_miplevel;           ///< MIP-map level
+    short m_chbegin, m_chend; ///< Channel range
     ImageCacheFile *m_file;   ///< Which ImageCacheFile we refer to
 };
 
@@ -494,18 +566,31 @@ public:
     /// that constructed the tile.
     void read (ImageCachePerThreadInfo *thread_info);
 
-    /// Return pointer to the floating-point pixel data
-    ///
-    const float *data (void) const { return (const float *)&m_pixels[0]; }
+    /// Return pointer to the raw pixel data
+    const void *data (void) const { return &m_pixels[0]; }
 
-    /// Return pointer to the floating-point pixel data for a particular
-    /// pixel.  Be extremely sure the pixel is within this tile!
-    const void *data (int x, int y, int z=0) const;
+    /// Return pointer to the pixel data for a particular pixel.  Be
+    /// extremely sure the pixel is within this tile!
+    const void *data (int x, int y, int z, int c) const;
+
+    /// Return pointer to the floating-point pixel data
+    const float *floatdata (void) const {
+        return (const float *) &m_pixels[0];
+    }
 
     /// Return a pointer to the character data
-    ///
     const unsigned char *bytedata (void) const {
         return (unsigned char *) &m_pixels[0];
+    }
+
+    /// Return a pointer to unsigned short data
+    const unsigned short *ushortdata (void) const {
+        return (unsigned short *) &m_pixels[0];
+    }
+
+    /// Return a pointer to half data
+    const half *halfdata (void) const {
+        return (half *) &m_pixels[0];
     }
 
     /// Return the id for this tile.
@@ -552,10 +637,15 @@ public:
     ///
     void wait_pixels_ready () const;
 
+    int channelsize () const { return m_channelsize; }
+    int pixelsize () const { return m_pixelsize; }
+
 private:
     TileID m_id;                  ///< ID of this tile
     boost::scoped_array<char> m_pixels;  ///< The pixel data
     size_t m_pixels_size;         ///< How much m_pixels has allocated
+    int m_channelsize;            ///< How big is each channel (bytes)
+    int m_pixelsize;              ///< How big is each pixel (bytes)
     bool m_valid;                 ///< Valid pixels
     volatile bool m_pixels_ready; ///< The pixels have been read from disk
     atomic_int m_used;            ///< Used recently
@@ -579,7 +669,8 @@ typedef unordered_map_concurrent<TileID, ImageCacheTileRef, TileID::Hasher, std:
 /// ImageCache and TextureSystem, so they don't each need a costly
 /// thread_specific_ptr retrieval.  There's no real penalty for this,
 /// even if you are using only ImageCache but not TextureSystem.
-struct ImageCachePerThreadInfo {
+class ImageCachePerThreadInfo {
+public:
     // Store just a few filename/fileptr pairs
     static const int nlastfile = 4;
     ustring last_filename[nlastfile];
@@ -594,9 +685,14 @@ struct ImageCachePerThreadInfo {
     ImageCachePerThreadInfo ()
         : next_last_file(0), shared(false)
     {
+        // std::cout << "Creating PerThreadInfo " << (void*)this << "\n";
         for (int i = 0;  i < nlastfile;  ++i)
             last_file[i] = NULL;
         purge = 0;
+    }
+
+    ~ImageCachePerThreadInfo () {
+        // std::cout << "Destroying PerThreadInfo " << (void*)this << "\n";
     }
 
     // Add a new filename/fileptr pair to our microcache
@@ -644,24 +740,24 @@ public:
         return attribute (name, TypeDesc::STRING, &s);
     }
 
-    virtual bool getattribute (string_view name, TypeDesc type, void *val);
-    virtual bool getattribute (string_view name, int &val) {
+    virtual bool getattribute (string_view name, TypeDesc type, void *val) const;
+    virtual bool getattribute (string_view name, int &val) const {
         return getattribute (name, TypeDesc::INT, &val);
     }
-    virtual bool getattribute (string_view name, float &val) {
+    virtual bool getattribute (string_view name, float &val) const {
         return getattribute (name, TypeDesc::FLOAT, &val);
     }
-    virtual bool getattribute (string_view name, double &val) {
+    virtual bool getattribute (string_view name, double &val) const {
         float f;
         bool ok = getattribute (name, TypeDesc::FLOAT, &f);
         if (ok)
             val = f;
         return ok;
     }
-    virtual bool getattribute (string_view name, char **val) {
+    virtual bool getattribute (string_view name, char **val) const {
         return getattribute (name, TypeDesc::STRING, val);
     }
-    virtual bool getattribute (string_view name, std::string &val) {
+    virtual bool getattribute (string_view name, std::string &val) const {
         ustring s;
         bool ok = getattribute (name, TypeDesc::STRING, &s);
         if (ok)
@@ -669,10 +765,6 @@ public:
         return ok;
     }
 
-
-    /// Close everything, free resources, start from scratch.
-    ///
-    virtual void clear () { }
 
     // Retrieve options
     int max_open_files () const { return m_max_open_files; }
@@ -690,12 +782,20 @@ public:
     void get_commontoworld (Imath::M44f &result) const {
         result = m_Mc2w;
     }
+    int max_errors_per_file () const { return m_max_errors_per_file; }
 
     virtual std::string resolve_filename (const std::string &filename) const;
+
+    // Set m_max_open_files, with logic to try to clamp reasonably.
+    void set_max_open_files (int m);
 
     /// Get information about the given image.
     ///
     virtual bool get_image_info (ustring filename, int subimage, int miplevel,
+                         ustring dataname, TypeDesc datatype, void *data);
+    virtual bool get_image_info (ImageCacheFile *file,
+                         ImageCachePerThreadInfo *thread_info,
+                         int subimage, int miplevel,
                          ustring dataname, TypeDesc datatype, void *data);
 
     /// Get the ImageSpec associated with the named image.  If the file
@@ -706,8 +806,17 @@ public:
     virtual bool get_imagespec (ustring filename, ImageSpec &spec,
                                 int subimage=0, int miplevel=0,
                                 bool native=false);
+    virtual bool get_imagespec (ImageCacheFile *file,
+                                ImageCachePerThreadInfo *thread_info,
+                                ImageSpec &spec,
+                                int subimage=0, int miplevel=0,
+                                bool native=false);
 
     virtual const ImageSpec *imagespec (ustring filename, int subimage=0,
+                                        int miplevel=0, bool native=false);
+    virtual const ImageSpec *imagespec (ImageCacheFile *file,
+                                        ImageCachePerThreadInfo *thread_info=NULL,
+                                        int subimage=0,
                                         int miplevel=0, bool native=false);
 
     // Retrieve a rectangle of raw unfiltered pixels.
@@ -715,22 +824,26 @@ public:
                              int xbegin, int xend,
                              int ybegin, int yend, int zbegin, int zend,
                              TypeDesc format, void *result);
+    virtual bool get_pixels (ImageCacheFile *file,
+                             ImageCachePerThreadInfo *thread_info,
+                             int subimage, int miplevel, int xbegin, int xend,
+                             int ybegin, int yend, int zbegin, int zend,
+                             TypeDesc format, void *result);
     virtual bool get_pixels (ustring filename,
                     int subimage, int miplevel, int xbegin, int xend,
                     int ybegin, int yend, int zbegin, int zend,
                     int chbegin, int chend, TypeDesc format, void *result,
                     stride_t xstride=AutoStride, stride_t ystride=AutoStride,
-                    stride_t zstride=AutoStride);
-
-    /// Retrieve a rectangle of raw unfiltered pixels, from an open valid
-    /// ImageCacheFile.
-    bool get_pixels (ImageCacheFile *file,
+                    stride_t zstride=AutoStride,
+                    int cache_chbegin = 0, int cache_chend = -1);
+    virtual bool get_pixels (ImageCacheFile *file,
                      ImageCachePerThreadInfo *thread_info,
                      int subimage, int miplevel, int xbegin, int xend,
                      int ybegin, int yend, int zbegin, int zend,
                      int chbegin, int chend, TypeDesc format, void *result,
                      stride_t xstride=AutoStride, stride_t ystride=AutoStride,
-                     stride_t zstride=AutoStride);
+                     stride_t zstride=AutoStride,
+                     int cache_chbegin = 0, int cache_chend = -1);
 
     /// Find the ImageCacheFile record for the named image, or NULL if
     /// no such file can be found.  This returns a plain old pointer,
@@ -738,11 +851,34 @@ public:
     /// and those won't be freed until the texture system is destroyed.
     /// If header_only is true, we are finding the file only for the sake
     /// of header information (e.g., called by get_image_info).
+    /// A call to verify_file() is still needed after find_file().
     ImageCacheFile *find_file (ustring filename,
                                ImageCachePerThreadInfo *thread_info,
                                ImageInput::Creator creator=NULL,
                                bool header_only=false,
                                const ImageSpec *config=NULL);
+
+    /// Verify & prep the ImageCacheFile record for the named image,
+    /// return the pointer (which may have changed for deduplication),
+    /// or NULL if no such file can be found. This returns a plain old
+    /// pointer, which is ok because the file hash table has ref-counted
+    /// pointers and those won't be freed until the texture system is
+    /// destroyed.  If header_only is true, we are finding the file only
+    /// for the sake of header information (e.g., called by
+    /// get_image_info).
+    ImageCacheFile *verify_file (ImageCacheFile *tf,
+                                 ImageCachePerThreadInfo *thread_info,
+                                 bool header_only=false);
+    
+    virtual ImageCacheFile * get_image_handle (ustring filename,
+                             ImageCachePerThreadInfo *thread_info=NULL) {
+        ImageCacheFile *file = find_file (filename, thread_info);
+        return verify_file (file, thread_info);
+    }
+
+    virtual bool good (ImageCacheFile *handle) {
+        return handle  &&  ! handle->broken();
+    }
 
     /// Is the tile specified by the TileID already in the cache?
     bool tile_in_cache (const TileID &id,
@@ -784,14 +920,21 @@ public:
     }
 
     virtual Tile *get_tile (ustring filename, int subimage, int miplevel,
-                            int x, int y, int z);
+                            int x, int y, int z, int chbegin, int chend);
+    virtual Tile *get_tile (ImageHandle *file, Perthread *thread_info,
+                            int subimage, int miplevel,
+                            int x, int y, int z, int chbegin, int chend);
     virtual void release_tile (Tile *tile) const;
+    virtual TypeDesc tile_format (const Tile *tile) const;
+    virtual ROI tile_roi (const Tile *tile) const;
     virtual const void * tile_pixels (Tile *tile, TypeDesc &format) const;
     virtual bool add_file (ustring filename, ImageInput::Creator creator,
                            const ImageSpec *config);
     virtual bool add_tile (ustring filename, int subimage, int miplevel,
-                     int x, int y, int z, TypeDesc format, const void *buffer,
-                     stride_t xstride, stride_t ystride, stride_t zstride);
+                           int x, int y, int z,  int chbegin, int chend,
+                           TypeDesc format, const void *buffer,
+                           stride_t xstride, stride_t ystride,
+                           stride_t zstride);
 
     /// Return the numerical subimage index for the given subimage name,
     /// as stored in the "oiio:subimagename" metadata.  Return -1 if no
@@ -859,9 +1002,9 @@ public:
     /// Append a string to the current error message
     void append_error (const std::string& message) const;
 
-    /// Get a pointer to the caller's thread's per-thread info, or create
-    /// one in the first place if there isn't one already.
-    ImageCachePerThreadInfo *get_perthread_info ();
+    virtual Perthread * get_perthread_info (Perthread *thread_info = NULL);
+    virtual Perthread * create_thread_info ();
+    virtual void destroy_thread_info (Perthread *thread_info);
 
     /// Called when the IC is destroyed.  We have a list of all the 
     /// perthread pointers -- go through and delete the ones for which we
@@ -874,7 +1017,7 @@ public:
     /// clear its tile microcache), so don't delete the perthread info
     /// (it will be owned thereafter by the IC).  If there is no IC still
     /// depending on it (signalled by m_imagecache == NULL), delete it.
-    static void cleanup_perthread_info (ImageCachePerThreadInfo *p);
+    static void cleanup_perthread_info (Perthread *thread_info);
 
     /// Ensure that the max_memory_bytes is at least newsize bytes.
     /// Override the previous value if necessary, with thread-safety.
@@ -882,6 +1025,10 @@ public:
 
     /// Enforce the max number of open files.
     void check_max_files (ImageCachePerThreadInfo *thread_info);
+
+    // For virtual UDIM-like files, adjust s and t and return the concrete
+    // ImageCacheFile pointer for the tile it's on.
+    ImageCacheFile *resolve_udim (ImageCacheFile *file, float &s, float &t);
 
 private:
     void init ();
@@ -920,7 +1067,7 @@ private:
 
     thread_specific_ptr< ImageCachePerThreadInfo > m_perthread_info;
     std::vector<ImageCachePerThreadInfo *> m_all_perthread_info;
-    static mutex m_perthread_info_mutex; ///< Thread safety for perthread
+    static spin_mutex m_perthread_info_mutex; ///< Thread safety for perthread
     int m_max_open_files;
     atomic_ll m_max_memory_bytes;
     std::string m_searchpath;    ///< Colon-separated image directory list
@@ -954,6 +1101,7 @@ private:
 
     atomic_ll m_mem_used;        ///< Memory being used for tiles
     int m_statslevel;            ///< Statistics level
+    int m_max_errors_per_file;   ///< Max errors to print for each file.
 
     /// Saved error string, per-thread
     ///
@@ -1000,8 +1148,7 @@ private:
 
 }  // end namespace pvt
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END
 
 
 #endif // OPENIMAGEIO_IMAGECACHE_PVT_H

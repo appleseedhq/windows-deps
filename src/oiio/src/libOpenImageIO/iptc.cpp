@@ -31,16 +31,13 @@
 
 #include <iostream>
 
-#include <boost/tokenizer.hpp>
-
 #include "OpenImageIO/imageio.h"
 
 #define DEBUG_IPTC_READ  0
 #define DEBUG_IPTC_WRITE 0
 
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
 
 namespace {
 
@@ -240,5 +237,4 @@ encode_iptc_iim (const ImageSpec &spec, std::vector<char> &iptc)
 }
 
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END

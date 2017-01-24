@@ -32,14 +32,6 @@
 /// Implementation of ImageBufAlgo algorithms that analize or compare
 /// images.
 
-/* This header has to be included before boost/regex.hpp header
-   If it is included after, there is an error
-   "undefined reference to CSHA1::Update (unsigned char const*, unsigned long)"
-*/
-#include "OpenImageIO/SHA1.h"
-
-#include <boost/bind.hpp>
-
 #include <OpenEXR/half.h>
 
 #include <cmath>
@@ -50,6 +42,7 @@
 #include "OpenImageIO/imagebufalgo.h"
 #include "OpenImageIO/imagebufalgo_util.h"
 #include "OpenImageIO/dassert.h"
+#include "OpenImageIO/SHA1.h"
 
 #ifdef USE_OPENSSL
 #ifdef __APPLE__
@@ -62,8 +55,7 @@
 
 
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
 
 
 inline void
@@ -131,7 +123,7 @@ finalize (ImageBufAlgo::PixelStats &p)
             double Count = static_cast<double>(p.finitecount[c]);
             double davg = p.sum[c] / Count;
             p.avg[c] = static_cast<float>(davg);
-            p.stddev[c] = static_cast<float>(sqrt(p.sum2[c]/Count - davg*davg));
+            p.stddev[c] = static_cast<float>(safe_sqrt(p.sum2[c]/Count - davg*davg));
         }
     }
 }
@@ -240,6 +232,15 @@ compare_value (ImageBuf::ConstIterator<BUFT,float> &a, int chan,
     if (!isfinite(aval) || !isfinite(bval)) {
         if (isnan(aval) == isnan(bval) && isinf(aval) == isinf(bval))
             return; // NaN may match NaN, Inf may match Inf
+        if (isfinite(result.maxerror)) {
+            // non-finite errors trump finite ones
+            result.maxerror = std::numeric_limits<float>::infinity();
+            result.maxx = a.x();
+            result.maxy = a.y();
+            result.maxz = a.z();
+            result.maxc = chan;
+            return;
+        }
     }
     maxval = std::max (maxval, std::max (aval, bval));
     double f = fabs (aval - bval);
@@ -498,7 +499,7 @@ color_count_ (const ImageBuf &src, atomic_ll *count,
     if (nthreads != 1 && roi.npixels() >= 1000) {
         // Lots of pixels and request for multi threads? Parallelize.
         ImageBufAlgo::parallel_image (
-            boost::bind(color_count_<T>, boost::ref(src),
+            OIIO::bind(color_count_<T>, OIIO::ref(src),
                         count, ncolors, color, eps,
                         _1 /*roi*/, 1 /*nthreads*/),
             roi, nthreads);
@@ -570,7 +571,7 @@ color_range_check_ (const ImageBuf &src, atomic_ll *lowcount,
     if (nthreads != 1 && roi.npixels() >= 1000) {
         // Lots of pixels and request for multi threads? Parallelize.
         ImageBufAlgo::parallel_image (
-            boost::bind(color_range_check_<T>, boost::ref(src),
+            OIIO::bind(color_range_check_<T>, OIIO::ref(src),
                         lowcount, highcount, inrangecount, low, high,
                         _1 /*roi*/, 1 /*nthreads*/),
             roi, nthreads);
@@ -634,13 +635,43 @@ ImageBufAlgo::color_range_check (const ImageBuf &src, imagesize_t *lowcount,
 
 
 
+// Helper: is the roi devoid of any deep samples?
+static ROI
+deep_nonempty_region (const ImageBuf &src, ROI roi)
+{
+    DASSERT (src.deep());
+    ROI r;   // Initially undefined
+    for (int z = roi.zbegin; z < roi.zend; ++z)
+        for (int y = roi.ybegin; y < roi.yend; ++y)
+            for (int x = roi.xbegin; x < roi.xend; ++x)
+                if (src.deep_samples (x, y, z) != 0) {
+                    if (! r.defined()) {
+                        r = ROI (x, x+1, y, y+1, z, z+1, 0, src.nchannels());
+                    } else {
+                        r.xbegin = std::min (x,   r.xbegin);
+                        r.xend   = std::max (x+1, r.xend);
+                        r.ybegin = std::min (y,   r.ybegin);
+                        r.yend   = std::max (y+1, r.yend);
+                        r.zbegin = std::min (z,   r.zbegin);
+                        r.zend   = std::max (z+1, r.zend);
+                    }
+                }
+    return r;
+}
+
+
+
 ROI
 ImageBufAlgo::nonzero_region (const ImageBuf &src, ROI roi, int nthreads)
 {
+    roi = roi_intersection (roi, src.roi());
+
+    if (src.deep()) {
+        return deep_nonempty_region (src, roi);
+    }
+
     std::vector<float> zero (src.nchannels(), 0.0f);
     std::vector<float> color (src.nchannels(), 0.0f);
-    if (! roi.defined())
-        roi = get_roi (src.spec());
     // Trim bottom
     for ( ; roi.ybegin < roi.yend; --roi.yend) {
         ROI test = roi;  test.ybegin = roi.yend-1;
@@ -717,7 +748,7 @@ simplePixelHashSHA1 (const ImageBuf &src,
                 SHA1_Update (&sha, src.pixeladdr (roi.xbegin, y, z),
                             (unsigned int) scanline_bytes*(y1-y));
             } else {
-                src.get_pixels (roi.xbegin, roi.xend, y, y1, z, z+1,
+                src.get_pixels (ROI (roi.xbegin, roi.xend, y, y1, z, z+1),
                                 src.spec().format, &tmp[0]);
                 SHA1_Update (&sha, &tmp[0], (unsigned int) scanline_bytes*(y1-y));
             }
@@ -748,7 +779,7 @@ simplePixelHashSHA1 (const ImageBuf &src,
                 sha.Update ((const unsigned char *)src.pixeladdr (roi.xbegin, y, z),
                             (unsigned int) scanline_bytes*(y1-y));
             } else {
-                src.get_pixels (roi.xbegin, roi.xend, y, y1, z, z+1,
+                src.get_pixels (ROI (roi.xbegin, roi.xend, y, y1, z, z+1),
                                 src.spec().format, &tmp[0]);
                 sha.Update (&tmp[0], (unsigned int) scanline_bytes*(y1-y));
             }
@@ -811,7 +842,7 @@ ImageBufAlgo::computePixelHashSHA1 (const ImageBuf &src,
         sha1_hasher (&src, roi, blocksize, &results[0], 0);
     } else {
         // parallel case
-        boost::thread_group threads;
+        OIIO::thread_group threads;
         int blocks_per_thread = (nblocks+nthreads-1) / nthreads;
         ROI broi = roi;
         for (int b = 0, t = 0;  b < nblocks;  b += blocks_per_thread, ++t) {
@@ -820,7 +851,7 @@ ImageBufAlgo::computePixelHashSHA1 (const ImageBuf &src,
                 break;
             broi.ybegin = y;
             broi.yend = std::min (y+blocksize*blocks_per_thread, roi.yend);
-            threads.add_thread (new boost::thread (sha1_hasher, &src, broi,
+            threads.add_thread (new OIIO::thread (sha1_hasher, &src, broi,
                                                    blocksize, &results[0], b));
         }
         threads.join_all ();
@@ -1001,5 +1032,4 @@ ImageBufAlgo::histogram_draw (ImageBuf &R,
 
 
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END

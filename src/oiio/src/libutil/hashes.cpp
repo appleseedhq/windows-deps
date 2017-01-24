@@ -7,19 +7,11 @@
 # include <endian.h>    /* attempt to define endianness */
 #endif
 
-#if defined(_MSC_VER) && _MSC_VER < 1600
-  typedef __int8            int8_t;
-  typedef __int16           int16_t;
-  typedef __int32           int32_t;
-  typedef __int64           int64_t;
-#else
-# include <stdint.h>
-#endif
-
+#include "OpenImageIO/platform.h"
 #include "OpenImageIO/fmath.h"
 #include "OpenImageIO/hash.h"
 
-OIIO_NAMESPACE_ENTER {
+OIIO_NAMESPACE_BEGIN
 
 
 namespace xxhash {
@@ -986,4 +978,4 @@ uint32_t hashbig( const void *key, size_t length, uint32_t initval)
 } // end namespace bjhash
 
 
-} OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END

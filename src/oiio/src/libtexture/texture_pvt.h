@@ -39,8 +39,7 @@
 #include "OpenImageIO/texture.h"
 #include "OpenImageIO/simd.h"
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
 
 class ImageCache;
 class Filter1D;
@@ -83,24 +82,24 @@ public:
         return attribute (name, TypeDesc::STRING, &s);
     }
 
-    virtual bool getattribute (string_view name, TypeDesc type, void *val);
-    virtual bool getattribute (string_view name, int &val) {
+    virtual bool getattribute (string_view name, TypeDesc type, void *val) const;
+    virtual bool getattribute (string_view name, int &val) const {
         return getattribute (name, TypeDesc::INT, &val);
     }
-    virtual bool getattribute (string_view name, float &val) {
+    virtual bool getattribute (string_view name, float &val) const {
         return getattribute (name, TypeDesc::FLOAT, &val);
     }
-    virtual bool getattribute (string_view name, double &val) {
+    virtual bool getattribute (string_view name, double &val) const {
         float f;
         bool ok = getattribute (name, TypeDesc::FLOAT, &f);
         if (ok)
             val = f;
         return ok;
     }
-    virtual bool getattribute (string_view name, char **val) {
+    virtual bool getattribute (string_view name, char **val) const {
         return getattribute (name, TypeDesc::STRING, val);
     }
-    virtual bool getattribute (string_view name, std::string &val) {
+    virtual bool getattribute (string_view name, std::string &val) const {
         const char *s;
         bool ok = getattribute (name, TypeDesc::STRING, &s);
         if (ok)
@@ -109,22 +108,32 @@ public:
     }
 
 
-    virtual void clear () { }
-
     // Retrieve options
     void get_commontoworld (Imath::M44f &result) const {
         result = m_Mc2w;
     }
 
-    virtual Perthread *get_perthread_info (void) {
-        return (Perthread *)m_imagecache->get_perthread_info ();
+    virtual Perthread *get_perthread_info (Perthread *thread_info = NULL) {
+        return (Perthread *)m_imagecache->get_perthread_info ((ImageCachePerThreadInfo *)thread_info);
+    }
+    virtual Perthread *create_thread_info () {
+        ASSERT (m_imagecache);
+        return (Perthread *)m_imagecache->create_thread_info ();
+    }
+    virtual void destroy_thread_info (Perthread *threadinfo) {
+        ASSERT (m_imagecache);
+        m_imagecache->destroy_thread_info ((ImageCachePerThreadInfo *)threadinfo);
     }
 
     virtual TextureHandle *get_texture_handle (ustring filename,
                                                Perthread *thread) {
-        PerThreadInfo *thread_info = thread ? (PerThreadInfo *)thread
+        PerThreadInfo *thread_info = thread ? ((PerThreadInfo *)thread)
                                        : m_imagecache->get_perthread_info ();
         return (TextureHandle *) find_texturefile (filename, thread_info);
+    }
+
+    virtual bool good (TextureHandle *texture_handle) {
+        return texture_handle && ! ((TextureFile *)texture_handle)->broken();
     }
 
     virtual bool texture (ustring filename, TextureOpt &options,
@@ -251,13 +260,33 @@ public:
 
     virtual bool get_texture_info (ustring filename, int subimage,
                            ustring dataname, TypeDesc datatype, void *data);
+    virtual bool get_texture_info (TextureHandle *texture_handle,
+                           Perthread *thread_info, int subimage,
+                           ustring dataname, TypeDesc datatype, void *data);
+    virtual bool get_texture_info (TextureHandle *texture_handle, int subimage,
+                           ustring dataname, TypeDesc datatype, void *data) {
+        return get_texture_info (texture_handle, NULL, subimage,
+                                 dataname, datatype, data);
+    }
 
     virtual bool get_imagespec (ustring filename, int subimage,
                                 ImageSpec &spec);
+    virtual bool get_imagespec (TextureHandle *texture_handle,
+                                Perthread *thread_info, int subimage,
+                                ImageSpec &spec);
 
     virtual const ImageSpec *imagespec (ustring filename, int subimage=0);
+    virtual const ImageSpec *imagespec (TextureHandle *texture_handle,
+                                        Perthread *thread_info=NULL,
+                                        int subimage=0);
 
     virtual bool get_texels (ustring filename, TextureOpt &options,
+                             int miplevel, int xbegin, int xend,
+                             int ybegin, int yend, int zbegin, int zend,
+                             int chbegin, int chend,
+                             TypeDesc format, void *result);
+    virtual bool get_texels (TextureHandle *texture_handle,
+                             Perthread *thread_info, TextureOpt &options,
                              int miplevel, int xbegin, int xend,
                              int ybegin, int yend, int zbegin, int zend,
                              int chbegin, int chend,
@@ -283,9 +312,25 @@ private:
     /// Find the TextureFile record for the named texture, or NULL if no
     /// such file can be found.
     TextureFile *find_texturefile (ustring filename, PerThreadInfo *thread_info) {
-        TextureFile *texturefile = m_imagecache->find_file (filename, thread_info);
-        if (!texturefile || texturefile->broken())
-            error ("%s", m_imagecache->geterror().c_str());
+        return m_imagecache->find_file (filename, thread_info);
+    }
+    TextureFile *verify_texturefile (TextureFile *texturefile,
+                                     PerThreadInfo *thread_info) {
+        texturefile = m_imagecache->verify_file (texturefile, thread_info);
+        if (!texturefile || texturefile->broken()) {
+            std::string err = m_imagecache->geterror();
+            if (err.size())
+                error ("%s", err.c_str());
+#if 0
+            // If the file is "broken", at least one verbose error message
+            // has already been issued about it, so don't belabor the point.
+            // But for debugging purposes, these might help:
+            else if (texturefile && texturefile->broken())
+                error ("(unknown error - broken texture \"%s\")", texturefile->filename());
+            else
+                error ("(unknown error - NULL texturefile)");
+#endif
+        }
         return texturefile;
     }
 
@@ -486,6 +531,9 @@ private:
     Imath::M44f m_Mw2c;          ///< world-to-"common" matrix
     Imath::M44f m_Mc2w;          ///< common-to-world matrix
     bool m_gray_to_rgb;          ///< automatically copy gray to rgb channels?
+    bool m_flip_t;               ///< Flip direction of t coord?
+    int m_max_tile_channels;     ///< narrow tile ID channel range when
+                                 ///<   the file has more channels
     /// Saved error string, per-thread
     ///
     mutable thread_specific_ptr< std::string > m_errormessage;
@@ -569,7 +617,6 @@ TextureSystemImpl::st_to_texel (float s, float t, TextureFile &texturefile,
 
 }  // end namespace pvt
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END
 
 #endif // OPENIMAGEIO_TEXTURE_PVT_H

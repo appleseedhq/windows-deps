@@ -121,6 +121,16 @@ OIIO_EXPORT int gif_imageio_version = OIIO_PLUGIN_VERSION;
 OIIO_EXPORT ImageInput *gif_input_imageio_create () { return new GIFInput; }
 OIIO_EXPORT const char *gif_input_extensions[] = { "gif", NULL };
 
+OIIO_EXPORT const char* gif_imageio_library_version () {
+#define STRINGIZE2(a) #a
+#define STRINGIZE(a) STRINGIZE2(a)
+#if defined(GIFLIB_MAJOR) && defined(GIFLIB_MINOR) && defined(GIFLIB_RELEASE)
+    return "gif_lib " STRINGIZE(GIFLIB_MAJOR) "." STRINGIZE(GIFLIB_MINOR) "." STRINGIZE(GIFLIB_RELEASE);
+#else
+    return "gif_lib unknown version";
+#endif
+}
+
 OIIO_PLUGIN_EXPORTS_END
 
 
@@ -191,7 +201,8 @@ GIFInput::read_gif_extension (int ext_code, GifByteType *ext,
 
         int delay = (ext[3] << 8) | ext[2];
         if (delay) {
-            newspec.attribute ("gif:DelayMs", delay * 10);
+            newspec.attribute ("FramesPerSecond", float(100.0f/delay));
+            newspec.attribute ("oiio:Movie", 1);
         }
         
     } else if (ext_code == COMMENT_EXT_FUNC_CODE) {
@@ -218,6 +229,7 @@ GIFInput::read_subimage_metadata (ImageSpec &newspec)
     newspec.nchannels = 4;
     newspec.default_channel_names ();
     newspec.alpha_channel = 4;
+    newspec.attribute ("oiio:ColorSpace", "sRGB");
 
     m_previous_disposal_method = m_disposal_method;
     m_disposal_method = DISPOSAL_UNSPECIFIED;
@@ -394,6 +406,10 @@ GIFInput::seek_subimage (int subimage, int miplevel, ImageSpec &newspec)
 
     newspec.width = m_gif_file->SWidth;
     newspec.height = m_gif_file->SHeight;
+    newspec.depth = 1;
+    newspec.full_height = newspec.height;
+    newspec.full_width = newspec.width;
+    newspec.full_depth = newspec.depth;
 
     m_spec = newspec;
     m_subimage = subimage;

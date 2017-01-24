@@ -53,7 +53,7 @@ public:
     Field3DOutput ();
     virtual ~Field3DOutput ();
     virtual const char * format_name (void) const { return "field3d"; }
-    virtual bool supports (const std::string &feature) const;
+    virtual int supports (string_view feature) const;
     virtual bool open (const std::string &name, const ImageSpec &spec,
                        OpenMode mode);
     virtual bool open (const std::string &name, int subimages,
@@ -114,6 +114,10 @@ field3d_output_imageio_create ()
 
 OIIO_EXPORT int field3d_imageio_version = OIIO_PLUGIN_VERSION;
 
+OIIO_EXPORT const char* field3d_imageio_library_version () {
+    return ustring::format("Field3d %d.%d.%d", FIELD3D_MAJOR_VER, FIELD3D_MINOR_VER, FIELD3D_MICRO_VER).c_str();
+}
+
 OIIO_EXPORT const char * field3d_output_extensions[] = {
     "f3d", NULL
 };
@@ -148,8 +152,8 @@ Field3DOutput::~Field3DOutput ()
 
 
 
-bool
-Field3DOutput::supports (const std::string &feature) const
+int
+Field3DOutput::supports (string_view feature) const
 {
     return (feature == "tiles"
          || feature == "multiimage"
@@ -360,7 +364,7 @@ Field3DOutput::write_scanline (int y, int z, TypeDesc format,
         else
             return write_scanline_specialized(y, z, (const FIELD3D_VEC3_T<FIELD3D_NS::half> *)data);
     } else {
-        ASSERT (0);
+        ASSERT (0 && "Unsupported data format for field3d");
     }
 
     return false;
@@ -431,7 +435,7 @@ Field3DOutput::write_tile (int x, int y, int z,
         else
             return write_tile_specialized (x, y, z, (const FIELD3D_VEC3_T<FIELD3D_NS::half> *)data);
     } else {
-        ASSERT (0);
+        ASSERT (0 && "Unsupported data format for field3d");
     }
 
     return false;
@@ -539,7 +543,7 @@ Field3DOutput::prep_subimage ()
         else
             prep_subimage_specialized<FIELD3D_VEC3_T<FIELD3D_NS::half> >();
     } else {
-        ASSERT (0);
+        ASSERT (0 && "Unsupported data format for field3d");
     }
 
     m_writepending = true;

@@ -41,8 +41,7 @@
 
 
 
-OIIO_NAMESPACE_ENTER
-{
+OIIO_NAMESPACE_BEGIN
 
 namespace pvt {
 
@@ -54,20 +53,21 @@ extern atomic_int oiio_read_chunk;
 extern ustring plugin_searchpath;
 extern std::string format_list;
 extern std::string extension_list;
+extern std::string library_list;
 
 
 // For internal use - use error() below for a nicer interface.
 void seterror (const std::string& message);
-
-// Make sure all plugins are inventoried.  Should only be called while
-// imageio_mutex is held.  For internal use only.
-void catalog_all_plugins (std::string searchpath);
 
 /// Use error() privately only.  Protoype is conceptually printf-like, but
 /// also fully typesafe:
 /// void error (const char *format, ...);
 TINYFORMAT_WRAP_FORMAT (void, error, /**/,
     std::ostringstream msg;, msg, seterror(msg.str());)
+
+// Make sure all plugins are inventoried.  Should only be called while
+// imageio_mutex is held.  For internal use only.
+void catalog_all_plugins (std::string searchpath);
 
 /// Given the format, set the default quantization range.
 void get_default_quantize (TypeDesc format,
@@ -96,28 +96,16 @@ const float *convert_to_float (const void *src, float *dst, int nvals,
 const void *convert_from_float (const float *src, void *dst, size_t nvals,
                                 long long quant_min, long long quant_max,
                                 TypeDesc format);
-/// DEPRECATED (1.4)
-const void *convert_from_float (const float *src, void *dst, size_t nvals,
-                                long long quant_black, long long quant_white,
-                                long long quant_min, long long quant_max,
-                                TypeDesc format);
 
 /// A version of convert_from_float that will break up big jobs with
 /// multiple threads.
 const void *parallel_convert_from_float (const float *src, void *dst,
                                          size_t nvals,
                                          TypeDesc format, int nthreads=0);
-/// DEPRECATED (1.4)
-const void *parallel_convert_from_float (const float *src, void *dst,
-                                         size_t nvals,
-                                         long long quant_black, long long quant_white,
-                                         long long quant_min, long long quant_max,
-                                         TypeDesc format, int nthreads=0) ;
 
 }  // namespace pvt
 
-}
-OIIO_NAMESPACE_EXIT
+OIIO_NAMESPACE_END
 
 //Define a default plugin search path
 #define OIIO_DEFAULT_PLUGIN_SEARCHPATH "@PLUGIN_SEARCH_PATH_NATIVE@"
