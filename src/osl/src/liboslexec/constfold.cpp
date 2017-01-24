@@ -637,6 +637,17 @@ DECLFOLDER(constfold_if)
         }
         return changed;
     }
+
+    // Eliminate 'if' that contains no statements to execute
+    int jump = op.farthest_jump ();
+    bool only_nops = true;
+    for (int i = opnum+1;  i < jump && only_nops;  ++i)
+        only_nops &= (rop.inst()->ops()[i].opname() == u_nop);
+    if (only_nops) {
+        rop.turn_into_nop (op, "'if' with no body");
+        return 1;
+    }
+
     return 0;
 }
 
@@ -1042,8 +1053,46 @@ DECLFOLDER(constfold_strlen)
     if (S.is_constant()) {
         ASSERT (S.typespec().is_string());
         int result = (int) (*(ustring *)S.data()).length();
-        int cind = rop.add_constant (TypeDesc::TypeInt, &result);
+        int cind = rop.add_constant (result);
         rop.turn_into_assign (op, cind, "const fold strlen");
+        return 1;
+    }
+    return 0;
+}
+
+
+
+DECLFOLDER(constfold_hash)
+{
+    // Try to turn R=hash(s) into R=C
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol &S (*rop.inst()->argsymbol(op.firstarg()+1));
+    if (S.is_constant()) {
+        ASSERT (S.typespec().is_string());
+        int result = (int) (*(ustring *)S.data()).hash();
+        int cind = rop.add_constant (result);
+        rop.turn_into_assign (op, cind, "const fold hash");
+        return 1;
+    }
+    return 0;
+}
+
+
+
+DECLFOLDER(constfold_getchar)
+{
+    // Try to turn R=getchar(s,i) into R=C
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol &S (*rop.inst()->argsymbol(op.firstarg()+1));
+    Symbol &I (*rop.inst()->argsymbol(op.firstarg()+2));
+    if (S.is_constant() && I.is_constant()) {
+        ASSERT (S.typespec().is_string());
+        ASSERT (I.typespec().is_int());
+        int idx = (int) (*(int *)I.data());
+        int len = (int) (*(ustring *)S.data()).length();
+        int result = idx >= 0 && idx < len ? (*(ustring *)S.data()).c_str()[idx] : 0;
+        int cind = rop.add_constant (result);
+        rop.turn_into_assign (op, cind, "const fold getchar");
         return 1;
     }
     return 0;
@@ -1065,7 +1114,7 @@ DECLFOLDER(constfold_endswith)
         int result = 0;
         if (elen <= slen)
             result = (strncmp (s.c_str()+slen-elen, e.c_str(), elen) == 0);
-        int cind = rop.add_constant (TypeDesc::TypeInt, &result);
+        int cind = rop.add_constant (result);
         rop.turn_into_assign (op, cind, "const fold endswith");
         return 1;
     }
@@ -1316,7 +1365,7 @@ DECLFOLDER(constfold_regex_search)
         const ustring &r (*(ustring *)Reg.data());
         boost::regex reg (r.string());
         int result = boost::regex_search (s.string(), reg);
-        int cind = rop.add_constant (TypeDesc::TypeInt, &result);
+        int cind = rop.add_constant (result);
         rop.turn_into_assign (op, cind, "const fold regex_search");
         return 1;
     }
@@ -2511,7 +2560,8 @@ DECLFOLDER(constfold_noise)
     Symbol *Name = rop.opargsym (op, arg++);
     ustring name;
     if (Name->typespec().is_string()) {
-        name = Name->is_constant() ? *(ustring *)Name->data() : ustring();
+        if (Name->is_constant())
+            name = *(ustring *)Name->data();
     } else {
         // Not a string, must be the old-style noise/pnoise
         --arg;  // forget that arg
@@ -2525,6 +2575,26 @@ DECLFOLDER(constfold_noise)
     // turn its derivative taking off.
     if (op.argtakesderivs_all() &&  name.length() && name != "gabor")
         op.argtakesderivs_all(0);
+
+    // Gabor noise is the only one that takes optional arguments, so
+    // optimize them away for other noise types.
+    if (name.length() && name != "gabor") {
+        for (int a = arg; a < op.nargs(); ++a) {
+            // Advance until we hit a string argument, which will be the
+            // first optional token/value pair. Then just turn all arguments
+            // from that point on into empty strings, which will later be
+            // skipped, and in the mean time will eliminate the dependencies
+            // on whatever values were previously passed.
+            if (rop.opargsym(op,a)->typespec().is_string()) {
+                for ( ; a < op.nargs(); a += 2) {
+                    ASSERT (a+1 < op.nargs());
+                    int cind = rop.add_constant (ustring());
+                    rop.inst()->args()[op.firstarg()+a] = cind;
+                    rop.inst()->args()[op.firstarg()+a+1] = cind;
+                }
+            }
+        }
+    }
 
     // Early out: for now, we only fold cell noise
     if (name != u_cellnoise && name != u_cell)
@@ -2703,6 +2773,21 @@ DECLFOLDER(constfold_deriv)
 }
 
 
+
+DECLFOLDER(constfold_isconstant)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol &A (*rop.inst()->argsymbol(op.firstarg()+1));
+    // If at this point we know it's a constant, it's certainly a constant,
+    // so we can constant fold it. Note that if it's not known to be a
+    // constant at this point, that doesn't mean we won't detect it to be
+    // constant after further optimization, so we never fold this to 0.
+    if (A.is_constant()) {
+        rop.turn_into_assign_one (op, "isconstant => 1");
+        return 1;
+    }
+    return 0;
+}
 
 
 }; // namespace pvt

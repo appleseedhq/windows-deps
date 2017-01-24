@@ -44,15 +44,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <OpenImageIO/filesystem.h>
 #include <OpenImageIO/thread.h>
 
-#include <boost/filesystem.hpp>
 #include <boost/foreach.hpp>
-
-#define yyFlexLexer oslFlexLexer
-#include "FlexLexer.h"
 
 #include <boost/wave.hpp>
 #include <boost/wave/cpplexer/cpp_lex_token.hpp>
 #include <boost/wave/cpplexer/cpp_lex_iterator.hpp>
+#if OIIO_VERSION < 10604
+#include <boost/filesystem.hpp>
+#endif
 
 
 OSL_NAMESPACE_ENTER
@@ -105,7 +104,6 @@ namespace pvt {   // OSL::pvt
 
 
 OSLCompilerImpl *oslcompiler = NULL;
-OIIO::mutex oslcompiler_mutex;
 
 static ustring op_for("for");
 static ustring op_while("while");
@@ -114,7 +112,8 @@ static ustring op_dowhile("dowhile");
 
 
 OSLCompilerImpl::OSLCompilerImpl (ErrorHandler *errhandler)
-    : m_lexer(NULL), m_errhandler(errhandler), m_err(false), m_symtab(*this),
+    : m_errhandler(errhandler ? errhandler : &ErrorHandler::default_handler()),
+      m_err(false), m_symtab(*this),
       m_current_typespec(TypeDesc::UNKNOWN), m_current_output(false),
       m_verbose(false), m_quiet(false), m_debug(false),
       m_preprocess_only(false), m_optimizelevel(1),
@@ -345,7 +344,11 @@ OSLCompilerImpl::compile (string_view filename,
 
     std::vector<std::string> defines;
     std::vector<std::string> includepaths;
-    m_cwd = boost::filesystem::initial_path().string();
+#if OIIO_VERSION >= 10604
+    m_cwd = OIIO::Filesystem::current_path();
+#else
+    m_cwd = boost::filesystem::current_path().string();
+#endif
     m_main_filename = filename;
 
     // Determine where the installed shader include directory is, and
@@ -354,11 +357,11 @@ OSLCompilerImpl::compile (string_view filename,
         // look in $OSLHOME/shaders
         const char *OSLHOME = getenv ("OSLHOME");
         if (OSLHOME && OSLHOME[0]) {
-            boost::filesystem::path path = boost::filesystem::path(OSLHOME) / "shaders";
-            if (OIIO::Filesystem::exists (path.string())) {
-                path = path / "stdosl.h";
-                if (OIIO::Filesystem::exists (path.string()))
-                    stdoslpath = ustring(path.string());
+            std::string path = std::string(OSLHOME) + "/shaders";
+            if (OIIO::Filesystem::exists (path)) {
+                path = path + "/stdosl.h";
+                if (OIIO::Filesystem::exists (path))
+                    stdoslpath = ustring(path);
             }
         }
     }
@@ -378,22 +381,7 @@ OSLCompilerImpl::compile (string_view filename,
     } else if (m_preprocess_only) {
         std::cout << preprocess_result;
     } else {
-        std::istringstream in (preprocess_result);
-        oslcompiler = this;
-
-        // Create a lexer, parse the file, delete the lexer
-        ASSERT (m_lexer == NULL);
-        bool parseerr = false;
-        {
-            // Thread safety with the lexer/parser
-            OIIO::lock_guard lock (oslcompiler_mutex);
-            m_lexer = new oslFlexLexer (&in);
-            oslparse ();
-            parseerr = error_encountered();
-            delete m_lexer;
-        }
-        m_lexer = NULL;
-
+        bool parseerr = osl_parse_buffer (preprocess_result);
         if (! parseerr) {
             if (shader())
                 shader()->typecheck ();
@@ -430,7 +418,7 @@ OSLCompilerImpl::compile (string_view filename,
             ASSERT (m_osofile == NULL);
             m_osofile = &oso_output;
 
-            write_oso_file (m_output_filename);
+            write_oso_file (m_output_filename, OIIO::Strutil::join(options," "));
             ASSERT (m_osofile == NULL);
         }
 
@@ -450,7 +438,11 @@ OSLCompilerImpl::compile_buffer (string_view sourcecode,
 {
     string_view filename ("<buffer>");
 
-    m_cwd = boost::filesystem::initial_path().string();
+#if OIIO_VERSION >= 10604
+    m_cwd = OIIO::Filesystem::current_path();
+#else
+    m_cwd = boost::filesystem::current_path().string();
+#endif
     m_main_filename = filename;
 
     // Determine where the installed shader include directory is, and
@@ -459,11 +451,11 @@ OSLCompilerImpl::compile_buffer (string_view sourcecode,
         // look in $OSLHOME/shaders
         const char *OSLHOME = getenv ("OSLHOME");
         if (OSLHOME && OSLHOME[0]) {
-            boost::filesystem::path path = boost::filesystem::path(OSLHOME) / "shaders";
-            if (OIIO::Filesystem::exists (path.string())) {
-                path = path / "stdosl.h";
-                if (OIIO::Filesystem::exists (path.string()))
-                    stdoslpath = ustring(path.string());
+            std::string path = std::string(OSLHOME) + "/shaders";
+            if (OIIO::Filesystem::exists (path)) {
+                path = path + "/stdosl.h";
+                if (OIIO::Filesystem::exists (path))
+                    stdoslpath = ustring(path);
             }
         }
     }
@@ -481,22 +473,7 @@ OSLCompilerImpl::compile_buffer (string_view sourcecode,
     } else if (m_preprocess_only) {
         std::cout << preprocess_result;
     } else {
-        std::istringstream in (preprocess_result);
-        oslcompiler = this;
-
-        // Create a lexer, parse the file, delete the lexer
-        ASSERT (m_lexer == NULL);
-        bool parseerr = false;
-        {
-            // Thread safety with the lexer/parser
-            OIIO::lock_guard lock (oslcompiler_mutex);
-            m_lexer = new oslFlexLexer (&in);
-            oslparse ();
-            parseerr = error_encountered();
-            delete m_lexer;
-        }
-        m_lexer = NULL;
-
+        bool parseerr = osl_parse_buffer (preprocess_result);
         if (! parseerr) {
             if (shader())
                 shader()->typecheck ();
@@ -527,7 +504,7 @@ OSLCompilerImpl::compile_buffer (string_view sourcecode,
             ASSERT (m_osofile == NULL);
             m_osofile = &oso_output;
 
-            write_oso_file (m_output_filename);
+            write_oso_file (m_output_filename, OIIO::Strutil::join(options," "));
             osobuffer = oso_output.str();
             ASSERT (m_osofile == NULL);
         }
@@ -763,12 +740,14 @@ OSLCompilerImpl::write_oso_symbol (const Symbol *sym)
 
 
 void
-OSLCompilerImpl::write_oso_file (const std::string &outfilename)
+OSLCompilerImpl::write_oso_file (const std::string &outfilename,
+                                 string_view options)
 {
     ASSERT (m_osofile != NULL && m_osofile->good());
     oso ("OpenShadingLanguage %d.%02d\n",
          OSO_FILE_VERSION_MAJOR, OSO_FILE_VERSION_MINOR);
     oso ("# Compiled by oslc %s\n", OSL_LIBRARY_VERSION_STRING);
+    oso ("# options: %s\n", options);
 
     ASTshader_declaration *shaderdecl = shader_decl();
     oso ("%s %s", shaderdecl->shadertypename(), 
@@ -1068,7 +1047,8 @@ OSLCompilerImpl::check_for_illegal_writes ()
 void
 OSLCompilerImpl::track_variable_lifetimes (const OpcodeVec &code,
                                            const SymbolPtrVec &opargs,
-                                           const SymbolPtrVec &allsyms)
+                                           const SymbolPtrVec &allsyms,
+                                           std::vector<int> *bblockids)
 {
     // Clear the lifetimes for all symbols
     BOOST_FOREACH (Symbol *s, allsyms)
@@ -1104,25 +1084,34 @@ OSLCompilerImpl::track_variable_lifetimes (const OpcodeVec &code,
             ASSERT (s->dealias() == s);  // Make sure it's de-aliased
 
             // Mark that it's read and/or written for this op
-            s->mark_rw (opnum, op.argread(a), op.argwrite(a));
+            bool readhere = op.argread(a);
+            bool writtenhere = op.argwrite(a);
+            s->mark_rw (opnum, readhere, writtenhere);
 
-            // Locals that are written within a loop should have their usage
-            // conservatively expanded to the whole loop (for any of the
-            // nested loops we're part of). This is not a worry for temps,
-            // because they CAN'T be read in the next iteration unless they
-            // were set before the loop, handled above.  Ideally, we could
-            // be less conservative if we knew that the variable in question
-            // was declared/scoped internal to the loop, in which case it
-            // can't carry values to the next iteration (FIXME).
-            if (s->symtype() == SymTypeLocal) {
-                BOOST_FOREACH (intpair oprange, loop_bounds) {
-                    int loopcond = oprange.first;
-                    int loopend = oprange.second;
-                    if (s->firstuse() <= loopend && s->lastwrite() >= loopcond) {
-                        bool read = (s->lastread() >= loopcond);
-                        s->mark_rw (loopcond, read, true);
-                        s->mark_rw (loopend, read, true);
-                    }
+            // Adjust lifetimes of symbols whose values need to be preserved
+            // between loop iterations.
+            BOOST_FOREACH (intpair oprange, loop_bounds) {
+                int loopcond = oprange.first;
+                int loopend = oprange.second;
+                DASSERT (s->firstuse() <= loopend);
+                // Special case: a temp or local, even if written inside a
+                // loop, if it's entire lifetime is within one basic block
+                // and it's strictly written before being read, then its
+                // lifetime is truly local and doesn't need to be expanded
+                // for the duration of the loop.
+                if (bblockids &&
+                    (s->symtype()==SymTypeLocal || s->symtype()==SymTypeTemp) &&
+                    (*bblockids)[s->firstuse()] == (*bblockids)[s->lastuse()] &&
+                    s->lastwrite() < s->firstread()) {
+                    continue;
+                }
+                // Syms written before or inside the loop, and referenced
+                // inside or after the loop, need to preserve their value
+                // for the duration of the loop. We know it's referenced
+                // inside the loop because we're here examining it!
+                if (s->firstwrite() <= loopend) {
+                    s->mark_rw (loopcond, readhere, writtenhere);
+                    s->mark_rw (loopend, readhere, writtenhere);
                 }
             }
         }

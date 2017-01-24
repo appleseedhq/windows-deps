@@ -39,7 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OSL/genclosure.h"
 
 
-class oslFlexLexer;
 extern int oslparse ();
 
 
@@ -75,6 +74,8 @@ public:
                          const std::vector<std::string> &options,
                          string_view stdoslpath);
 
+    bool osl_parse_buffer (const std::string &preprocessed_buffer);
+
     /// The name of the file we're currently parsing
     ///
     ustring filename () const { return m_filename; }
@@ -94,10 +95,6 @@ public:
     /// Increment the line count
     ///
     int incr_lineno () { return ++m_lineno; }
-
-    /// Return a pointer to the current lexer.
-    ///
-    oslFlexLexer *lexer() const { return m_lexer; }
 
     ErrorHandler &errhandler () const { return *m_errhandler; }
 
@@ -305,7 +302,8 @@ public:
 
     static void track_variable_lifetimes (const OpcodeVec &ircode,
                                           const SymbolPtrVec &opargs,
-                                          const SymbolPtrVec &allsyms);
+                                          const SymbolPtrVec &allsyms,
+                                          std::vector<int> *bblock_ids=NULL);
     static void coalesce_temporaries (SymbolPtrVec &symtab);
 
     const std::string main_filename () const { return m_main_filename; }
@@ -315,7 +313,7 @@ private:
     void initialize_globals ();
     void initialize_builtin_funcs ();
     std::string default_output_filename ();
-    void write_oso_file (const std::string &outfilename);
+    void write_oso_file (const std::string &outfilename, string_view options);
     void write_oso_const_value (const ConstantSymbol *sym) const;
     void write_oso_symbol (const Symbol *sym);
     void write_oso_metadata (const ASTNode *metanode) const;
@@ -372,7 +370,6 @@ private:
     }
     std::string retrieve_source (ustring filename, int line);
 
-    oslFlexLexer *m_lexer;    ///< Lexical scanner
     ustring m_filename;       ///< Current file we're parsing
     int m_lineno;             ///< Current line we're parsing
     std::string m_output_filename; ///< Output filename

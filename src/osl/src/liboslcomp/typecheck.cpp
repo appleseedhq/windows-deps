@@ -122,6 +122,19 @@ ASTvariable_declaration::typecheck (TypeSpec expected)
 
     typecheck_initlist (init, m_typespec, m_name.c_str());
 
+    // Warning to catch confusing comma operator in variable initializers.
+    // One place this comes up is when somebody forgets the proper syntax
+    // for constructors, for example
+    //     color x = (a, b, c);   // Sets x to (c,c,c)!
+    // when they really meant
+    //     color x = color(a, b, c);
+    if (init->nodetype() == comma_operator_node && !typespec().is_closure() &&
+        (typespec().is_triple() || typespec().is_matrix())) {
+        warning ("Comma operator is very confusing here. "
+                 "Did you mean to use a constructor: %s = %s(...)?",
+                 m_name.c_str(), typespec().c_str());
+    }
+
     return m_typespec;
 }
 
@@ -430,6 +443,19 @@ ASTassign_expression::typecheck (TypeSpec expected)
         error ("Cannot assign '%s' to '%s'", type_c_str(et), type_c_str(vt));
         // FIXME - can we print the variable in question?
         return TypeSpec();
+    }
+
+    // Warning to catch confusing comma operator in assignment.
+    // One place this comes up is when somebody forgets the proper syntax
+    // for constructors, for example
+    //     color x = (a, b, c);   // Sets x to (c,c,c)!
+    // when they really meant
+    //     color x = color(a, b, c);
+    if (expr()->nodetype() == comma_operator_node && !vt.is_closure() &&
+        (vt.is_triple() || vt.is_matrix())) {
+        warning ("Comma operator is very confusing here. "
+                 "Did you mean to use a constructor: = %s(...)?",
+                 vt.c_str());
     }
 
     return m_typespec = vt;
@@ -993,7 +1019,8 @@ ASTfunction_call::typecheck_builtin_specialcase ()
             argwriteonly (1);
             argwriteonly (2);
         } else if (m_name == "getattribute" || m_name == "getmessage" ||
-                   m_name == "gettextureinfo" || m_name == "dict_value") {
+                   m_name == "gettextureinfo" || m_name == "getmatrix" ||
+                   m_name == "dict_value") {
             // these all write to their last argument
             argwriteonly ((int)listlength(args()));
         } else if (m_name == "pointcloud_get") {
@@ -1167,8 +1194,12 @@ ASTfunction_call::typecheck (TypeSpec expected)
         actualargs += arg->typespec().string();
     }
 
-    error ("No matching function call to '%s (%s)'\n    Candidates are:\n%s", 
-           m_name.c_str(), actualargs.c_str(), choices.c_str());
+    if (choices.size())
+        error ("No matching function call to '%s (%s)'\n    Candidates are:\n%s",
+               m_name.c_str(), actualargs.c_str(), choices.c_str());
+    else
+        error ("No matching function call to '%s (%s)'",
+               m_name.c_str(), actualargs.c_str());
     return TypeSpec();
 }
 
@@ -1238,6 +1269,7 @@ static const char * builtin_func_args [] = {
     "getmessage", "is?", "is?[]", "iss?", "iss?[]", "!rw", NULL,
     "gettextureinfo", "iss?", "iss?[]", "!rw", NULL,  // FIXME -- further checking?
     "isconnected", "i?", NULL,
+    "isconstant", "i?", NULL,
     "noise", GNOISE_ARGS, NOISE_ARGS, "!deriv", NULL,
     "pnoise", PGNOISE_ARGS, PNOISE_ARGS, "!deriv", NULL,
     "pointcloud_search", "ispfi.", "ispfii.", "!rw", NULL,

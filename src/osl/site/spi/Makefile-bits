@@ -3,11 +3,13 @@
 OSL_NAMESPACE ?= 'OSL_Arnold'
 OPENIMAGEIO_NAMESPACE ?= 'OpenImageIO_Arnold'
 
-MY_CMAKE_FLAGS += "-DEXTRA_CPP_DEFINITIONS=\"-DOSL_SPI=1\""
+MY_CMAKE_FLAGS += -DEXTRA_CPP_ARGS="-DOSL_SPI=1"
 
+## Generic OSX machines (including LG's laptop)
 ifeq (${platform}, macosx)
+    USE_CPP11 ?= 1
     MY_CMAKE_FLAGS += \
-        -DBUILD_WITH_INSTALL_RPATH=1 \
+        -DCMAKE_BUILD_WITH_INSTALL_RPATH=1 \
         -DCMAKE_INSTALL_NAME_DIR="${working_dir}/dist/${platform}${variant}/lib"
     ifeq (${COMPILER}, clang)
 	MY_CMAKE_FLAGS += \
@@ -19,9 +21,13 @@ ifeq (${platform}, macosx)
 endif
 
 
-
+## Spinux (current)
 ifeq ($(SP_OS), spinux1)
     platform=spinux1
+    USE_NINJA := 1
+    NINJA := /net/soft_scratch/apps/arnold/tools/spinux1/bin/ninja
+    CMAKE := /net/soft_scratch/apps/arnold/tools/spinux1/bin/cmake
+    MY_CMAKE_FLAGS += -DCMAKE_MAKE_PROGRAM=${NINJA}
 
     ## If not overridden, here is our preferred LLVM installation
     ## (may be changed as new versions are rolled out to the facility)
@@ -81,24 +87,13 @@ ifeq ($(SP_OS), spinux1)
     # Our minimal architecture for workstations and farm supports SSE 4.1
     USE_SIMD = sse4.1
 
-    ifneq (,$(wildcard /usr/include/OpenEXR2))
-        MY_CMAKE_FLAGS += \
-	  -DILMBASE_CUSTOM=1 \
-	  -DILMBASE_CUSTOM_INCLUDE_DIR=/usr/include/OpenEXR2 \
-          -DILMBASE_CUSTOM_LIB_DIR=/usr/lib64/OpenEXR2 \
-	  -DILMBASE_CUSTOM_LIBRARIES="Imath Half IlmThread Iex"
-    else
-        MY_CMAKE_FLAGS += \
-	  -DILMBASE_CUSTOM=1 \
-          -DILMBASE_CUSTOM_LIB_DIR=/usr/lib64 \
-	  -DILMBASE_CUSTOM_LIBRARIES="SpiImath SpiHalf SpiIlmThread SpiIex"
-    endif
-
     MY_CMAKE_FLAGS += \
-        -DLLVM_CUSTOM=1 \
-	-DLLVM_STATIC=1 \
+	-DOPENEXR_CUSTOM_INCLUDE_DIR=/usr/include/OpenEXR2 \
+	-DOPENEXR_CUSTOM_LIB_DIR=/usr/lib64/OpenEXR2 \
 	-DEXTRA_OSLEXEC_LIBRARIES="/usr/lib64/libpthread.so" \
 	-DEXTRA_OSLEXEC_LIBRARIES="/usr/lib64/libcurses.so" \
+        -DLLVM_CUSTOM=1 \
+	-DLLVM_STATIC=1 \
         -DLLVM_VERSION=${LLVM_VERSION} \
         -DLLVM_DIRECTORY=${LLVM_DIRECTORY}
 
@@ -116,8 +111,13 @@ ifeq ($(SP_OS), spinux1)
 
 endif  # endif spinux1
 
+## Rhel7 (current)
 ifeq ($(SP_OS), rhel7)
     platform=rhel7
+    USE_NINJA := 1
+    NINJA := /net/soft_scratch/apps/arnold/tools/spinux1/bin/ninja
+    CMAKE := /net/soft_scratch/apps/arnold/tools/spinux1/bin/cmake
+    MY_CMAKE_FLAGS += -DCMAKE_MAKE_PROGRAM=${NINJA}
 
     ## If not overridden, here is our preferred LLVM installation
     ## (may be changed as new versions are rolled out to the facility)
@@ -162,24 +162,13 @@ ifeq ($(SP_OS), rhel7)
     # Our minimal architecture for workstations and farm supports SSE 4.1
     USE_SIMD = sse4.1
 
-    ifneq (,$(wildcard /usr/include/OpenEXR2))
-        MY_CMAKE_FLAGS += \
-	  -DILMBASE_CUSTOM=1 \
-	  -DILMBASE_CUSTOM_INCLUDE_DIR=/usr/include/OpenEXR2 \
-          -DILMBASE_CUSTOM_LIB_DIR=/usr/lib64/OpenEXR2 \
-	  -DILMBASE_CUSTOM_LIBRARIES="Imath Half IlmThread Iex"
-    else
-        MY_CMAKE_FLAGS += \
-	  -DILMBASE_CUSTOM=1 \
-          -DILMBASE_CUSTOM_LIB_DIR=/usr/lib64 \
-	  -DILMBASE_CUSTOM_LIBRARIES="SpiImath SpiHalf SpiIlmThread SpiIex"
-    endif
-
     MY_CMAKE_FLAGS += \
-        -DLLVM_CUSTOM=1 \
-	-DLLVM_STATIC=1 \
+	-DOPENEXR_CUSTOM_INCLUDE_DIR=/usr/include/OpenEXR2 \
+	-DOPENEXR_CUSTOM_LIB_DIR=/usr/lib64/OpenEXR2 \
 	-DEXTRA_OSLEXEC_LIBRARIES="/usr/lib64/libpthread.so" \
 	-DEXTRA_OSLEXEC_LIBRARIES="/usr/lib64/libcurses.so" \
+        -DLLVM_CUSTOM=1 \
+	-DLLVM_STATIC=1 \
         -DLLVM_VERSION=${LLVM_VERSION} \
         -DLLVM_DIRECTORY=${LLVM_DIRECTORY}
 
@@ -209,4 +198,6 @@ else
 endif
 
 
+ifneq (${VERBOSE},)
 $(info MY_CMAKE_FLAGS: $(MY_CMAKE_FLAGS))
+endif

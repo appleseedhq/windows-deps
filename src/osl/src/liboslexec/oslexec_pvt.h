@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/regex_fwd.hpp>
 #include <boost/unordered_map.hpp>
 #include <boost/intrusive_ptr.hpp>
+#include <boost/thread/tss.hpp>   /* for thread_specific_ptr */
 
 #include <OpenImageIO/ustring.h>
 #include <OpenImageIO/thread.h>
@@ -62,7 +63,6 @@ using OIIO::mutex;
 using OIIO::lock_guard;
 using OIIO::spin_mutex;
 using OIIO::spin_lock;
-using OIIO::thread_specific_ptr;
 using OIIO::ustringHash;
 namespace Strutil = OIIO::Strutil;
 
@@ -104,7 +104,7 @@ namespace Strings {
     extern ustring op_dowhile, op_for, op_while, op_exit;
     extern ustring subimage, subimagename;
     extern ustring missingcolor, missingalpha;
-    extern ustring end;
+    extern ustring end, useparam;
     extern ustring uninitialized_string;
 }; // namespace Strings
 
@@ -119,6 +119,7 @@ typedef shared_ptr<ShaderInstance> ShaderInstanceRef;
 class Dictionary;
 class RuntimeOptimizer;
 class BackendLLVM;
+struct ConnectedParam;
 
 void print_closure (std::ostream &out, const ClosureColor *closure, ShadingSystemImpl *ss);
 
@@ -214,7 +215,7 @@ struct AttributeNeeded {
 #define DVEC(x) (*(Dual2<Vec3> *)x)
 #define COL(x) (*(Color3 *)x)
 #define DCOL(x) (*(Dual2<Color3> *)x)
-#define TYPEDESC(x) (*(TypeDesc *)&x)
+#define TYPEDESC(x) OIIO::bit_cast<long long,TypeDesc>(x)
 
 
 
@@ -401,341 +402,6 @@ private:
 
 
 
-/// Describe one end of a parameter connetion: the parameter number, and
-/// optinally an array index and/or channel number within that parameter.
-struct ConnectedParam {
-    int param;            ///< Parameter number (in the symbol table)
-    int arrayindex:27;    ///< Array index (-1 for not an index)
-    int channel:5;        ///< Channel number (-1 for no channel selection)
-    TypeSpec type;        ///< Type of data being connected
-    // N.B. Use bitfields to squeeze the structure down by 4 bytes.
-    // Consequence is that you can't connect individual elements of
-    // arrays with more than 2^26 (32M) elements. Somehow I don't think
-    // that's going to be a limitation to worry about.
-    ConnectedParam () : param(-1), arrayindex(-1), channel(-1) { }
-
-    bool valid () const { return (param >= 0); }
-
-    bool operator== (const ConnectedParam &p) const {
-        return param == p.param && arrayindex == p.arrayindex &&
-            channel == p.channel && type == p.type;
-    }
-    bool operator!= (const ConnectedParam &p) const {
-        return param != p.param || arrayindex != p.arrayindex ||
-            channel != p.channel || type != p.type;
-    }
-
-    // Is it a complete connection, not partial?
-    bool is_complete () const {
-        return arrayindex == -1 && channel == -1;
-    }
-};
-
-
-
-/// Describe a parameter connection to an earlier layer.
-///
-struct Connection {
-    int srclayer;          ///< Layer (within our group) of the source
-    ConnectedParam src;    ///< Which source parameter (or part thereof)
-    ConnectedParam dst;    ///< Which destination parameter (or part thereof)
-
-    Connection (int srclay, const ConnectedParam &srccon,
-                const ConnectedParam &dstcon)
-        : srclayer (srclay), src (srccon), dst (dstcon)
-    { }
-    bool operator== (const Connection &c) const {
-        return srclayer == c.srclayer && src == c.src && dst == c.dst;
-    }
-    bool operator!= (const Connection &c) const {
-        return srclayer != c.srclayer || src != c.src || dst != c.dst;
-    }
-};
-
-
-
-typedef std::vector<Connection> ConnectionVec;
-
-
-/// ShaderInstance is a particular instance of a shader, with its own
-/// set of parameter values, coordinate transform, and connections to
-/// other instances within the same shader group.
-class ShaderInstance {
-public:
-    typedef ShaderInstanceRef ref;
-    ShaderInstance (ShaderMaster::ref master, string_view layername = string_view());
-    ~ShaderInstance ();
-
-    /// Return the layer name of this instance
-    ///
-    ustring layername () const { return m_layername; }
-
-    /// Return the name of the shader used by this instance.
-    ///
-    const std::string &shadername () const { return m_master->shadername(); }
-
-    /// Return a pointer to the master for this instance.
-    ///
-    ShaderMaster *master () const { return m_master.get(); }
-
-    /// Return a reference to the shading system for this instance.
-    ///
-    ShadingSystemImpl & shadingsys () const { return m_master->shadingsys(); }
-
-    /// Apply pending parameters
-    ///
-    void parameters (const ParamValueList &params);
-
-    /// Find the named symbol, return its index in the symbol array, or
-    /// -1 if not found.
-    int findsymbol (ustring name) const;
-
-    /// Find the named parameter, return its index in the symbol array, or
-    /// -1 if not found.
-    int findparam (ustring name) const;
-
-    /// Return a pointer to the symbol (specified by integer index),
-    /// or NULL (if index was -1, as returned by 'findsymbol').
-    Symbol *symbol (int index) {
-        return index >= 0 && index < (int)m_instsymbols.size()
-            ? &m_instsymbols[index] : NULL;
-    }
-    const Symbol *symbol (int index) const {
-        return index >= 0 && index < (int)m_instsymbols.size()
-            ? &m_instsymbols[index] : NULL;
-    }
-
-    /// Given symbol pointer, what is its index in the table?
-    int symbolindex (Symbol *s) { return s - &m_instsymbols[0]; }
-
-    /// Return a pointer to the master's version of the indexed symbol.
-    /// It's a const*, since you shouldn't mess with the master's copy.
-    const Symbol *mastersymbol (int index) const {
-        return index >= 0 ? master()->symbol(index) : NULL;
-    }
-
-    /// Where is the location that holds the parameter's instance value?
-    void *param_storage (int index);
-    const void *param_storage (int index) const;
-
-    /// Add a connection
-    ///
-    void add_connection (int srclayer, const ConnectedParam &srccon,
-                         const ConnectedParam &dstcon);
-
-    /// How many connections to earlier layers do we have?
-    ///
-    int nconnections () const { return (int) m_connections.size (); }
-
-    /// Return a reference to the i-th connection to an earlier layer.
-    ///
-    const Connection & connection (int i) const { return m_connections[i]; }
-    Connection & connection (int i) { return m_connections[i]; }
-
-    /// Reference to the connection list.
-    ///
-    ConnectionVec & connections () { return m_connections; }
-    const ConnectionVec & connections () const { return m_connections; }
-
-    /// Free all the connection data, return the amount of memory they
-    /// previously consumed.
-    size_t clear_connections () {
-        size_t mem = vectorbytes (m_connections);
-        ConnectionVec().swap (m_connections);
-        return mem;
-    }
-
-    /// Return the unique ID of this instance.
-    ///
-    int id () const { return m_id; }
-
-    /// Does this instance potentially write to any global vars?
-    bool writes_globals () const { return m_writes_globals; }
-    void writes_globals (bool val) { m_writes_globals = val; }
-
-    /// Does this instance potentially read userdata to initialize any of
-    /// its parameters?
-    bool userdata_params () const { return m_userdata_params; }
-    void userdata_params (bool val) { m_userdata_params = val; }
-
-    /// Should this instance only be run lazily (i.e., not
-    /// unconditionally)?
-    bool run_lazily () const { return m_run_lazily; }
-    void run_lazily (bool lazy) { m_run_lazily = lazy; }
-
-    /// Figure out whether the instance runs lazily, set m_run_lazily.
-    void compute_run_lazily ();
-
-    /// Does this instance have any outgoing connections?
-    ///
-    bool outgoing_connections () const { return m_outgoing_connections; }
-    /// Set whether this instance has outgoing connections.
-    ///
-    void outgoing_connections (bool out) { m_outgoing_connections = out; }
-
-    /// Does this instance have any renderer outputs?
-    bool renderer_outputs () const { return m_renderer_outputs; }
-    /// Set whether this instance has renderer outputs
-    void renderer_outputs (bool out) { m_renderer_outputs = out; }
-
-    int maincodebegin () const { return m_maincodebegin; }
-    int maincodeend () const { return m_maincodeend; }
-
-    int firstparam () const { return m_firstparam; }
-    int lastparam () const { return m_lastparam; }
-
-    /// Return a begin/end Symbol* pair for the set of param symbols
-    /// that is suitable to pass as a range for BOOST_FOREACH.
-    friend std::pair<Symbol *,Symbol *> param_range (ShaderInstance *i) {
-        if (i->firstparam() == i->lastparam())
-            return std::pair<Symbol*,Symbol*> ((Symbol*)NULL, (Symbol*)NULL);
-        else
-            return std::pair<Symbol*,Symbol*> (&i->m_instsymbols[0] + i->firstparam(),
-                                               &i->m_instsymbols[0] + i->lastparam());
-    }
-
-    friend std::pair<const Symbol *,const Symbol *> param_range (const ShaderInstance *i) {
-        if (i->firstparam() == i->lastparam())
-            return std::pair<const Symbol*,const Symbol*> ((const Symbol*)NULL, (const Symbol*)NULL);
-        else
-            return std::pair<const Symbol*,const Symbol*> (&i->m_instsymbols[0] + i->firstparam(),
-                                                           &i->m_instsymbols[0] + i->lastparam());
-    }
-
-    friend std::pair<Symbol *,Symbol *> sym_range (ShaderInstance *i) {
-        if (i->m_instsymbols.size() == 0)
-            return std::pair<Symbol*,Symbol*> ((Symbol*)NULL, (Symbol*)NULL);
-        else
-            return std::pair<Symbol*,Symbol*> (&i->m_instsymbols[0],
-                                               &i->m_instsymbols[0] + i->m_instsymbols.size());
-    }
-    friend std::pair<const Symbol *,const Symbol *> sym_range (const ShaderInstance *i) {
-        if (i->m_instsymbols.size() == 0)
-            return std::pair<const Symbol*,const Symbol*> ((const Symbol*)NULL, (const Symbol*)NULL);
-        else
-            return std::pair<const Symbol*,const Symbol*> (&i->m_instsymbols[0],
-                                               &i->m_instsymbols[0] + i->m_instsymbols.size());
-    }
-
-    int Psym () const { return m_Psym; }
-    int Nsym () const { return m_Nsym; }
-
-
-    const std::vector<int> & args () const { return m_instargs; }
-    std::vector<int> & args () { return m_instargs; }
-    int arg (int argnum) { return args()[argnum]; }
-    Symbol *argsymbol (int argnum) { return symbol(arg(argnum)); }
-    const OpcodeVec & ops () const { return m_instops; }
-    OpcodeVec & ops () { return m_instops; }
-
-    std::string print (const ShaderGroup &group);  // Debugging
-
-    SymbolVec &symbols () { return m_instsymbols; }
-    const SymbolVec &symbols () const { return m_instsymbols; }
-
-    /// Make sure there's room for more symbols.
-    ///
-    void make_symbol_room (size_t moresyms=1);
-
-    /// Does it appear that the layer is completely unused?
-    ///
-    bool unused () const { return run_lazily() && ! outgoing_connections()
-                                               && ! renderer_outputs(); }
-
-    /// Is the instance reduced to nothing but an 'end' instruction and no
-    /// symbols?
-    bool empty_instance () const {
-        return (symbols().size() == 0 &&
-                (ops().size() == 0 ||
-                 (ops().size() == 1 && ops()[0].opname() == Strings::end)));
-    }
-
-    /// Make our own version of the code and args from the master.
-    void copy_code_from_master (ShaderGroup &group);
-
-    /// Check the params to re-assess writes_globals and userdata_params.
-    /// Sorry, can't think of a short name that isn't too cryptic.
-    void evaluate_writes_globals_and_userdata_params ();
-
-    /// Small data structure to hold just the symbol info that the
-    /// instance overrides from the master copy.
-    struct SymOverrideInfo {
-        // Using bit fields to keep the data in 8 bytes in total.
-        unsigned char m_valuesource: 3;
-        bool m_connected_down: 1;
-        bool m_lockgeom:       1;
-        int  m_arraylen:      27;
-        int  m_data_offset;
-
-        SymOverrideInfo () : m_valuesource(Symbol::DefaultVal),
-                             m_connected_down(false), m_lockgeom(true), m_arraylen(0), m_data_offset(0) { }
-        void valuesource (Symbol::ValueSource v) { m_valuesource = v; }
-        Symbol::ValueSource valuesource () const { return (Symbol::ValueSource) m_valuesource; }
-        const char *valuesourcename () const { return Symbol::valuesourcename(valuesource()); }
-        bool connected_down () const { return m_connected_down; }
-        void connected_down (bool c) { m_connected_down = c; }
-        bool connected () const { return valuesource() == Symbol::ConnectedVal; }
-        bool lockgeom () const { return m_lockgeom; }
-        void lockgeom (bool l) { m_lockgeom = l; }
-        int  arraylen () const { return m_arraylen; }
-        void arraylen (int s) { m_arraylen = s; }
-        int  dataoffset () const { return m_data_offset; }
-        void dataoffset (int o) { m_data_offset = o; }
-        friend bool equivalent (const SymOverrideInfo &a, const SymOverrideInfo &b) {
-            return a.valuesource() == b.valuesource() &&
-                   a.lockgeom()    == b.lockgeom()    &&
-                   a.arraylen()    == b.arraylen();
-        }
-    };
-    typedef std::vector<SymOverrideInfo> SymOverrideInfoVec;
-
-    SymOverrideInfo *instoverride (int i) { return &m_instoverrides[i]; }
-    const SymOverrideInfo *instoverride (int i) const { return &m_instoverrides[i]; }
-
-    /// Are two shader instances (assumed to be in the same group)
-    /// equivalent, in that they may be merged into a single instance?
-    bool mergeable (const ShaderInstance &b, const ShaderGroup &g) const;
-
-private:
-    ShaderMaster::ref m_master;         ///< Reference to the master
-    SymOverrideInfoVec m_instoverrides; ///< Instance parameter info
-    SymbolVec m_instsymbols;            ///< Symbols used by the instance
-    OpcodeVec m_instops;                ///< Actual code instructions
-    std::vector<int> m_instargs;        ///< Arguments for all the ops
-    ustring m_layername;                ///< Name of this layer
-    std::vector<int> m_iparams;         ///< int param values
-    std::vector<float> m_fparams;       ///< float param values
-    std::vector<ustring> m_sparams;     ///< string param values
-    int m_id;                           ///< Unique ID for the instance
-    bool m_writes_globals;              ///< Do I have side effects?
-    bool m_userdata_params;             ///< Might I read userdata for params?
-    bool m_run_lazily;                  ///< OK to run this layer lazily?
-    bool m_outgoing_connections;        ///< Any outgoing connections?
-    bool m_renderer_outputs;            ///< Any outputs params render outputs?
-    ConnectionVec m_connections;        ///< Connected input params
-    int m_firstparam, m_lastparam;      ///< Subset of symbols that are params
-    int m_maincodebegin, m_maincodeend; ///< Main shader code range
-    int m_Psym, m_Nsym;                 ///< Quick lookups of common syms
-
-    friend class ShadingSystemImpl;
-    friend class RuntimeOptimizer;
-    friend class OSL::ShaderGroup;
-};
-
-
-
-/// Macro to loop over just the params & output params of an instance,
-/// with each iteration providing a Symbol& to symbolref.  Use like this:
-///        FOREACH_PARAM (Symbol &s, inst) { ... stuff with s... }
-///
-#define FOREACH_PARAM(symboldecl,inst) \
-    BOOST_FOREACH (symboldecl, param_range(inst))
-
-#define FOREACH_SYM(symboldecl,inst) \
-    BOOST_FOREACH (symboldecl, sym_range(inst))
-
-
-
 class ClosureRegistry {
 public:
 
@@ -774,8 +440,6 @@ public:
     bool empty () const { return m_closure_table.empty(); }
 
 private:
-
-
     // A mapping from name to ID for the compiler
     std::map<ustring, int>    m_closure_name_to_id;
     // And the internal global table, indexed
@@ -821,7 +485,6 @@ public:
     bool ShaderGroupEnd (void);
     bool ConnectShaders (string_view srclayer, string_view srcparam,
                          string_view dstlayer, string_view dstparam);
-    ShaderGroupRef state ();
     ShaderGroupRef ShaderGroupBegin (string_view groupname,
                                      string_view usage,
                                      string_view groupspec);
@@ -888,14 +551,18 @@ public:
     bool strict_messages() const { return m_strict_messages; }
     bool range_checking() const { return m_range_checking; }
     bool unknown_coordsys_error() const { return m_unknown_coordsys_error; }
+    bool connection_error() const { return m_connection_error; }
     int optimize () const { return m_optimize; }
     int llvm_optimize () const { return m_llvm_optimize; }
     int llvm_debug () const { return m_llvm_debug; }
+    int llvm_debug_layers () const { return m_llvm_debug_layers; }
     bool fold_getattribute () const { return m_opt_fold_getattribute; }
     bool opt_texture_handle () const { return m_opt_texture_handle; }
+    int opt_passes() const { return m_opt_passes; }
     int max_warnings_per_thread() const { return m_max_warnings_per_thread; }
     bool countlayerexecs() const { return m_countlayerexecs; }
     bool lazy_userdata () const { return m_lazy_userdata; }
+    bool userdata_isconnected () const { return m_userdata_isconnected; }
 
     ustring commonspace_synonym () const { return m_commonspace_synonym; }
 
@@ -1037,7 +704,9 @@ private:
     int m_statslevel;                     ///< Statistics level
     bool m_lazylayers;                    ///< Evaluate layers on demand?
     bool m_lazyglobals;                   ///< Run lazily even if globals write?
+    bool m_lazyunconnected;               ///< Run lazily even if not connected?
     bool m_lazy_userdata;                 ///< Retrieve userdata lazily?
+    bool m_userdata_isconnected;          ///< Userdata params isconnected()?
     bool m_clearmemory;                   ///< Zero mem before running shader?
     bool m_debugnan;                      ///< Root out NaN's?
     bool m_debug_uninit;                  ///< Find use of uninitialized vars?
@@ -1045,6 +714,7 @@ private:
     bool m_strict_messages;               ///< Strict checking of message passing usage?
     bool m_range_checking;                ///< Range check arrays & components?
     bool m_unknown_coordsys_error;        ///< Error to use unknown xform name?
+    bool m_connection_error;              ///< Error for ConnectShaders to fail?
     bool m_greedyjit;                     ///< JIT as much as we can?
     bool m_llvm_mcjit;                    ///< Use MCJIT if available?
     bool m_countlayerexecs;               ///< Count number of layer execs?
@@ -1065,10 +735,13 @@ private:
     bool m_opt_fold_getattribute;         ///< Constant-fold getattribute()?
     bool m_opt_middleman;                 ///< Middle-man optimization?
     bool m_opt_texture_handle;            ///< Use texture handles?
+    bool m_opt_seed_bblock_aliases;       ///< Turn on basic block alias seeds
     bool m_optimize_nondebug;             ///< Fully optimize non-debug!
+    int m_opt_passes;                     ///< Opt passes per layer
     int m_llvm_optimize;                  ///< OSL optimization strategy
     int m_debug;                          ///< Debugging output
     int m_llvm_debug;                     ///< More LLVM debugging output
+    int m_llvm_debug_layers;              ///< Add layer enter/exit printfs
     ustring m_debug_groupname;            ///< Name of sole group to debug
     ustring m_debug_layername;            ///< Name of sole layer to debug
     ustring m_opt_layername;              ///< Name of sole layer to optimize
@@ -1099,7 +772,7 @@ private:
     ParamValueList m_pending_params;      ///< Pending Parameter() values
     ShaderGroupRef m_curgroup;            ///< Current shading attribute state
     mutable mutex m_mutex;                ///< Thread safety
-    mutable thread_specific_ptr<PerThreadInfo> m_perthread_info;
+    mutable boost::thread_specific_ptr<PerThreadInfo> m_perthread_info;
 
     // Stats
     atomic_int m_stat_shaders_loaded;     ///< Stat: shaders loaded
@@ -1122,6 +795,8 @@ private:
     atomic_int m_stat_middlemen_eliminated; ///< Stat: middlemen eliminated
     atomic_int m_stat_const_connections;  ///< Stat: const connections elim'd
     atomic_int m_stat_global_connections; ///< Stat: global connections elim'd
+    atomic_int m_stat_tex_calls_codegened;///< Stat: total texture calls
+    atomic_int m_stat_tex_calls_as_handles;///< Stat: texture calls with handles
     double m_stat_master_load_time;       ///< Stat: time loading masters
     double m_stat_optimization_time;      ///< Stat: time spent optimizing
     double m_stat_opt_locking_time;       ///<   locking time
@@ -1173,6 +848,378 @@ private:
     friend class ShaderInstance;
     friend class RuntimeOptimizer;
     friend class BackendLLVM;
+};
+
+
+
+/// Describe one end of a parameter connetion: the parameter number, and
+/// optinally an array index and/or channel number within that parameter.
+struct ConnectedParam {
+    int param;            ///< Parameter number (in the symbol table)
+    int arrayindex:27;    ///< Array index (-1 for not an index)
+    int channel:5;        ///< Channel number (-1 for no channel selection)
+    TypeSpec type;        ///< Type of data being connected
+    // N.B. Use bitfields to squeeze the structure down by 4 bytes.
+    // Consequence is that you can't connect individual elements of
+    // arrays with more than 2^26 (32M) elements. Somehow I don't think
+    // that's going to be a limitation to worry about.
+    ConnectedParam () : param(-1), arrayindex(-1), channel(-1) { }
+
+    bool valid () const { return (param >= 0); }
+
+    bool operator== (const ConnectedParam &p) const {
+        return param == p.param && arrayindex == p.arrayindex &&
+            channel == p.channel && type == p.type;
+    }
+    bool operator!= (const ConnectedParam &p) const {
+        return param != p.param || arrayindex != p.arrayindex ||
+            channel != p.channel || type != p.type;
+    }
+
+    // Is it a complete connection, not partial?
+    bool is_complete () const {
+        return arrayindex == -1 && channel == -1;
+    }
+};
+
+
+
+/// Describe a parameter connection to an earlier layer.
+///
+struct Connection {
+    int srclayer;          ///< Layer (within our group) of the source
+    ConnectedParam src;    ///< Which source parameter (or part thereof)
+    ConnectedParam dst;    ///< Which destination parameter (or part thereof)
+
+    Connection (int srclay, const ConnectedParam &srccon,
+                const ConnectedParam &dstcon)
+        : srclayer (srclay), src (srccon), dst (dstcon)
+    { }
+    bool operator== (const Connection &c) const {
+        return srclayer == c.srclayer && src == c.src && dst == c.dst;
+    }
+    bool operator!= (const Connection &c) const {
+        return srclayer != c.srclayer || src != c.src || dst != c.dst;
+    }
+};
+
+
+
+typedef std::vector<Connection> ConnectionVec;
+
+
+/// Macro to loop over just the params & output params of an instance,
+/// with each iteration providing a Symbol& to symbolref.  Use like this:
+///        FOREACH_PARAM (Symbol &s, inst) { ... stuff with s... }
+///
+#define FOREACH_PARAM(symboldecl,inst) \
+    BOOST_FOREACH (symboldecl, param_range(inst))
+
+#define FOREACH_SYM(symboldecl,inst) \
+    BOOST_FOREACH (symboldecl, sym_range(inst))
+
+
+
+/// ShaderInstance is a particular instance of a shader, with its own
+/// set of parameter values, coordinate transform, and connections to
+/// other instances within the same shader group.
+class ShaderInstance {
+public:
+    typedef ShaderInstanceRef ref;
+    ShaderInstance (ShaderMaster::ref master, string_view layername = string_view());
+    ShaderInstance (const ShaderInstance &copy);  // not defined
+    ~ShaderInstance ();
+
+    /// Return the layer name of this instance
+    ///
+    ustring layername () const { return m_layername; }
+
+    /// Return the name of the shader used by this instance.
+    ///
+    const std::string &shadername () const { return m_master->shadername(); }
+
+    /// Return a pointer to the master for this instance.
+    ///
+    ShaderMaster *master () const { return m_master.get(); }
+
+    /// Return a reference to the shading system for this instance.
+    ///
+    ShadingSystemImpl & shadingsys () const { return m_master->shadingsys(); }
+
+    /// Apply pending parameters
+    ///
+    void parameters (const ParamValueList &params);
+
+    /// Find the named symbol, return its index in the symbol array, or
+    /// -1 if not found.
+    int findsymbol (ustring name) const;
+
+    /// Find the named parameter, return its index in the symbol array, or
+    /// -1 if not found.
+    int findparam (ustring name) const;
+
+    /// Return a pointer to the symbol (specified by integer index),
+    /// or NULL (if index was -1, as returned by 'findsymbol').
+    Symbol *symbol (int index) {
+        return index >= 0 && index < (int)m_instsymbols.size()
+            ? &m_instsymbols[index] : NULL;
+    }
+    const Symbol *symbol (int index) const {
+        return index >= 0 && index < (int)m_instsymbols.size()
+            ? &m_instsymbols[index] : NULL;
+    }
+
+    /// Given symbol pointer, what is its index in the table?
+    int symbolindex (Symbol *s) { return s - &m_instsymbols[0]; }
+
+    /// Return a pointer to the master's version of the indexed symbol.
+    /// It's a const*, since you shouldn't mess with the master's copy.
+    const Symbol *mastersymbol (int index) const {
+        return index >= 0 ? master()->symbol(index) : NULL;
+    }
+
+    /// Where is the location that holds the parameter's instance value?
+    void *param_storage (int index);
+    const void *param_storage (int index) const;
+
+    /// Add a connection
+    ///
+    void add_connection (int srclayer, const ConnectedParam &srccon,
+                         const ConnectedParam &dstcon);
+
+    /// How many connections to earlier layers do we have?
+    ///
+    int nconnections () const { return (int) m_connections.size (); }
+
+    /// Return a reference to the i-th connection to an earlier layer.
+    ///
+    const Connection & connection (int i) const { return m_connections[i]; }
+    Connection & connection (int i) { return m_connections[i]; }
+
+    /// Reference to the connection list.
+    ///
+    ConnectionVec & connections () { return m_connections; }
+    const ConnectionVec & connections () const { return m_connections; }
+
+    /// Free all the connection data, return the amount of memory they
+    /// previously consumed.
+    size_t clear_connections () {
+        size_t mem = vectorbytes (m_connections);
+        ConnectionVec().swap (m_connections);
+        return mem;
+    }
+
+    /// Return the unique ID of this instance.
+    ///
+    int id () const { return m_id; }
+
+    /// Does this instance potentially write to any global vars?
+    bool writes_globals () const { return m_writes_globals; }
+    void writes_globals (bool val) { m_writes_globals = val; }
+
+    /// Does this instance potentially read userdata to initialize any of
+    /// its parameters?
+    bool userdata_params () const { return m_userdata_params; }
+    void userdata_params (bool val) { m_userdata_params = val; }
+
+    /// Should this instance only be run lazily (i.e., not
+    /// unconditionally)?
+    bool run_lazily () const {
+        // if lazy is turned off entirely, nobody can be lazy
+        if (! shadingsys().m_lazylayers)
+            return false;
+        // Main group entry is never lazy
+        if (last_layer())
+            return false;
+        // Shaders that set globals are not lazy unless lazyglobals is on
+        if (writes_globals() && !shadingsys().m_lazyglobals)
+            return false;
+        // Shaders that write renderer outputs (AOVs) can't be lazy
+        if (renderer_outputs())
+            return false;
+        // Shaders without any downstream connections are not lazy unless
+        // lazyunconnected is on.
+        if (!outgoing_connections() && !shadingsys().m_lazyunconnected)
+            return false;
+        return true;
+    }
+
+    bool last_layer () const { return m_last_layer; }
+    void last_layer (bool last) { m_last_layer = last; }
+
+    /// Does this instance have any outgoing connections?
+    ///
+    bool outgoing_connections () const { return m_outgoing_connections; }
+    /// Set whether this instance has outgoing connections.
+    ///
+    void outgoing_connections (bool out) { m_outgoing_connections = out; }
+
+    /// Does this instance have any renderer outputs?
+    bool renderer_outputs () const { return m_renderer_outputs; }
+    /// Set whether this instance has renderer outputs
+    void renderer_outputs (bool out) { m_renderer_outputs = out; }
+
+    /// Is this instance a callable entry point for the group?
+    bool entry_layer () const { return m_entry_layer; }
+    void entry_layer (bool val) { m_entry_layer = val; }
+
+    /// Was this instance merged away and now no longer needed?
+    bool merged_unused () const { return m_merged_unused; }
+
+    int maincodebegin () const { return m_maincodebegin; }
+    int maincodeend () const { return m_maincodeend; }
+
+    int firstparam () const { return m_firstparam; }
+    int lastparam () const { return m_lastparam; }
+
+    /// Return a begin/end Symbol* pair for the set of param symbols
+    /// that is suitable to pass as a range for BOOST_FOREACH.
+    friend std::pair<Symbol *,Symbol *> param_range (ShaderInstance *i) {
+        if (i->m_instsymbols.size() == 0 || i->firstparam() == i->lastparam())
+            return std::pair<Symbol*,Symbol*> ((Symbol*)NULL, (Symbol*)NULL);
+        else
+            return std::pair<Symbol*,Symbol*> (&i->m_instsymbols[0] + i->firstparam(),
+                                               &i->m_instsymbols[0] + i->lastparam());
+    }
+
+    friend std::pair<const Symbol *,const Symbol *> param_range (const ShaderInstance *i) {
+        if (i->m_instsymbols.size() == 0 || i->firstparam() == i->lastparam())
+            return std::pair<const Symbol*,const Symbol*> ((const Symbol*)NULL, (const Symbol*)NULL);
+        else
+            return std::pair<const Symbol*,const Symbol*> (&i->m_instsymbols[0] + i->firstparam(),
+                                                           &i->m_instsymbols[0] + i->lastparam());
+    }
+
+    friend std::pair<Symbol *,Symbol *> sym_range (ShaderInstance *i) {
+        if (i->m_instsymbols.size() == 0)
+            return std::pair<Symbol*,Symbol*> ((Symbol*)NULL, (Symbol*)NULL);
+        else
+            return std::pair<Symbol*,Symbol*> (&i->m_instsymbols[0],
+                                               &i->m_instsymbols[0] + i->m_instsymbols.size());
+    }
+    friend std::pair<const Symbol *,const Symbol *> sym_range (const ShaderInstance *i) {
+        if (i->m_instsymbols.size() == 0)
+            return std::pair<const Symbol*,const Symbol*> ((const Symbol*)NULL, (const Symbol*)NULL);
+        else
+            return std::pair<const Symbol*,const Symbol*> (&i->m_instsymbols[0],
+                                               &i->m_instsymbols[0] + i->m_instsymbols.size());
+    }
+
+    int Psym () const { return m_Psym; }
+    int Nsym () const { return m_Nsym; }
+
+    const std::vector<int> & args () const { return m_instargs; }
+    std::vector<int> & args () { return m_instargs; }
+    int arg (int argnum) const { return args()[argnum]; }
+    const Symbol *argsymbol (int argnum) const { return symbol(arg(argnum)); }
+    Symbol *argsymbol (int argnum) { return symbol(arg(argnum)); }
+    const OpcodeVec & ops () const { return m_instops; }
+    OpcodeVec & ops () { return m_instops; }
+    const Opcode & op (int opnum) const { return ops()[opnum]; }
+    Opcode & op (int opnum) { return ops()[opnum]; }
+    SymbolVec &symbols () { return m_instsymbols; }
+    const SymbolVec &symbols () const { return m_instsymbols; }
+
+    /// Make sure there's room for more symbols.
+    ///
+    void make_symbol_room (size_t moresyms=1);
+
+    /// Does it appear that the layer is completely unused?
+    ///
+    bool unused () const {
+        // Entry layers are used no matter what
+        if (last_layer() || entry_layer())
+            return false;
+        // It will be used if it has outgoing connections or sets renderer
+        // outputs, or if it sets globals (but only if lazyglobals is off),
+        // or if it has no downstream connections (but only if
+        // lazyunconnected is off).
+        bool used = (outgoing_connections() || renderer_outputs() ||
+                     (writes_globals() && !shadingsys().m_lazyglobals) ||
+                     (!outgoing_connections() && !shadingsys().m_lazyunconnected));
+        return !used || merged_unused();
+    }
+
+    /// Is the instance reduced to nothing but an 'end' instruction and no
+    /// symbols?
+    bool empty_instance () const {
+        return (symbols().size() == 0 &&
+                (ops().size() == 0 ||
+                 (ops().size() == 1 && ops()[0].opname() == Strings::end)));
+    }
+
+    /// Make our own version of the code and args from the master.
+    void copy_code_from_master (ShaderGroup &group);
+
+    /// Check the params to re-assess writes_globals and userdata_params.
+    /// Sorry, can't think of a short name that isn't too cryptic.
+    void evaluate_writes_globals_and_userdata_params ();
+
+    /// Small data structure to hold just the symbol info that the
+    /// instance overrides from the master copy.
+    struct SymOverrideInfo {
+        // Using bit fields to keep the data in 8 bytes in total.
+        unsigned char m_valuesource: 3;
+        bool m_connected_down: 1;
+        bool m_lockgeom:       1;
+        int  m_arraylen:      27;
+        int  m_data_offset;
+
+        SymOverrideInfo () : m_valuesource(Symbol::DefaultVal),
+                             m_connected_down(false), m_lockgeom(true), m_arraylen(0), m_data_offset(0) { }
+        void valuesource (Symbol::ValueSource v) { m_valuesource = v; }
+        Symbol::ValueSource valuesource () const { return (Symbol::ValueSource) m_valuesource; }
+        const char *valuesourcename () const { return Symbol::valuesourcename(valuesource()); }
+        bool connected_down () const { return m_connected_down; }
+        void connected_down (bool c) { m_connected_down = c; }
+        bool connected () const { return valuesource() == Symbol::ConnectedVal; }
+        bool lockgeom () const { return m_lockgeom; }
+        void lockgeom (bool l) { m_lockgeom = l; }
+        int  arraylen () const { return m_arraylen; }
+        void arraylen (int s) { m_arraylen = s; }
+        int  dataoffset () const { return m_data_offset; }
+        void dataoffset (int o) { m_data_offset = o; }
+        friend bool equivalent (const SymOverrideInfo &a, const SymOverrideInfo &b) {
+            return a.valuesource() == b.valuesource() &&
+                   a.lockgeom()    == b.lockgeom()    &&
+                   a.arraylen()    == b.arraylen();
+        }
+    };
+    typedef std::vector<SymOverrideInfo> SymOverrideInfoVec;
+
+    SymOverrideInfo *instoverride (int i) { return &m_instoverrides[i]; }
+    const SymOverrideInfo *instoverride (int i) const { return &m_instoverrides[i]; }
+
+    /// Are two shader instances (assumed to be in the same group)
+    /// equivalent, in that they may be merged into a single instance?
+    bool mergeable (const ShaderInstance &b, const ShaderGroup &g) const;
+
+private:
+    ShaderMaster::ref m_master;         ///< Reference to the master
+    SymOverrideInfoVec m_instoverrides; ///< Instance parameter info
+    SymbolVec m_instsymbols;            ///< Symbols used by the instance
+    OpcodeVec m_instops;                ///< Actual code instructions
+    std::vector<int> m_instargs;        ///< Arguments for all the ops
+    ustring m_layername;                ///< Name of this layer
+    std::vector<int> m_iparams;         ///< int param values
+    std::vector<float> m_fparams;       ///< float param values
+    std::vector<ustring> m_sparams;     ///< string param values
+    int m_id;                           ///< Unique ID for the instance
+    bool m_writes_globals;              ///< Do I have side effects?
+    bool m_userdata_params;             ///< Might I read userdata for params?
+    bool m_outgoing_connections;        ///< Any outgoing connections?
+    bool m_renderer_outputs;            ///< Any outputs params render outputs?
+    bool m_merged_unused;               ///< Unused because of a merge
+    bool m_last_layer;                  ///< Is it the group's last layer?
+    bool m_entry_layer;                 ///< Is it an entry layer?
+    ConnectionVec m_connections;        ///< Connected input params
+    int m_firstparam, m_lastparam;      ///< Subset of symbols that are params
+    int m_maincodebegin, m_maincodeend; ///< Main shader code range
+    int m_Psym, m_Nsym;                 ///< Quick lookups of common syms
+
+    friend class ShadingSystemImpl;
+    friend class RuntimeOptimizer;
+    friend class OSL::ShaderGroup;
 };
 
 
@@ -1306,9 +1353,10 @@ public:
     ///
     int nlayers () const { return (int) m_layers.size(); }
 
+    ShaderInstance * layer (int i) const { return m_layers[i].get(); }
+
     /// Array indexing returns the i-th layer of the group
-    ///
-    ShaderInstance * operator[] (int i) const { return m_layers[i].get(); }
+    ShaderInstance * operator[] (int i) const { return layer(i); }
 
     int optimized () const { return m_optimized; }
     void optimized (int opt) { m_optimized = opt; }
@@ -1321,6 +1369,21 @@ public:
     }
     void llvm_compiled_version (RunLLVMGroupFunc func) {
         m_llvm_compiled_version = func;
+    }
+    RunLLVMGroupFunc llvm_compiled_init() const {
+        return m_llvm_compiled_init;
+    }
+    void llvm_compiled_init (RunLLVMGroupFunc func) {
+        m_llvm_compiled_init = func;
+    }
+    RunLLVMGroupFunc llvm_compiled_layer (int layer) const {
+        return layer < (int)m_llvm_compiled_layers.size()
+                            ? m_llvm_compiled_layers[layer] : NULL;
+    }
+    void llvm_compiled_layer (int layer, RunLLVMGroupFunc func) {
+        m_llvm_compiled_layers.resize ((size_t)nlayers(), NULL);
+        if (layer < nlayers())
+            m_llvm_compiled_layers[layer] = func;
     }
 
     /// Is this shader group equivalent to ret void?
@@ -1347,9 +1410,42 @@ public:
     void lock () const { m_mutex.lock(); }
     void unlock () const { m_mutex.unlock(); }
 
+    // Find which layer index corresponds to the layer name. Return -1 if
+    // not found.
+    int find_layer (ustring layername) const;
+
     // Retrieve the Symbol* by layer and symbol name. If the layer name is
     // empty, go back-to-front.
     const Symbol* find_symbol (ustring layername, ustring symbolname) const;
+
+    /// Return a unique ID of this group.
+    ///
+    int id () const { return m_id; }
+
+    /// Mark all layers as not entry points and set m_num_entry_layers to 0.
+    void clear_entry_layers ();
+
+    /// Mark the given layer number as an entry layer and increment
+    /// m_num_entry_layers if it wasn't already set. Has no effect if layer
+    /// is not a valid layer ID.
+    void mark_entry_layer (int layer);
+    void mark_entry_layer (ustring layername) {
+        mark_entry_layer (find_layer (layername));
+    }
+
+    int num_entry_layers () const { return m_num_entry_layers; }
+
+    bool is_last_layer (int layer) const {
+        return layer == nlayers()-1;
+    }
+
+    /// Is the given layer an entry point? It is if explicitly tagged as
+    /// such, or if no layers are so tagged then the last layer is the one
+    /// entry.
+    bool is_entry_layer (int layer) const {
+        return num_entry_layers() ? m_layers[layer]->entry_layer()
+                                  : is_last_layer(layer);
+    }
 
 private:
     // Put all the things that are read-only (after optimization) and
@@ -1358,7 +1454,11 @@ private:
     volatile int m_optimized;        ///< Is it already optimized?
     bool m_does_nothing;             ///< Is the shading group just func() { return; }
     size_t m_llvm_groupdata_size;    ///< Heap size needed for its groupdata
+    int m_id;                        ///< Unique ID for the group
+    int m_num_entry_layers;          ///< Number of marked entry layers
     RunLLVMGroupFunc m_llvm_compiled_version;
+    RunLLVMGroupFunc m_llvm_compiled_init;
+    std::vector<RunLLVMGroupFunc> m_llvm_compiled_layers;
     std::vector<ShaderInstanceRef> m_layers;
     ustring m_name;
     mutable mutex m_mutex;           ///< Thread-safe optimization
@@ -1400,47 +1500,36 @@ public:
     ///
     RendererServices *renderer () const { return m_renderer; }
 
-    /// Execute the shaders for the given use (for example,
-    /// ShadUseSurface).  If 'run' is false, do all the usual
-    /// preparation, but don't actually run the shader.  Return true if
-    /// the shader executed, false if it did not (including if the
-    /// shader itself was empty).
-    bool execute (ShaderGroup &sas, ShaderGlobals &ssg, bool run=true);
+    /// Bind a shader group and globals to this context and prepare to
+    /// execute. (See similarly named method of ShadingSystem.)
+    bool execute_init (ShaderGroup &group, ShaderGlobals &globals, bool run=true);
 
-    ClosureComponent * closure_component_allot(int id, size_t prim_size, int nattrs) {
-        size_t needed = sizeof(ClosureComponent) + (prim_size >= 4 ? prim_size - 4 : 0)
-                                                 + sizeof(ClosureComponent::Attr) * nattrs;
-        int alignment = m_shadingsys.find_closure(id)->alignment;
-        size_t alignment_offset = closure_alignment_offset_calc(alignment);
-        ClosureComponent *comp = (ClosureComponent *) (m_closure_pool.alloc(needed + alignment_offset, alignment) + alignment_offset);
-        comp->type = ClosureColor::COMPONENT;
-        comp->id = id;
-        comp->size = prim_size;
-        comp->nattrs = nattrs;
-        comp->w[0] = 1.0f;
-        comp->w[1] = 1.0f;
-        comp->w[2] = 1.0f;
-        return comp;
-    }
+    /// Execute the layer whose index is specified. (See similarly named
+    /// method of ShadingSystem.)
+    bool execute_layer (ShaderGlobals &globals, int layer);
 
-    ClosureComponent * closure_component_allot(int id, size_t prim_size, int nattrs, const Color3 &w) {
+    /// Signify that this context is done with the current execution of the
+    /// group. (See similarly named method of ShadingSystem.)
+    bool execute_cleanup ();
+
+    /// Execute the shader group, including init, run of single entry point
+    /// layer, and cleanup. (See similarly named method of ShadingSystem.)
+    bool execute (ShaderGroup &group, ShaderGlobals &globals, bool run=true);
+
+    ClosureComponent * closure_component_allot(int id, size_t prim_size, const Color3 &w) {
         // Allocate the component and the mul back to back
-        size_t needed = sizeof(ClosureComponent) + (prim_size >= 4 ? prim_size - 4 : 0)
-                                                 + sizeof(ClosureComponent::Attr) * nattrs;
+        size_t needed = sizeof(ClosureComponent) + (prim_size >= 4 ? prim_size - 4 : 0);
         int alignment = m_shadingsys.find_closure(id)->alignment;
         size_t alignment_offset = closure_alignment_offset_calc(alignment);
         ClosureComponent *comp = (ClosureComponent *) (m_closure_pool.alloc(needed + alignment_offset, alignment) + alignment_offset);
-        comp->type = ClosureColor::COMPONENT;
         comp->id = id;
-        comp->size = prim_size;
-        comp->nattrs = nattrs;
         comp->w = w;
         return comp;
     }
 
     ClosureMul *closure_mul_allot (const Color3 &w, const ClosureColor *c) {
         ClosureMul *mul = (ClosureMul *) m_closure_pool.alloc(sizeof(ClosureMul));
-        mul->type = ClosureColor::MUL;
+        mul->id = ClosureColor::MUL;
         mul->weight = w;
         mul->closure = c;
         return mul;
@@ -1448,7 +1537,7 @@ public:
 
     ClosureMul *closure_mul_allot (float w, const ClosureColor *c) {
         ClosureMul *mul = (ClosureMul *) m_closure_pool.alloc(sizeof(ClosureMul));
-        mul->type = ClosureColor::MUL;
+        mul->id = ClosureColor::MUL;
         mul->weight.setValue (w,w,w);
         mul->closure = c;
         return mul;
@@ -1456,7 +1545,7 @@ public:
 
     ClosureAdd *closure_add_allot (const ClosureColor *a, const ClosureColor *b) {
         ClosureAdd *add = (ClosureAdd *) m_closure_pool.alloc(sizeof(ClosureAdd));
-        add->type = ClosureColor::ADD;
+        add->id = ClosureColor::ADD;
         add->closureA = a;
         add->closureB = b;
         return add;
@@ -1481,8 +1570,13 @@ public:
     /// aren't constantly compiling new ones.
     const boost::regex & find_regex (ustring r);
 
-    /// Return a pointer to the shading attribs for this context.
+    /// Return a pointer to the shading group for this context.
     ///
+    ShaderGroup *group () { return m_attribs; }
+    const ShaderGroup *group () const { return m_attribs; }
+
+    /// Return a pointer to the shading attribs for this context.
+    /// (DEPRECATED name)
     ShaderGroup *attribs () { return m_attribs; }
     const ShaderGroup *attribs () const { return m_attribs; }
 
@@ -1597,6 +1691,7 @@ private:
     int m_max_warnings;                 ///< To avoid processing too many warnings
     int m_stat_get_userdata_calls;      ///< Number of calls to get_userdata
     int m_stat_layers_executed;         ///< Number of layers executed
+    long long m_ticks;                  ///< Time executing the shader
 
     TextureOpt m_textureopt;            ///< texture call options
     RendererServices::NoiseOpt m_noiseopt; ///< noise call options
@@ -1764,6 +1859,11 @@ public:
     /// possible early exit from the shader.)
     bool op_is_unconditionally_executed (int opnum) const {
         return !m_in_conditional[opnum] && opnum < m_first_return;
+    }
+
+    /// Return the basic block ID for the given instruction.
+    int bblockid (int opnum) const {
+        return m_bblockids[opnum];
     }
 
 protected:

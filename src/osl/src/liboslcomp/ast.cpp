@@ -30,12 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <sstream>
 
-#include <boost/filesystem.hpp>
-
 #include "osl_pvt.h"
 #include "oslcomp_pvt.h"
 
 #include <OpenImageIO/dassert.h>
+#include <OpenImageIO/filesystem.h>
 #include <OpenImageIO/strutil.h>
 namespace Strutil = OIIO::Strutil;
 
@@ -261,10 +260,18 @@ ASTfunction_declaration::add_meta (ASTNode *meta)
         Symbol *metasym = metavar->sym();
         if (metasym->name() == "builtin") {
             m_is_builtin = true;
-            if (func()->typespec().is_closure()) // It is a builtin closure
+            if (func()->typespec().is_closure())  { // It is a builtin closure
                 // Force keyword arguments at the end
                 func()->argcodes(ustring(std::string(func()->argcodes().c_str()) + "."));
-
+            }
+            // For built-in functions, if any of the params are output,
+            // also automatically mark it as readwrite_special_case.
+            for (ASTNode *f = formals().get(); f; f = f->nextptr()) {
+                ASSERT (f->nodetype() == variable_declaration_node);
+                ASTvariable_declaration *v = (ASTvariable_declaration *)f;
+                if (v->is_output())
+                    func()->readwrite_special_case (true);
+            }
         }
         else if (metasym->name() == "derivs")
             func()->takes_derivs (true);
@@ -317,9 +324,9 @@ ASTvariable_declaration::ASTvariable_declaration (OSLCompilerImpl *comp,
     if (f  &&  ! m_ismetadata) {
         std::string e = Strutil::format ("\"%s\" already declared in this scope", name.c_str());
         if (f->node()) {
-            boost::filesystem::path p(f->node()->sourcefile().string());
+            std::string filename = OIIO::Filesystem::filename(f->node()->sourcefile().string());
             e += Strutil::format ("\n\t\tprevious declaration was at %s:%d",
-                                  p.filename().c_str(), f->node()->sourceline());
+                                  filename, f->node()->sourceline());
         }
         if (f->scope() == 0 && f->symtype() == SymTypeFunction && isparam) {
             // special case: only a warning for param to mask global function
@@ -334,6 +341,10 @@ ASTvariable_declaration::ASTvariable_declaration (OSLCompilerImpl *comp,
     }
     SymType symtype = isparam ? (isoutput ? SymTypeOutputParam : SymTypeParam)
                               : SymTypeLocal;
+    // Sneaky debugging aid: a local that starts with "__debug_tmp__"
+    // gets declared as a temp. Don't do this on purpose!!!
+    if (symtype == SymTypeLocal && Strutil::starts_with (name, "__debug_tmp__"))
+        symtype = SymTypeTemp;
     m_sym = new Symbol (name, type, symtype, this);
     if (! m_ismetadata)
         oslcompiler->symtab().insert (m_sym);
@@ -443,7 +454,8 @@ ASTindex::ASTindex (OSLCompilerImpl *comp, ASTNode *expr, ASTNode *index)
             expr->nodetype() == structselect_node);
     if (expr->typespec().is_array())       // array dereference
         m_typespec = expr->typespec().elementtype();
-    else if (expr->typespec().is_triple()) // component access
+    else if (!expr->typespec().is_closure() &&
+             expr->typespec().is_triple()) // component access
         m_typespec = TypeDesc::FLOAT;
     else {
         error ("indexing into non-array or non-component type");
@@ -897,6 +909,7 @@ ASTfunction_call::ASTfunction_call (OSLCompilerImpl *comp, ustring name,
     }
     if (m_sym->symtype() != SymTypeFunction) {
         error ("'%s' is not a function", name.c_str());
+        m_sym = NULL;
         return;
     }
 }

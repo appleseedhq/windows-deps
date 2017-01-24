@@ -48,6 +48,8 @@ using OIIO::spin_lock;
 using OIIO::ParamValue;
 using OIIO::ParamValueList;
 
+static int next_id = 0; // We can statically init an int, not an atomic
+
 
 
 ShaderInstance::ShaderInstance (ShaderMaster::ref master,
@@ -56,14 +58,14 @@ ShaderInstance::ShaderInstance (ShaderMaster::ref master,
       //DON'T COPY  m_instsymbols(m_master->m_symbols),
       //DON'T COPY  m_instops(m_master->m_ops), m_instargs(m_master->m_args),
       m_layername(layername),
-      m_writes_globals(false), m_run_lazily(false),
+      m_writes_globals(false),
       m_outgoing_connections(false),
-      m_renderer_outputs(false),
+      m_renderer_outputs(false), m_merged_unused(false),
+      m_last_layer(false), m_entry_layer(false),
       m_firstparam(m_master->m_firstparam), m_lastparam(m_master->m_lastparam),
       m_maincodebegin(m_master->m_maincodebegin),
       m_maincodeend(m_master->m_maincodeend)
 {
-    static int next_id = 0; // We can statically init an int, not an atomic
     m_id = ++(*(atomic_int *)&next_id);
     shadingsys().m_stat_instances += 1;
 
@@ -212,9 +214,13 @@ ShaderInstance::parameters (const ParamValueList &params)
 
     m_instoverrides.resize (std::max (0, lastparam()));
 
-    // Set the initial lockgeom on the instoverrides, based on the master.
-    for (int i = 0, e = (int)m_instoverrides.size(); i < e; ++i)
-        m_instoverrides[i].lockgeom (master()->symbol(i)->lockgeom());
+    // Set the initial lockgeom and dataoffset on the instoverrides, based
+    // on the master.
+    for (int i = 0, e = (int)m_instoverrides.size(); i < e; ++i) {
+        Symbol *sym = master()->symbol(i);
+        m_instoverrides[i].lockgeom (sym->lockgeom());
+        m_instoverrides[i].dataoffset (sym->dataoffset());
+    }
 
     BOOST_FOREACH (const ParamValue &p, params) {
         if (p.name().size() == 0)
@@ -254,6 +260,9 @@ ShaderInstance::parameters (const ParamValueList &params)
             bool lockgeom = (sm->lockgeom() &&
                              p.interp() == ParamValue::INTERP_CONSTANT);
             so->lockgeom (lockgeom);
+
+            DASSERT (so->dataoffset() == sm->dataoffset());
+            so->dataoffset (sm->dataoffset());
 
             if (paramtype.arraylen < 0) {
                 // An array of definite size was supplied to a parameter
@@ -458,6 +467,7 @@ ShaderInstance::copy_code_from_master (ShaderGroup &group)
                 si->valuesource (m_instoverrides[i].valuesource());
                 si->connected_down (m_instoverrides[i].connected_down());
                 si->lockgeom (m_instoverrides[i].lockgeom());
+                si->dataoffset (m_instoverrides[i].dataoffset());
                 si->data (param_storage(i));
             }
             if (shadingsys().is_renderer_output (layername(), si->name(), &group)) {
@@ -476,118 +486,6 @@ ShaderInstance::copy_code_from_master (ShaderGroup &group)
         shadingsys().m_stat_mem_inst_syms += symmem;
         shadingsys().m_stat_mem_inst += symmem;
         shadingsys().m_stat_memory += symmem;
-    }
-}
-
-
-
-std::string
-ShaderInstance::print (const ShaderGroup &group)
-{
-    std::stringstream out;
-    out << "Shader " << shadername() << "\n";
-    out << "  symbols:\n";
-    for (size_t i = 0;  i < m_instsymbols.size();  ++i) {
-        const Symbol &s (*symbol(i));
-        s.print (out, 256);
-    }
-#if 0
-    out << "  int consts:\n    ";
-    for (size_t i = 0;  i < m_iconsts.size();  ++i)
-        out << m_iconsts[i] << ' ';
-    out << "\n";
-    out << "  float consts:\n    ";
-    for (size_t i = 0;  i < m_fconsts.size();  ++i)
-        out << m_fconsts[i] << ' ';
-    out << "\n";
-    out << "  string consts:\n    ";
-    for (size_t i = 0;  i < m_sconsts.size();  ++i)
-        out << "\"" << Strutil::escape_chars(m_sconsts[i]) << "\" ";
-    out << "\n";
-#endif
-    out << "  code:\n";
-    for (size_t i = 0;  i < m_instops.size();  ++i) {
-        const Opcode &op (m_instops[i]);
-        if (i == (size_t)maincodebegin())
-            out << "(main)\n";
-        out << "    " << i << ": " << op.opname();
-        bool allconst = true;
-        for (int a = 0;  a < op.nargs();  ++a) {
-            const Symbol *s (argsymbol(op.firstarg()+a));
-            out << " " << s->name();
-            if (s->symtype() == SymTypeConst) {
-                out << " (";
-                s->print_vals(out,16);
-                out << ")";
-            }
-            if (op.argread(a))
-                allconst &= s->is_constant();
-        }
-        for (size_t j = 0;  j < Opcode::max_jumps;  ++j)
-            if (op.jump(j) >= 0)
-                out << " " << op.jump(j);
-//        out << "    rw " << Strutil::format("%x",op.argread_bits())
-//            << ' ' << op.argwrite_bits();
-        if (op.argtakesderivs_all())
-            out << " %derivs(" << op.argtakesderivs_all() << ") ";
-        if (allconst)
-            out << "  CONST";
-        std::string filename = op.sourcefile().string();
-        size_t slash = filename.find_last_of ("/");
-        if (slash != std::string::npos)
-            filename.erase (0, slash+1);
-        if (filename.length())
-            out << "  (" << filename << ":" << op.sourceline() << ")";
-        out << "\n";
-    }
-    if (nconnections()) {
-        out << "  connections upstream:\n";
-        for (int i = 0, e = nconnections(); i < e; ++i) {
-            const Connection &c (connection(i));
-            out << "    " << c.dst.type.c_str() << ' '
-                << symbol(c.dst.param)->name();
-            if (c.dst.arrayindex >= 0)
-                out << '[' << c.dst.arrayindex << ']';
-            out << " upconnected from layer " << c.srclayer << ' ';
-            const ShaderInstance *up = group[c.srclayer];
-            out << "(" << up->layername() << ") ";
-            out << "    " << c.src.type.c_str() << ' '
-                << up->symbol(c.src.param)->name();
-            if (c.src.arrayindex >= 0)
-                out << '[' << c.src.arrayindex << ']';
-            out << "\n";
-        }
-    }
-    return out.str ();
-}
-
-
-
-void
-ShaderInstance::compute_run_lazily ()
-{
-    if (shadingsys().m_lazylayers) {
-        // lazylayers option turned on: unconditionally run shaders with no
-        // outgoing connections ("root" nodes, including the last in the
-        // group) or shaders that alter global variables (unless
-        // 'lazyglobals' is turned on).
-        if (shadingsys().m_lazyglobals)
-            run_lazily (outgoing_connections() && ! renderer_outputs());
-        else
-            run_lazily (outgoing_connections() && ! writes_globals()
-                                               && ! renderer_outputs());
-#if 0
-        // Suggested warning below... but are there use cases where people
-        // want these to run (because they will extract the results they
-        // want from output params)?
-        if (! outgoing_connections() && ! empty_instance() &&
-            ! writes_globals() && ! renderer_outputs())
-            shadingsys().warning ("Layer \"%s\" (shader %s) will run even though it appears to have no used results",
-                     layername(), shadername());
-#endif
-    } else {
-        // lazylayers option turned off: never run lazily
-        run_lazily (false);
     }
 }
 
@@ -708,7 +606,7 @@ ShaderInstance::mergeable (const ShaderInstance &b, const ShaderGroup &g) const
         }
     }
 
-    if (m_run_lazily != b.m_run_lazily) {
+    if (run_lazily() != b.run_lazily()) {
         return false;
     }
 
@@ -771,25 +669,27 @@ ShaderInstance::mergeable (const ShaderInstance &b, const ShaderGroup &g) const
 
 ShaderGroup::ShaderGroup (string_view name)
   : m_optimized(0), m_does_nothing(false),
-    m_llvm_groupdata_size(0),
+    m_llvm_groupdata_size(0), m_num_entry_layers(0),
     m_llvm_compiled_version(NULL),
     m_name(name)
 {
     m_executions = 0;
     m_stat_total_shading_time_ticks = 0;
+    m_id = ++(*(atomic_int *)&next_id);
 }
 
 
 
 ShaderGroup::ShaderGroup (const ShaderGroup &g, string_view name)
   : m_optimized(0), m_does_nothing(false),
-    m_llvm_groupdata_size(0),
+    m_llvm_groupdata_size(0), m_num_entry_layers(g.m_num_entry_layers),
     m_llvm_compiled_version(NULL),
     m_layers(g.m_layers),
     m_name(name)
 {
     m_executions = 0;
     m_stat_total_shading_time_ticks = 0;
+    m_id = ++(*(atomic_int *)&next_id);
 }
 
 
@@ -812,6 +712,17 @@ ShaderGroup::~ShaderGroup ()
 
 
 
+int
+ShaderGroup::find_layer (ustring layername) const
+{
+    int i;
+    for (i = nlayers()-1; i >= 0 && layer(i)->layername() != layername; --i)
+        ;
+    return i;  // will be -1 if we never found a match
+}
+
+
+
 const Symbol *
 ShaderGroup::find_symbol (ustring layername, ustring symbolname) const
 {
@@ -824,6 +735,27 @@ ShaderGroup::find_symbol (ustring layername, ustring symbolname) const
             return inst->symbol (symidx);
     }
     return NULL;
+}
+
+
+
+void
+ShaderGroup::clear_entry_layers ()
+{
+    for (int i = 0;  i < nlayers();  ++i)
+        m_layers[i]->entry_layer (false);
+    m_num_entry_layers = 0;
+}
+
+
+
+void
+ShaderGroup::mark_entry_layer (int layer)
+{
+    if (layer >= 0 && layer < nlayers() && ! m_layers[layer]->entry_layer()) {
+        m_layers[layer]->entry_layer(true);
+        ++m_num_entry_layers;
+    }
 }
 
 

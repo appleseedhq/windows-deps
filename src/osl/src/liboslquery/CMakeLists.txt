@@ -1,4 +1,4 @@
-SET ( liboslquery_srcs oslquery.cpp querystub.cpp ../liboslexec/osoreader.cpp
+SET ( liboslquery_srcs oslquery.cpp querystub.cpp 
       ../liboslexec/typespec.cpp )
 
 FILE ( GLOB compiler_headers "../liboslexec/*.h" )
@@ -12,7 +12,6 @@ else ()
     ADD_LIBRARY ( oslquery SHARED ${liboslquery_srcs} )
 endif ()
 
-TARGET_LINK_LIBRARIES ( oslquery ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} )
-LINK_ILMBASE ( oslquery )
+TARGET_LINK_LIBRARIES ( oslquery ${OPENIMAGEIO_LIBRARY} ${ILMBASE_LIBRARIES} ${Boost_LIBRARIES} )
 
 INSTALL ( TARGETS oslquery RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib )

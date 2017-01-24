@@ -35,15 +35,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <OpenImageIO/refcnt.h>
 #include <OpenImageIO/ustring.h>
-
+#include <OpenImageIO/array_view.h>
 
 OSL_NAMESPACE_ENTER
 
 class RendererServices;
 class ShaderGroup;
 typedef shared_ptr<ShaderGroup> ShaderGroupRef;
-typedef ShaderGroup ShadingAttribState;       // DEPRECATED name
-typedef ShaderGroupRef ShadingAttribStateRef; // DEPRECATED name
+OSL_DEPRECATED("Use ShaderGroup instead") typedef ShaderGroup ShadingAttribState;
+OSL_DEPRECATED("Use ShaderGroupRef instead") typedef ShaderGroupRef ShadingAttribStateRef;
 struct ClosureParam;
 struct PerThreadInfo;
 class ShadingContext;
@@ -75,11 +75,12 @@ public:
                    ErrorHandler *err=NULL);
     ~ShadingSystem ();
 
-    /// DEPRECATED -- it's ok now to just construct a ShadingSystem.
+    OSL_DEPRECATED("Directly new or construct a ShadingSystem")
     static ShadingSystem *create (RendererServices *renderer=NULL,
                                   TextureSystem *texturesystem=NULL,
                                   ErrorHandler *err=NULL);
-    /// DEPRECATED -- it's ok now to just destroy a ShadingSystem.
+
+    OSL_DEPRECATED("Delete or destroy a ShadingSystem")
     static void destroy (ShadingSystem *x);
 
     /// Set an attribute controlling the shading system.  Return true
@@ -110,18 +111,25 @@ public:
     ///                           Array of names of renderer outputs (AOVs)
     ///                              that should not be optimized away.
     ///    int unknown_coordsys_error  Should errors be issued when unknown
-    ///                                   coord system names are used?
+    ///                              coord system names are used? (1)
+    ///    int connection_error   Should errors be issued when ConnectShaders
+    ///                              fails to find the layer or parameter? (1)
     ///    int strict_messages    Issue error if a message is set after
     ///                              being queried (1).
     ///    int lazylayers         Evaluate shader layers only when their
     ///                              outputs are first needed (1)
     ///    int lazyglobals        Run layers lazily even if they write to
-    ///                              globals (0)
+    ///                              globals (1)
+    ///    int lazyunconnected    Run layers lazily even if they have no
+    ///                              output connections (1). For debugging.
     ///    int lazy_userdata      Retrieve userdata lazily (0).
+    ///    int userdata_isconnected  Should lockgeom=0 params (that may
+    ///                              receive userdata) return true from
+    ///                              isconnected()? (0)
     ///    int greedyjit          Optimize and compile all shaders up front,
     ///                              versus only as needed (0).
     ///    int lockgeom           Default 'lockgeom' value for shader params
-    ///                              that don't specify it (0).  Lockgeom
+    ///                              that don't specify it (1).  Lockgeom
     ///                              means a param CANNOT be overridden by
     ///                              interpolated geometric parameters.
     ///    int countlayerexecs    Add extra code to count total layers run.
@@ -141,8 +149,12 @@ public:
     ///         opt_peephole, opt_coalesce_temps, opt_assign, opt_mix
     ///         opt_merge_instances, opt_merge_instance_with_userdata,
     ///         opt_fold_getattribute, opt_middleman, opt_texture_handle
+    ///         opt_seed_bblock_aliases
+    ///    int opt_passes         Number of optimization passes per layer (10)
     ///    int llvm_optimize      Which of several LLVM optimize strategies (0)
     ///    int llvm_debug         Set LLVM extra debug level (0)
+    ///    int llvm_debug_layers  Extra printfs upon entering and leaving
+    ///                              layer functions.
     ///    int llvm_mcjit         Use LLVM MCJIT if available (0).
     ///    int max_local_mem_KB   Error if shader group needs more than this
     ///                              much local storage to execute (1024K)
@@ -150,6 +162,7 @@ public:
     ///    string debug_layername Name of shader layer -- debug only this one
     ///    int optimize_nondebug  If 1, fully optimize shaders that are not
     ///                              designated as the debug shaders.
+    ///    string opt_layername   If set, only optimize the named layer
     ///    string only_groupname  Compile only this one group (skip all others)
     ///
     /// Note: the attributes referred to as "string" are actually on the app
@@ -177,9 +190,13 @@ public:
     /// Set an attribute for a specific shader group.  Return true if the
     /// name and type were recognized and the attrib was set. Documented
     /// attributes are as follows:
-    ///    string[] renderer_outputs   Array of names of renderer outputs
-    ///                                (AOVs) specific to this shader group
-    ///                                that should not be optimized away.
+    ///    string[] renderer_outputs  Array of names of renderer outputs
+    ///                                 (AOVs) specific to this shader group
+    ///                                 that should not be optimized away.
+    ///    string[] entry_layers      Array of names of layers that may be
+    ///                                 callable entry points. They won't
+    ///                                 be elided, but nor will they be
+    ///                                 called unconditionally.
     ///
     bool attribute (ShaderGroup *group, string_view name,
                     TypeDesc type, const void *val);
@@ -279,6 +296,10 @@ public:
     ///   int unknown_attributes_needed  Nonzero if additonal attributes may be
     ///                                  needed, whose names will not be known
     ///                                  until the shader actually runs.
+    ///   int num_renderer_outputs   Number of named renderer outputs.
+    ///   string renderer_outputs[]  List of renderer outputs.
+    ///   int num_entry_layers       Number of named entry point layers.
+    ///   string entry_layers[]      List of entry point layers.
     ///   string pickle              Retrieves a serialized representation
     ///                                 of the shader group declaration.
     /// Note: the attributes referred to as "string" are actually on the app
@@ -383,11 +404,6 @@ public:
     bool ConnectShaders (string_view srclayer, string_view srcparam,
                          string_view dstlayer, string_view dstparam);
 
-    /// Return a reference-counted (but opaque) reference to the current
-    /// shading attribute state maintained by the ShadingSystem.
-    /// DEPRECATED -- instead, retrive via ShaderGroupBegin().
-    ShaderGroupRef state ();
-
     /// Replace a parameter value in a previously-declared shader group.
     /// This is meant to called after the ShaderGroupBegin/End, but will
     /// fail if the shader has already been irrevocably optimized/compiled,
@@ -425,19 +441,52 @@ public:
     ///
     void release_context (ShadingContext *ctx);
 
-    /// Execute the shader bound to context ctx, with the given
-    /// ShaderGroup (that specifies the shader group to run) and
-    /// ShaderGlobals (specific information for this shade point).  If
-    /// 'run' is false, do all the usual preparation, but don't actually
-    /// run the shader.  Return true if the shader executed (or could
-    /// have executed, if 'run' had been true), false the shader turned
-    /// out to be empty. If ctx is NULL, then execute will request one
-    /// (based on the running thread) on its own and then return it when
-    /// it's done.
-    bool execute (ShadingContext *ctx, ShaderGroup &sas,
-                  ShaderGlobals &ssg, bool run=true);
-    bool execute (ShadingContext &ctx, ShaderGroup &sas,
-                  ShaderGlobals &ssg, bool run=true); // DEPRECATED (1.6)
+    /// Execute the shader group in this context. If ctx is NULL, then
+    /// execute will request one (based on the running thread) on its own
+    /// and then return it when it's done.  This is just a wrapper around
+    /// execute_init, execute_layer of the last (presumably group entry)
+    /// layer, and execute_cleanup. If run==false, just do the binding and
+    /// setup, don't actually run the shader.
+    bool execute (ShadingContext *ctx, ShaderGroup &group,
+                  ShaderGlobals &globals, bool run=true);
+    OSL_DEPRECATED("Deprecated since 1.6, pass context pointer, not reference.")
+    bool execute (ShadingContext &ctx, ShaderGroup &group,
+                  ShaderGlobals &globals, bool run=true);
+
+    /// Bind a shader group and globals to the context, in preparation to
+    /// execute, including optimization and JIT of the group (if it has not
+    /// already been done).  If 'run' is true, also run any initialization
+    /// necessary. If 'run' is false, we are not planning to actually
+    /// execute any part of the shader, so do all the usual binding
+    /// preparation, but don't actually run the shader.  Return true if the
+    /// shader executed, false if it did not (including if the shader itself
+    /// was empty).
+    bool execute_init (ShadingContext &ctx, ShaderGroup &group,
+                       ShaderGlobals &globals, bool run=true);
+
+    /// Execute the layer whose index is specified, in this context. It is
+    /// presumed that execute_init() has already been called, with
+    /// run==true, and that the call to execute_init() returned true. (One
+    /// reason why it might have returned false is if the shader group
+    /// turned out, after optimization, to do nothing.)
+    bool execute_layer (ShadingContext &ctx, ShaderGlobals &globals,
+                        int layernumber);
+    /// Execute the layer by name.
+    bool execute_layer (ShadingContext &ctx, ShaderGlobals &globals,
+                        ustring layername);
+    /// Execute the layer that has the given ShaderSymbol as an output.
+    /// (The symbol is one returned by find_symbol()).
+    bool execute_layer (ShadingContext &ctx, ShaderGlobals &globals,
+                        const ShaderSymbol *symbol);
+
+    /// Signify that the context is done with the current execution of the
+    /// group that was kicked off by execute_init and one or more calls to
+    /// execute_layer.
+    bool execute_cleanup (ShadingContext &ctx);
+
+    /// Find the named layer within a group and return its index, or -1
+    /// if no such named layer exists.
+    int find_layer (const ShaderGroup &group, ustring layername) const;
 
     /// Get a raw pointer to a named symbol (such as you'd need to pull
     /// out the value of an output parameter).  ctx is the shading
@@ -508,6 +557,9 @@ public:
     /// data passed in via attribute("raytypes")).
     int raytype_bit (ustring name);
 
+    /// Ensure that the group has been optimized and JITed.
+    void optimize_group (ShaderGroup *group);
+
     /// If option "greedyjit" was set, this call will trigger all
     /// shader groups that have not yet been compiled to do so with the
     /// specified number of threads (0 means use all available HW cores).
@@ -554,6 +606,46 @@ private:
     pvt::ShadingSystemImpl *m_impl;
 };
 
+
+
+#ifdef OPENIMAGEIO_IMAGEBUF_H
+// To keep from polluting all OSL clients with ImageBuf & ROI, only expose
+// the following declarations if they have included OpenImageIO/imagebuf.h.
+
+// enum describing where shades are located for shade_image().
+enum ShadeImageLocations {
+    ShadePixelCenters,   // locate shades at pixel centers: (i+0.5)/res
+    ShadePixelGrid       // locate shades at grid nodes: i/(res-1)
+};
+
+
+/// Utility to execute a shader group on each pixel in a rectangular region
+/// of an ImageBuf (which must already be allocated and which must have
+/// FLOAT pixels).  The output parameters to save are specified by an array
+/// of ustring values in 'outputs'. If there are multiple outputs, they will
+/// simply be concatenated channel by channel in the image.
+///
+/// The roi specifies the region of the ImageBuf to shade (defaulting to the
+/// whole thing), any pixels outside the roi will not be altered.
+///
+/// The 'defaultsg', if non-NULL, provides a template for the default
+/// ShaderGlobals to use for each point. If not provided, reasonable
+/// defaults will be chosen.
+///
+/// When shading, P will have the pixel lattice coordinates (i,j,k), and u
+/// and v will vary from 0->1 across the full (aka "display") window.
+/// Depending on the value of 'shadelocations', the shading locations
+/// themselves will either be at "pixel centers" (position (i+0.5)/res), or
+/// as if it were a grid that is shaded at exact endpoints (position
+/// i/(res+1)). In either case, derivatives will be set appropriately.
+OSLEXECPUBLIC
+bool shade_image (ShadingSystem &shadingsys, ShaderGroup &group,
+                  const ShaderGlobals *defaultsg,
+                  OIIO::ImageBuf &buf, OIIO::array_view<ustring> outputs,
+                  ShadeImageLocations shadelocations = ShadePixelCenters,
+                  OIIO::ROI roi = OIIO::ROI(), int nthreads = 0);
+
+#endif
 
 
 OSL_NAMESPACE_EXIT

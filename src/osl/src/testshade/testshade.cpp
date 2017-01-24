@@ -33,7 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 #include <cmath>
 
-#include <boost/foreach.hpp>
+#include <boost/thread.hpp>
 
 #include <OpenImageIO/imageio.h>
 #include <OpenImageIO/imagebuf.h>
@@ -60,10 +60,15 @@ static std::vector<std::string> outputvars;
 static std::vector<ustring> outputvarnames;
 static std::vector<OIIO::ImageBuf*> outputimgs;
 static std::string dataformatname = "";
+static std::string shaderpath;
+static std::vector<std::string> entrylayers;
+static std::vector<std::string> entryoutputs;
+static std::vector<int> entrylayer_index;
+static std::vector<const ShaderSymbol *> entrylayer_symbols;
 static bool debug = false;
 static bool debug2 = false;
 static bool verbose = false;
-static bool stats = false;
+static bool runstats = false;
 static bool profile = false;
 static bool O0 = false, O1 = false, O2 = false;
 static bool pixelcenters = false;
@@ -72,6 +77,8 @@ static bool debug_uninit = false;
 static bool use_group_outputs = false;
 static bool do_oslquery = false;
 static bool inbuffer = false;
+static bool use_shade_image = false;
+static bool userdata_isconnected = false;
 static int xres = 1, yres = 1;
 static int num_threads = 0;
 static std::string groupname;
@@ -91,6 +98,11 @@ static OSL::Matrix44 Mshad;  // "shader" space to "common" space matrix
 static OSL::Matrix44 Mobj;   // "object" space to "common" space matrix
 static ShaderGroupRef shadergroup;
 static std::string archivegroup;
+static int exprcount = 0;
+static bool shadingsys_options_set = false;
+static float sscale = 1, tscale = 1;
+static float soffset = 0, toffset = 0;
+
 
 
 static void
@@ -98,7 +110,7 @@ inject_params ()
 {
     for (size_t p = 0;  p < params.size();  ++p) {
         const ParamValue &pv (params[p]);
-        shadingsys->Parameter (pv.name().c_str(), pv.type(), pv.data(),
+        shadingsys->Parameter (pv.name(), pv.type(), pv.data(),
                                pv.interp() == ParamValue::INTERP_CONSTANT);
     }
 }
@@ -108,15 +120,24 @@ inject_params ()
 static void
 set_shadingsys_options ()
 {
+    if (shadingsys_options_set)
+        return;
     shadingsys->attribute ("debug", debug2 ? 2 : (debug ? 1 : 0));
     shadingsys->attribute ("compile_report", debug|debug2);
-    int opt = O2 ? 2 : (O1 ? 1 : 0);
+    int opt = 2;  // default
+    if (O0) opt = 0;
+    if (O1) opt = 1;
+    if (O2) opt = 2;
     if (const char *opt_env = getenv ("TESTSHADE_OPT"))  // overrides opt
         opt = atoi(opt_env);
     shadingsys->attribute ("optimize", opt);
     shadingsys->attribute ("lockgeom", 1);
     shadingsys->attribute ("debug_nan", debugnan);
     shadingsys->attribute ("debug_uninit", debug_uninit);
+    shadingsys->attribute ("userdata_isconnected", userdata_isconnected);
+    if (! shaderpath.empty())
+        shadingsys->attribute ("searchpath:shader", shaderpath);
+    shadingsys_options_set = true;
 }
 
 
@@ -140,6 +161,30 @@ read_text_file (string_view filename, std::string &str)
 
 
 static void
+compile_buffer (const std::string &sourcecode,
+                const std::string &shadername)
+{
+    // std::cout << "source was\n---\n" << sourcecode << "---\n\n";
+    std::string osobuffer;
+    OSLCompiler compiler;
+    std::vector<std::string> options;
+
+    if (! compiler.compile_buffer (sourcecode, osobuffer, options)) {
+        std::cerr << "Could not compile \"" << shadername << "\"\n";
+        exit (EXIT_FAILURE);
+    }
+    // std::cout << "Compiled to oso:\n---\n" << osobuffer << "---\n\n";
+
+    if (! shadingsys->LoadMemoryCompiledShader (shadername, osobuffer)) {
+        std::cerr << "Could not load compiled buffer from \""
+                  << shadername << "\"\n";
+        exit (EXIT_FAILURE);
+    }
+}
+
+
+
+static void
 shader_from_buffers (std::string shadername)
 {
     std::string oslfilename = shadername;
@@ -150,22 +195,8 @@ shader_from_buffers (std::string shadername)
         std::cerr << "Could not open \"" << oslfilename << "\"\n";
         exit (EXIT_FAILURE);
     }
-    // std::cout << "source was\n---\n" << sourcecode << "---\n\n";
-    std::string osobuffer;
-    OSLCompiler compiler;
-    std::vector<std::string> options;
 
-    if (! compiler.compile_buffer (sourcecode, osobuffer, options)) {
-        std::cerr << "Could not compile \"" << oslfilename << "\"\n";
-        exit (EXIT_FAILURE);
-    }
-    // std::cout << "Compiled to oso:\n---\n" << osobuffer << "---\n\n";
-
-    if (! shadingsys->LoadMemoryCompiledShader (shadername, osobuffer)) {
-        std::cerr << "Could not load compiled buffer from \""
-                  << shadername << "\"\n";
-        exit (EXIT_FAILURE);
-    }
+    compile_buffer (sourcecode, shadername);
     // std::cout << "Read and compiled " << shadername << "\n";
 }
 
@@ -190,6 +221,48 @@ add_shader (int argc, const char *argv[])
         params.clear ();
     }
     return 0;
+}
+
+
+
+// The --expr ARG command line option will take ARG that is a snipped of
+// OSL source code, embed it in some boilerplate shader wrapper, compile
+// it from memory, and run that in the same way that would have been done
+// if it were a compiled shader on disk. The boilerplate assumes that there
+// are two output parameters for the shader: color result, and float alpha.
+//
+// Example use:
+//   testshade -v -g 64 64 -o result out.exr -expr 'result=color(u,v,0);'
+//
+static void
+specify_expr (int argc, const char *argv[])
+{
+    ASSERT (argc == 2);
+    std::string shadername = OIIO::Strutil::format("expr_%d", exprcount++);
+    std::string sourcecode =
+        "shader " + shadername + " (\n"
+        "    float s = u [[ int lockgeom=0 ]],\n"
+        "    float t = v [[ int lockgeom=0 ]],\n"
+        "    output color result = 0,\n"
+        "    output float alpha = 1,\n"
+        "  )\n"
+        "{\n"
+        "    " + std::string(argv[1]) + "\n"
+        "    ;\n"
+        "}\n";
+    if (verbose)
+        std::cout << "Expression-based shader text is:\n---\n"
+                  << sourcecode << "---\n";
+
+    set_shadingsys_options ();
+
+    compile_buffer (sourcecode, shadername);
+
+    inject_params ();
+    shadernames.push_back (shadername);
+    shadingsys->Shader ("surface", shadername, layername);
+    layername.clear ();
+    params.clear ();
 }
 
 
@@ -333,15 +406,7 @@ action_groupspec (int argc, const char *argv[])
     if (OIIO::Filesystem::exists (groupspec)) {
         // If it names a file, use the contents of the file as the group
         // specification.
-        std::ifstream in;
-        OIIO::Filesystem::open (in, groupspec);
-        groupspec.clear();
-        while (in.good()) {
-            std::string line;
-            std::getline (in, line);
-            groupspec += line + "\n";
-        }
-        in.close ();
+        OIIO::Filesystem::read_text_file (groupspec, groupspec);
         set_shadingsys_options ();
     }
     if (verbose)
@@ -364,9 +429,12 @@ getargs (int argc, const char *argv[])
                 "-t %d", &num_threads, "Render using N threads (default: auto-detect)",
                 "--debug", &debug, "Lots of debugging info",
                 "--debug2", &debug2, "Even more debugging info",
-                "--stats", &stats, "Print run statistics",
+                "--runstats", &runstats, "Print run statistics",
+                "--stats", &runstats, "",  // DEPRECATED 1.7
                 "--profile", &profile, "Print profile information",
+                "--path %s", &shaderpath, "Specify oso search path",
                 "-g %d %d", &xres, &yres, "Make an X x Y grid of shading points",
+                "-res %d %d", &xres, &yres, "", // synonym for -g
                 "-o %L %L", &outputvars, &outputfiles,
                         "Output (variable, filename)",
                 "-od %s", &dataformatname, "Set the output data format to one of: "
@@ -389,6 +457,8 @@ getargs (int argc, const char *argv[])
                 "-O0", &O0, "Do no runtime shader optimization",
                 "-O1", &O1, "Do a little runtime shader optimization",
                 "-O2", &O2, "Do lots of runtime shader optimization",
+                "--entry %L", &entrylayers, "Add layer to the list of entry points",
+                "--entryoutput %L", &entryoutputs, "Add output symbol to the list of entry points",
                 "--center", &pixelcenters, "Shade at output pixel 'centers' rather than corners",
                 "--debugnan", &debugnan, "Turn on 'debug_nan' mode",
                 "--debuguninit", &debug_uninit, "Turn on 'debug_uninit' mode",
@@ -396,7 +466,13 @@ getargs (int argc, const char *argv[])
                 "--groupoutputs", &use_group_outputs, "Specify group outputs, not global outputs",
                 "--oslquery", &do_oslquery, "Test OSLQuery at runtime",
                 "--inbuffer", &inbuffer, "Compile osl source from and to buffer",
-//                "-v", &verbose, "Verbose output",
+                "--shadeimage", &use_shade_image, "Use shade_image utility",
+                "--noshadeimage %!", &use_shade_image, "Don't use shade_image utility",
+                "--expr %@ %s", &specify_expr, NULL, "Specify an OSL expression to evaluate",
+                "--offsetst %f %f", &soffset, &toffset, "Offset s & t texture coordinates (default: 0 0)",
+                "--scalest %f %f", &sscale, &tscale, "Scale s & t texture lookups (default: 1, 1)",
+                "--userdata_isconnected", &userdata_isconnected, "Consider lockgeom=0 to be isconnected()",
+                "-v", &verbose, "Verbose output",
                 NULL);
     if (ap.parse(argc, argv) < 0 || (shadernames.empty() && groupspec.empty())) {
         std::cerr << ap.geterror() << std::endl;
@@ -404,9 +480,8 @@ getargs (int argc, const char *argv[])
         exit (EXIT_FAILURE);
     }
     if (help) {
-        std::cout <<
-            "testshade -- Test Open Shading Language\n"
-            "(c) Copyright 2009-2010 Sony Pictures Imageworks Inc. All Rights Reserved.\n";
+        std::cout << "testshade -- Test Open Shading Language\n"
+                     OSL_COPYRIGHT_STRING "\n";
         ap.usage ();
         exit (EXIT_SUCCESS);
     }
@@ -485,17 +560,17 @@ setup_shaderglobals (ShaderGlobals &sg, ShadingSystem *shadingsys,
     if (pixelcenters) {
         // Our patch is like an "image" with shading samples at the
         // centers of each pixel.
-        sg.u = (float)(x+0.5f) / xres;
-        sg.v = (float)(y+0.5f) / yres;
-        sg.dudx = 1.0f / xres;
-        sg.dvdy = 1.0f / yres;
+        sg.u = sscale * (float)(x+0.5f) / xres + soffset;
+        sg.v = tscale * (float)(y+0.5f) / yres + toffset;
+        sg.dudx = sscale / xres;
+        sg.dvdy = tscale / yres;
     } else {
         // Our patch is like a Reyes grid of points, with the border
         // samples being exactly on u,v == 0 or 1.
-        sg.u = (xres == 1) ? 0.5f : (float) x / (xres - 1);
-        sg.v = (yres == 1) ? 0.5f : (float) y / (yres - 1);
-        sg.dudx = 1.0f / std::max (1, xres-1);
-        sg.dvdy = 1.0f / std::max (1, yres-1);
+        sg.u = sscale * ((xres == 1) ? 0.5f : (float) x / (xres - 1)) + soffset;
+        sg.v = tscale * ((yres == 1) ? 0.5f : (float) y / (yres - 1)) + toffset;
+        sg.dudx = sscale / std::max (1, xres-1);
+        sg.dvdy = tscale / std::max (1, yres-1);
     }
 
     // Assume that position P is simply (u,v,1), that makes the patch lie
@@ -543,16 +618,47 @@ setup_output_images (ShadingSystem *shadingsys,
             std::cout << "Marking group outputs, not global renderer outputs.\n";
     }
 
+    if (entrylayers.size()) {
+        std::vector<const char *> layers;
+        std::cout << "Entry layers:";
+        for (size_t i = 0; i < entrylayers.size(); ++i) {
+            ustring layername (entrylayers[i]);  // convert to ustring
+            int layid = shadingsys->find_layer (*shadergroup, layername);
+            layers.push_back (layername.c_str());
+            entrylayer_index.push_back (layid);
+            std::cout << ' ' << entrylayers[i] << "(" << layid << ")";
+        }
+        std::cout << "\n";
+        shadingsys->attribute (shadergroup.get(), "entry_layers",
+                               TypeDesc(TypeDesc::STRING,(int)entrylayers.size()),
+                               &layers[0]);
+    }
+
     if (extraoptions.size())
         shadingsys->attribute ("options", extraoptions);
 
     ShadingContext *ctx = shadingsys->get_context ();
-    // Because we can only call get_symbol on something that has been
-    // set up to shade (or executed), we call execute() but tell it not
-    // to actually run the shader.
+    // Because we can only call find_symbol or get_symbol on something that
+    // has been set up to shade (or executed), we call execute() but tell it
+    // not to actually run the shader.
     ShaderGlobals sg;
     setup_shaderglobals (sg, shadingsys, 0, 0);
-    shadingsys->execute (*ctx, *shadergroup, sg, false);
+    shadingsys->execute (ctx, *shadergroup, sg, false);
+
+    if (entryoutputs.size()) {
+        std::cout << "Entry outputs:";
+        for (size_t i = 0; i < entryoutputs.size(); ++i) {
+            ustring name (entryoutputs[i]);  // convert to ustring
+            const ShaderSymbol *sym = shadingsys->find_symbol (*shadergroup, name);
+            if (!sym) {
+                std::cout << "\nEntry output " << entryoutputs[i] << " not found. Abording.\n";
+                exit (EXIT_FAILURE);
+            }
+            entrylayer_symbols.push_back (sym);
+            std::cout << ' ' << entryoutputs[i];
+        }
+        std::cout << "\n";
+    }
 
     // For each output file specified on the command line...
     for (size_t i = 0;  i < outputfiles.size();  ++i) {
@@ -594,9 +700,15 @@ setup_output_images (ShadingSystem *shadingsys,
 
         // Make an ImageBuf of the right type and size to hold this
         // symbol's output, and initially clear it to all black pixels.
-        OIIO::ImageSpec spec (xres, yres, nchans, outtypebase);
+        OIIO::ImageSpec spec (xres, yres, nchans, TypeDesc::FLOAT);
         outputimgs[i] = new OIIO::ImageBuf(outputfiles[i], spec);
+        outputimgs[i]->set_write_format (outtypebase);
         OIIO::ImageBufAlgo::zero (*outputimgs[i]);
+    }
+
+    if (outputimgs.empty()) {
+        OIIO::ImageSpec spec (xres, yres, 3, TypeDesc::FLOAT);
+        outputimgs.push_back(new OIIO::ImageBuf(spec));
     }
 
     shadingsys->release_context (ctx);  // don't need this anymore for now
@@ -732,7 +844,7 @@ test_group_attributes (ShaderGroup *group)
 
 
 
-static void
+void
 shade_region (ShaderGroup *shadergroup, OIIO::ROI roi, bool save)
 {
     // Optional: high-performance apps may request this thread-specific
@@ -775,7 +887,21 @@ shade_region (ShaderGroup *shadergroup, OIIO::ROI roi, bool save)
             setup_shaderglobals (shaderglobals, shadingsys, x, y);
 
             // Actually run the shader for this point
-            shadingsys->execute (*ctx, *shadergroup, shaderglobals);
+            if (entrylayer_index.empty()) {
+                // Sole entry point for whole group, default behavior
+                shadingsys->execute (ctx, *shadergroup, shaderglobals);
+            } else {
+                // Explicit list of entries to call in order
+                shadingsys->execute_init (*ctx, *shadergroup, shaderglobals);
+                if (entrylayer_symbols.size()) {
+                    for (size_t i = 0, e = entrylayer_symbols.size(); i < e; ++i)
+                        shadingsys->execute_layer (*ctx, shaderglobals, entrylayer_symbols[i]);
+                } else {
+                    for (size_t i = 0, e = entrylayer_index.size(); i < e; ++i)
+                        shadingsys->execute_layer (*ctx, shaderglobals, entrylayer_index[i]);
+                }
+                shadingsys->execute_cleanup (*ctx);
+            }
 
             // Save all the designated outputs.  But only do so if we
             // are on the last iteration requested, so that if we are
@@ -948,15 +1074,22 @@ test_shade (int argc, const char *argv[])
     // to accurately time for a single iteration
     for (int iter = 0;  iter < iters;  ++iter) {
         OIIO::ROI roi (0, xres, 0, yres);
-        bool save = (iter == (iters-1));   // save on last iteration
 
+        if (use_shade_image)
+            OSL::shade_image (*shadingsys, *shadergroup, NULL,
+                              *outputimgs[0], outputvarnames,
+                              pixelcenters ? ShadePixelCenters : ShadePixelGrid,
+                              roi, num_threads);
+        else {
+            bool save = (iter == (iters-1));   // save on last iteration
 #if 0
-        shade_region (shadergroup.get(), roi, save);
+            shade_region (shadergroup.get(), roi, save);
 #else
-        OIIO::ImageBufAlgo::parallel_image (
-            boost::bind (shade_region, shadergroup.get(), _1, save),
-            roi, num_threads);
+            OIIO::ImageBufAlgo::parallel_image (
+                    boost::bind (shade_region, shadergroup.get(), _1, save),
+                    roi, num_threads);
 #endif
+        }
 
         // If any reparam was requested, do it now
         if (reparams.size() && reparam_layer.size()) {
@@ -982,7 +1115,7 @@ test_shade (int argc, const char *argv[])
     }
 
     // Print some debugging info
-    if (debug || stats || profile) {
+    if (debug || runstats || profile) {
         double runtime = timer.lap();
         std::cout << "\n";
         std::cout << "Setup: " << OIIO::Strutil::timeintervalformat (setuptime,2) << "\n";

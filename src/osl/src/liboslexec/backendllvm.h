@@ -75,6 +75,9 @@ public:
     /// This will end up being the group entry if 'groupentry' is true.
     llvm::Function* build_llvm_instance (bool groupentry);
 
+    /// Create an llvm function for group initialization code.
+    llvm::Function* build_llvm_init ();
+
     /// Build up LLVM IR code for the given range [begin,end) or
     /// opcodes, putting them (initially) into basic block bb (or the
     /// current basic block if bb==NULL).
@@ -247,8 +250,6 @@ public:
 
     llvm::Type *llvm_type_closure_component ();
     llvm::Type *llvm_type_closure_component_ptr ();
-    llvm::Type *llvm_type_closure_component_attr ();
-    llvm::Type *llvm_type_closure_component_attr_ptr ();
 
     /// Return the ShaderGlobals pointer cast as a void*.
     ///
@@ -311,7 +312,14 @@ public:
     ///
     void llvm_zero_derivs (const Symbol &sym, llvm::Value *count);
 
+    /// Generate a debugging printf at shader execution time.
     void llvm_gen_debug_printf (const std::string &message);
+
+    /// Generate a warning message at shader execution time.
+    void llvm_gen_warning (const std::string &message);
+
+    /// Generate an error message at shader execution time.
+    void llvm_gen_error (const std::string &message);
 
     /// Generate code to call the given layer.  If 'unconditional' is
     /// true, call it without even testing if the layer has already been
@@ -386,6 +394,13 @@ public:
 
     llvm::Function *layer_func () const { return ll.current_function(); }
 
+    /// Call this when JITing a texture-like call, to track how many.
+    void generated_texture_call (bool handle) {
+        shadingsys().m_stat_tex_calls_codegened += 1;
+        if (handle)
+            shadingsys().m_stat_tex_calls_as_handles += 1;
+    }
+
     LLVM_Util ll;
 
 private:
@@ -408,7 +423,6 @@ private:
     llvm::Type *m_llvm_type_sg;  // LLVM type of ShaderGlobals struct
     llvm::Type *m_llvm_type_groupdata;  // LLVM type of group data
     llvm::Type *m_llvm_type_closure_component; // LLVM type for ClosureComponent
-    llvm::Type *m_llvm_type_closure_component_attr; // LLVM type for ClosureMeta::Attr
     llvm::PointerType *m_llvm_type_prepare_closure_func;
     llvm::PointerType *m_llvm_type_setup_closure_func;
     int m_llvm_local_mem;             // Amount of memory we use for locals

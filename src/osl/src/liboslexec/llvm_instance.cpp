@@ -126,6 +126,7 @@ static ustring op_aassign("aassign");
 static ustring op_compassign("compassign");
 static ustring op_aref("aref");
 static ustring op_compref("compref");
+static ustring op_useparam("useparam");
 
 
 struct HelperFuncRecord {
@@ -346,10 +347,7 @@ BackendLLVM::llvm_type_closure_component ()
         return m_llvm_type_closure_component;
 
     std::vector<llvm::Type*> comp_types;
-    comp_types.push_back (ll.type_int());     // parent.type
     comp_types.push_back (ll.type_int());     // id
-    comp_types.push_back (ll.type_int());     // size
-    comp_types.push_back (ll.type_int());     // nattrs
     comp_types.push_back (ll.type_triple());  // w
     comp_types.push_back (ll.type_int());     // fake field for char mem[4]
 
@@ -362,35 +360,6 @@ llvm::Type *
 BackendLLVM::llvm_type_closure_component_ptr ()
 {
     return ll.type_ptr (llvm_type_closure_component());
-}
-
-
-llvm::Type *
-BackendLLVM::llvm_type_closure_component_attr ()
-{
-    if (m_llvm_type_closure_component_attr)
-        return m_llvm_type_closure_component_attr;
-
-    std::vector<llvm::Type*> attr_types;
-    attr_types.push_back ((llvm::Type *) ll.type_string());  // key
-
-    std::vector<llvm::Type*> union_types;
-    union_types.push_back (ll.type_int());
-    union_types.push_back (ll.type_float());
-    union_types.push_back (ll.type_triple());
-    union_types.push_back ((llvm::Type *) ll.type_void_ptr());
-
-    attr_types.push_back (ll.type_union (union_types)); // value union
-
-    return m_llvm_type_closure_component_attr = ll.type_struct (attr_types, "ClosureComponentAttr");
-}
-
-
-
-llvm::Type *
-BackendLLVM::llvm_type_closure_component_attr_ptr ()
-{
-    return ll.type_ptr (llvm_type_closure_component_attr());
 }
 
 
@@ -599,6 +568,13 @@ BackendLLVM::llvm_generate_debugnan (const Opcode &op)
 void
 BackendLLVM::llvm_generate_debug_uninit (const Opcode &op)
 {
+    if (op.opname() == op_useparam) {
+        // Don't check the args of a useparam before the op; they are by
+        // definition potentially net yet set before the useparam action
+        // itself puts values into them. Checking them for uninitialized
+        // values will result in false positives.
+        return;
+    }
     for (int i = 0;  i < op.nargs();  ++i) {
         Symbol &sym (*opargsym (op, i));
         if (! op.argread(i))
@@ -636,11 +612,18 @@ BackendLLVM::llvm_generate_debug_uninit (const Opcode &op)
                                 sg_void_ptr(), 
                                 ll.constant(op.sourcefile()),
                                 ll.constant(op.sourceline()),
+                                ll.constant(group().name()),
+                                ll.constant(layer()),
+                                ll.constant(inst()->layername()),
+                                ll.constant(inst()->shadername().c_str()),
+                                ll.constant(int(&op - &inst()->ops()[0])),
+                                ll.constant(op.opname()),
+                                ll.constant(i),
                                 ll.constant(sym.name()),
                                 offset,
                                 ncheck
                               };
-        ll.call_function ("osl_uninit_check", args, 8);
+        ll.call_function ("osl_uninit_check", args, 15);
     }
 }
 
@@ -686,15 +669,91 @@ BackendLLVM::build_llvm_code (int beginop, int endop, llvm::BasicBlock *bb)
 
 
 llvm::Function*
+BackendLLVM::build_llvm_init ()
+{
+    // Make a group init function: void group_init(ShaderGlobals*, GroupData*)
+    // Note that the GroupData* is passed as a void*.
+    std::string unique_name = Strutil::format ("group_%d_init", group().id());
+    ll.current_function (
+           ll.make_function (unique_name, false,
+                             ll.type_void(), // return type
+                             llvm_type_sg_ptr(), llvm_type_groupdata_ptr()));
+
+    // Get shader globals and groupdata pointers
+    m_llvm_shaderglobals_ptr = ll.current_function_arg(0); //arg_it++;
+    m_llvm_groupdata_ptr = ll.current_function_arg(1); //arg_it++;
+
+    // Set up a new IR builder
+    llvm::BasicBlock *entry_bb = ll.new_basic_block (unique_name);
+    ll.new_builder (entry_bb);
+#if 0 /* helpful for debugging */
+    if (llvm_debug()) {
+        llvm_gen_debug_printf (Strutil::format("\n\n\n\nGROUP! %s",group().name()));
+        llvm_gen_debug_printf ("enter group initlayer %d %s %s");                               this->layer(), inst()->layername(), inst()->shadername()));
+    }
+#endif
+
+    // Group init clears all the "layer_run" and "userdata_initialized" flags.
+    if (m_num_used_layers > 1) {
+        int sz = (m_num_used_layers + 3) & (~3);  // round up to 32 bits
+        ll.op_memset (ll.void_ptr(layer_run_ref(0)), 0, sz, 4 /*align*/);
+    }
+    int num_userdata = (int) group().m_userdata_names.size();
+    if (num_userdata) {
+        int sz = (num_userdata + 3) & (~3);  // round up to 32 bits
+        ll.op_memset (ll.void_ptr(userdata_initialized_ref(0)), 0, sz, 4 /*align*/);
+    }
+
+    // Group init also needs to allot space for ALL layers' params
+    // that are closures (to avoid weird order of layer eval problems).
+    for (int i = 0;  i < group().nlayers();  ++i) {
+        ShaderInstance *gi = group()[i];
+        if (gi->unused() || gi->empty_instance())
+            continue;
+        FOREACH_PARAM (Symbol &sym, gi) {
+           if (sym.typespec().is_closure_based()) {
+                int arraylen = std::max (1, sym.typespec().arraylength());
+                llvm::Value *val = ll.constant_ptr(NULL, ll.type_void_ptr());
+                for (int a = 0; a < arraylen;  ++a) {
+                    llvm::Value *arrind = sym.typespec().is_array() ? ll.constant(a) : NULL;
+                    llvm_store_value (val, sym, 0, arrind, 0);
+                }
+            }
+        }
+    }
+
+
+    // All done
+#if 0 /* helpful for debugging */
+    if (llvm_debug())
+        llvm_gen_debug_printf (Strutil::format("exit group init %s",
+                                               group().name());
+#endif
+    ll.op_return();
+
+    if (llvm_debug())
+        std::cout << "group init func (" << unique_name << ") "
+                  << " after llvm  = " 
+                  << ll.bitcode_string(ll.current_function()) << "\n";
+
+    ll.end_builder();  // clear the builder
+
+    return ll.current_function();
+}
+
+
+
+llvm::Function*
 BackendLLVM::build_llvm_instance (bool groupentry)
 {
     // Make a layer function: void layer_func(ShaderGlobals*, GroupData*)
     // Note that the GroupData* is passed as a void*.
     std::string unique_layer_name = Strutil::format ("%s_%d", inst()->layername(), inst()->id());
 
+    bool is_entry_layer = group().is_entry_layer(layer());
     ll.current_function (
            ll.make_function (unique_layer_name,
-                             !groupentry, // fastcall for non-entry layer functions
+                             !is_entry_layer, // fastcall for non-entry layer functions
                              ll.type_void(), // return type
                              llvm_type_sg_ptr(), llvm_type_groupdata_ptr()));
 
@@ -707,46 +766,36 @@ BackendLLVM::build_llvm_instance (bool groupentry)
 
     // Set up a new IR builder
     ll.new_builder (entry_bb);
-#if 0 /* helpful for debugging */
-    if (llvm_debug() && groupentry)
-        llvm_gen_debug_printf (Strutil::format("\n\n\n\nGROUP! %s",group().name()));
-    if (llvm_debug())
+
+    llvm::Value *layerfield = layer_run_ref(layer_remap(layer()));
+    if (is_entry_layer && ! group().is_last_layer(layer())) {
+        // For entry layers, we need an extra check to see if it already
+        // ran. If it has, do an early return. Otherwise, set the 'ran' flag
+        // and then run the layer.
+        if (shadingsys().llvm_debug_layers())
+            llvm_gen_debug_printf (Strutil::format("checking for already-run layer %d %s %s",
+                                   this->layer(), inst()->layername(), inst()->shadername()));
+        llvm::Value *executed = ll.op_eq (ll.op_load (layerfield), ll.constant_bool(true));
+        llvm::BasicBlock *then_block = ll.new_basic_block();
+        llvm::BasicBlock *after_block = ll.new_basic_block();
+        ll.op_branch (executed, then_block, after_block);
+        // insert point is now then_block
+        // we've already executed, so return early
+        if (shadingsys().llvm_debug_layers())
+            llvm_gen_debug_printf (Strutil::format("  taking early exit, already executed layer %d %s %s",
+                                   this->layer(), inst()->layername(), inst()->shadername()));
+        ll.op_return ();
+        ll.set_insert_point (after_block);
+    }
+
+    if (shadingsys().llvm_debug_layers())
         llvm_gen_debug_printf (Strutil::format("enter layer %d %s %s",
                                this->layer(), inst()->layername(), inst()->shadername()));
-#endif
-    if (shadingsys().countlayerexecs())
-        ll.call_function ("osl_incr_layers_executed", sg_void_ptr());
-
-    if (groupentry) {
-        // If this is the group entry point, clear all the "layer_run" and
-        // "userdata_initialized" flags.
-        if (m_num_used_layers > 1) {
-            int sz = (m_num_used_layers + 3) & (~3);  // round up to 32 bits
-            ll.op_memset (ll.void_ptr(layer_run_ref(0)), 0, sz, 4 /*align*/);
-        }
-        int num_userdata = (int) group().m_userdata_names.size();
-        if (num_userdata) {
-            int sz = (num_userdata + 3) & (~3);  // round up to 32 bits
-            ll.op_memset (ll.void_ptr(userdata_initialized_ref(0)), 0, sz, 4 /*align*/);
-        }
-
-        // Group entries also need to allot space for ALL layers' params
-        // that are closures (to avoid weird order of layer eval problems).
-        for (int i = 0;  i < group().nlayers();  ++i) {
-            ShaderInstance *gi = group()[i];
-            if (gi->unused() || gi->empty_instance())
-                continue;
-            FOREACH_PARAM (Symbol &sym, gi) {
-               if (sym.typespec().is_closure_based()) {
-                    int arraylen = std::max (1, sym.typespec().arraylength());
-                    llvm::Value *val = ll.constant_ptr(NULL, ll.type_void_ptr());
-                    for (int a = 0; a < arraylen;  ++a) {
-                        llvm::Value *arrind = sym.typespec().is_array() ? ll.constant(a) : NULL;
-                        llvm_store_value (val, sym, 0, arrind, 0);
-                    }
-                }
-            }
-        }
+    // Mark this layer as executed
+    if (! group().is_last_layer(layer())) {
+        ll.op_store (ll.constant_bool(true), layerfield);
+        if (shadingsys().countlayerexecs())
+            ll.call_function ("osl_incr_layers_executed", sg_void_ptr());
     }
 
     // Setup the symbols
@@ -856,11 +905,9 @@ BackendLLVM::build_llvm_instance (bool groupentry)
     // llvm_gen_debug_printf ("done copying connections");
 
     // All done
-#if 0 /* helpful for debugging */
-    if (llvm_debug())
+    if (shadingsys().llvm_debug_layers())
         llvm_gen_debug_printf (Strutil::format("exit layer %d %s %s",
                                this->layer(), inst()->layername(), inst()->shadername()));
-#endif
     ll.op_return();
 
     if (llvm_debug())
@@ -885,7 +932,6 @@ BackendLLVM::initialize_llvm_group ()
     m_llvm_type_sg = NULL;
     m_llvm_type_groupdata = NULL;
     m_llvm_type_closure_component = NULL;
-    m_llvm_type_closure_component_attr = NULL;
 
     initialize_llvm_helper_function_map();
     ll.InstallLazyFunctionCreator (helper_function_lookup);
@@ -968,23 +1014,24 @@ BackendLLVM::run ()
 
     // Set up m_num_used_layers to be the number of layers that are
     // actually used, and m_layer_remap[] to map original layer numbers
-    // to the shorter list of actually-called layers.
+    // to the shorter list of actually-called layers. We also note that
+    // if m_layer_remap[i] is < 0, it's not a layer that's used.
     int nlayers = group().nlayers();
-    m_layer_remap.resize (nlayers);
+    m_layer_remap.resize (nlayers, -1);
     m_num_used_layers = 0;
-    if (shadingsys().debug() >= 1)
-        std::cout << "\nLayers used:\n";
+    if (debug() >= 1)
+        std::cout << "\nLayers used: (group " << group().name() << ")\n";
     for (int layer = 0;  layer < nlayers;  ++layer) {
-        bool lastlayer = (layer == (nlayers-1));
-        if (lastlayer ||
-            (! group()[layer]->unused() && !group()[layer]->empty_instance()))
-        {
-            if (shadingsys().debug() >= 1)
-                std::cout << "  " << layer << "\n";
+        // Skip unused or empty layers, unless they are callable entry
+        // points.
+        ShaderInstance *inst = group()[layer];
+        bool is_single_entry = (layer == (nlayers-1) && group().num_entry_layers() == 0);
+        if (inst->entry_layer() || is_single_entry ||
+            (! inst->unused() && !inst->empty_instance())) {
+            if (debug() >= 1)
+                std::cout << "  " << layer << ' ' << inst->layername() << "\n";
             m_layer_remap[layer] = m_num_used_layers++;
         }
-        else
-            m_layer_remap[layer] = -1;
     }
     shadingsys().m_stat_empty_instances += nlayers - m_num_used_layers;
 
@@ -992,15 +1039,18 @@ BackendLLVM::run ()
 
     // Generate the LLVM IR for each layer.  Skip unused layers.
     m_llvm_local_mem = 0;
-    llvm::Function** funcs = (llvm::Function**)alloca(m_num_used_layers * sizeof(llvm::Function*));
+    llvm::Function* init_func = build_llvm_init ();
+    std::vector<llvm::Function*> funcs (nlayers, NULL);
     for (int layer = 0; layer < nlayers; ++layer) {
         set_inst (layer);
-        bool lastlayer = (layer == (nlayers-1));
-        int index = m_layer_remap[layer];
-        if (index != -1)
-            funcs[index] = build_llvm_instance (lastlayer);
+        if (m_layer_remap[layer] != -1) {
+            // If no entry points were specified, the last layer is special,
+            // it's the single entry point for the whole group.
+            bool is_single_entry = (layer == (nlayers-1) && group().num_entry_layers() == 0);
+            funcs[layer] = build_llvm_instance (is_single_entry);
+        }
     }
-    llvm::Function* entry_func = funcs[m_num_used_layers-1];
+    // llvm::Function* entry_func = group().num_entry_layers() ? NULL : funcs[m_num_used_layers-1];
     m_stat_llvm_irgen_time += timer.lap();
 
     if (shadingsys().m_max_local_mem_KB &&
@@ -1017,26 +1067,26 @@ BackendLLVM::run ()
     // entry points, as well as for all the external functions that are
     // just declarations (not definitions) in the module (which we have
     // conveniently stashed in external_function_names).
-    std::vector<std::string> entry_functions;
-    entry_functions.push_back (ll.func_name(entry_func));
-    ll.internalize_module_functions ("osl_", external_function_names, entry_functions);
-
-    // Optimize the LLVM IR unless it's just a ret void group (1 layer,
-    // 1 BB, 1 inst == retvoid)
-    bool skip_optimization = m_num_used_layers == 1 && ll.func_is_empty(entry_func);
-    // Label the group as being retvoid or not.
-    group().does_nothing(skip_optimization);
-    if (skip_optimization) {
-        shadingsys().m_stat_empty_groups += 1;
-        shadingsys().m_stat_empty_instances += 1;  // the one layer is empty
-    } else {
-        ll.do_optimize();
+    std::vector<std::string> entry_function_names;
+    entry_function_names.push_back (ll.func_name(init_func));
+    for (int layer = 0; layer < nlayers; ++layer) {
+        // set_inst (layer);
+        llvm::Function* f = funcs[layer];
+        if (f && group().is_entry_layer(layer))
+            entry_function_names.push_back (ll.func_name(f));
     }
+    ll.internalize_module_functions ("osl_", external_function_names, entry_function_names);
+
+    // Optimize the LLVM IR unless it's a do-nothing group.
+    if (! group().does_nothing())
+        ll.do_optimize();
 
     m_stat_llvm_opt_time += timer.lap();
 
     if (llvm_debug()) {
-        std::cout << "func after opt  = " << ll.bitcode_string (entry_func) << "\n";
+        for (int layer = 0; layer < nlayers; ++layer)
+            if (funcs[layer])
+                std::cout << "func after opt  = " << ll.bitcode_string (funcs[layer]) << "\n";
         std::cout.flush();
     }
 
@@ -1047,16 +1097,28 @@ BackendLLVM::run ()
         ll.write_bitcode_file (name.c_str());
     }
 
-    // Force the JIT to happen now and retrieve the JITed function
-    group().llvm_compiled_version ((RunLLVMGroupFunc) ll.getPointerToFunction(entry_func));
+    // Force the JIT to happen now and retrieve the JITed function pointers
+    // for the initialization and all public entry points.
+    group().llvm_compiled_init ((RunLLVMGroupFunc) ll.getPointerToFunction(init_func));
+    for (int layer = 0; layer < nlayers; ++layer) {
+        llvm::Function* f = funcs[layer];
+        if (f && group().is_entry_layer (layer))
+            group().llvm_compiled_layer (layer, (RunLLVMGroupFunc) ll.getPointerToFunction(f));
+    }
+    if (group().num_entry_layers())
+        group().llvm_compiled_version (NULL);
+    else
+        group().llvm_compiled_version (group().llvm_compiled_layer(nlayers-1));
 
     // Remove the IR for the group layer functions, we've already JITed it
     // and will never need the IR again.  This saves memory, and also saves
     // a huge amount of time since we won't re-optimize it again and again
     // if we keep adding new shader groups to the same Module.
-    for (int i = 0; i < m_num_used_layers; ++i) {
-        ll.delete_func_body (funcs[i]);
+    for (int i = 0; i < nlayers; ++i) {
+        if (funcs[i])
+            ll.delete_func_body (funcs[i]);
     }
+    ll.delete_func_body (init_func);
 
     // Free the exec and module to reclaim all the memory.  This definitely
     // saves memory, and has almost no effect on runtime.

@@ -97,6 +97,14 @@ public:
     bool open (string_view shadername,
                string_view searchpath = string_view());
 
+    /// Get info on the shader from it's compiled bytecode.  Return
+    /// true for success, false if the shader could not be found or
+    /// opened properly.
+    /// Meant to be called from an app which caches bytecodes from
+    /// it's own side and wants to get shader info on runtime without
+    /// creating a temporary file.
+    bool open_bytecode (string_view buffer);
+
     /// Meant to be called at runtime from an app with a full ShadingSystem,
     /// fill out an OSLQuery structure for the given layer of the group.
     /// This is much faster than using open() to read it from an oso file on
@@ -148,7 +156,7 @@ public:
         return e;
     }
 
-    /// DEPRECATED(1.5) -- included for back compatibility
+    OSL_DEPRECATED("Use geterror(). (Deprecated since 1.5)")
     std::string error (void) { return geterror(); }
 
 private:

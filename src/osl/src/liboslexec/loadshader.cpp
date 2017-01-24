@@ -70,7 +70,7 @@ public:
     virtual void symdefault (float def);
     virtual void symdefault (const char *def);
     virtual void parameter_done();
-    virtual void hint (const char *hintstring);
+    virtual void hint (string_view hintstring);
     virtual void codemarker (const char *name);
     virtual void codeend ();
     virtual void instruction (int label, const char *opcode);
@@ -376,9 +376,9 @@ readuntil (std::string &source, const std::string &stop, bool do_trim=false)
 
 
 void
-OSOReaderToMaster::hint (const char *hintstring)
+OSOReaderToMaster::hint (string_view hintstring)
 {
-    std::string h (hintstring);
+    std::string h (hintstring);   // FIXME -- use string_view ops here
     if (extract_prefix (h, "%filename{\"")) {
         m_sourcefile = readuntil (h, "\"");
         return;
@@ -435,6 +435,10 @@ OSOReaderToMaster::hint (const char *hintstring)
             m_master->m_ops.back().argread(i, *str == 'r' || *str =='W');
         }
         ASSERT(m_nargs == i);
+        // Fix old bug where oslc forgot to mark getmatrix last arg as write
+        static ustring getmatrix("getmatrix");
+        if (m_master->m_ops.back().opname() == getmatrix)
+            m_master->m_ops.back().argwrite(m_nargs-1, true);
     }
     if (extract_prefix(h, "%argderivs{")) {
         while (1) {

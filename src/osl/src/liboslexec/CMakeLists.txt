@@ -6,11 +6,12 @@ SET ( liboslexec_srcs
           opcolor.cpp opmatrix.cpp opmessage.cpp
           opnoise.cpp simplexnoise.cpp gabornoise.cpp
           opspline.cpp opstring.cpp optexture.cpp
-          oslexec.cpp osoreader.cpp
+          oslexec.cpp 
           pointcloud.cpp rendservices.cpp 
           constfold.cpp runtimeoptimize.cpp typespec.cpp
           lpexp.cpp lpeparse.cpp automata.cpp accum.cpp
           opclosure.cpp
+          shadeimage.cpp
           backendllvm.cpp
           llvm_gen.cpp llvm_instance.cpp llvm_util.cpp
     )
@@ -68,9 +69,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     foreach (def ${CURRENT_DEFINITIONS})
         set (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} "-D${def}")
     endforeach()
-    if (USE_SIMD)
-    	set (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} "-m${USE_SIMD}")
-    endif ()
+    set (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} ${OSL_SIMD_FLAGS} ${OSL_CSTD_FLAGS})
 
     # Figure out what program we will use to make the bitcode.
     if (NOT LLVM_BC_GENERATOR)
@@ -115,6 +114,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
           "-I${ILMBASE_INCLUDE_DIR}"
           "-I${Boost_INCLUDE_DIRS}"
           -DOSL_COMPILING_TO_BITCODE=1
+          -Wno-deprecated-register
           -O3 -fno-math-errno -S -emit-llvm -o ${llvm_asm} ${llvm_src}
       COMMAND "${LLVM_DIRECTORY}/bin/llvm-as" -f -o ${llvm_bc} ${llvm_asm}
       COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash" ${llvm_bc} ${llvm_bc_cpp}
@@ -141,22 +141,24 @@ endif ()
 
 TARGET_LINK_LIBRARIES ( oslexec
                         ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
-                        ${OPENIMAGEIO_LIBRARY} ${PUGIXML_LIBRARIES}
+                        ${OPENIMAGEIO_LIBRARY} ${ILMBASE_LIBRARIES}
+                        ${PUGIXML_LIBRARIES}
                         ${PARTIO_LIBRARIES} ${ZLIB_LIBRARIES}
                         ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
-                        ${LLVM_LIBRARY} ${LLVM_MCJIT_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
+                        ${LLVM_LIBRARY} ${LLVM_MCJIT_LIBRARY}
+                        ${LLVM_LIBRARIES} ${LLVM_LDFLAGS}
+                        ${EXTRA_OSLEXEC_LIBRARIES})
 ADD_DEPENDENCIES (oslexec "${CMAKE_CURRENT_SOURCE_DIR}/liboslexec.map")
-LINK_ILMBASE ( oslexec )
 
 INSTALL ( TARGETS oslexec RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib )
 
 # Unit tests
-add_executable (accum_test accum_test.cpp)
-target_link_libraries ( accum_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} )
-link_ilmbase (accum_test)
-add_test (unit_accum "${CMAKE_BINARY_DIR}/src/liboslexec/accum_test")
+if (OSL_BUILD_TESTS)
+    add_executable (accum_test accum_test.cpp)
+    target_link_libraries ( accum_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${EXTRA_OSLEXEC_LIBRARIES} )
+    add_test (unit_accum "${CMAKE_BINARY_DIR}/src/liboslexec/accum_test")
 
-add_executable (llvmutil_test llvmutil_test.cpp)
-target_link_libraries ( llvmutil_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} )
-link_ilmbase (llvmutil_test)
-add_test (unit_llvmutil "${CMAKE_BINARY_DIR}/src/liboslexec/llvmutil_test")
+    add_executable (llvmutil_test llvmutil_test.cpp)
+    target_link_libraries ( llvmutil_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${EXTRA_OSLEXEC_LIBRARIES} )
+    add_test (unit_llvmutil "${CMAKE_BINARY_DIR}/src/liboslexec/llvmutil_test")
+endif ()

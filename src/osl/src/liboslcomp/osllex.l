@@ -39,6 +39,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * automatically reset to another file.
  */
 %option noyywrap
+%option nounput noinput
+
+/* never-interactive fixes a Windows compatibility problem where the
+ * lexer emits isatty calls that don't exist.
+ */
+%option never-interactive
 
  /* Option 'prefix' creates a C++ lexer with the given prefix, so that
   * we can link with other flex-generated lexers in the same application
@@ -58,6 +64,7 @@ ALPHA           [A-Za-z]
 DIGIT           [0-9]
  /* Integer literal */
 INTEGER         {DIGIT}+
+HEXINTEGER      0[xX][0-9a-fA-F]+
  /* floating point literal (E, FLT1, FLT2, FLT3 are just helpers)
   * NB: we don't allow leading +/- due to ambiguity between
   * whether "a-0.5" is really "a -0.5" or "a - 0.5".  Resolve this
@@ -69,11 +76,8 @@ FLT2            {DIGIT}*\.{DIGIT}+{E}?
 FLT3            {DIGIT}+{E}
 FLT             {FLT1}|{FLT2}|{FLT3}
  /* string literal */
-STR     \"(\\.|[^\\"])*\"
-STRDUMMY \"(\\.|[^\\"])*\"
- /* Dumb note: STRDUMMY is just to fix my syntax highlighting in emacs,
-  * which is thrown off by the odd number of quotes!
-  */
+STR     \"(\\.|[^\\"\n])*\"
+        /* " This extra quote fixes emacs syntax highlighting on this file */
  /* Identifier: alphanumeric, may contain digits after the first character */
 IDENT           ({ALPHA}|[_])({ALPHA}|{DIGIT}|[_])*
  /* C preprocessor (cpp) directives */
@@ -93,6 +97,7 @@ CPLUSCOMMENT    \/\/.*\n
 #include <vector>
 #include <string>
 
+#include <OpenImageIO/thread.h>
 #include "oslcomp_pvt.h"
 
 using namespace OSL;
@@ -108,6 +113,8 @@ using namespace OSL::pvt;
 
 #ifdef _MSC_VER
 #define strtoll _strtoi64
+#include <io.h>
+#define isatty _isatty
 #endif
 #endif
 
@@ -126,7 +133,7 @@ void preprocess (const char *yytext);
   ************************************************/
 
  /* preprocessor symbols */
-{CPP}	 	        {  preprocess (YYText()); SETLINE; }
+{CPP}	 	        {  preprocess (yytext); SETLINE; }
 
  /* Comments */
 {CPLUSCOMMENT}          {  oslcompiler->incr_lineno(); /* skip it */
@@ -170,7 +177,7 @@ void preprocess (const char *yytext);
                             fprintf (stderr, "Error: \"%s\", line %d:\n"
                                      "\t'%s' is a reserved word\n",
                                      oslcompiler->filename().c_str(),
-                                     oslcompiler->lineno(), YYText());
+                                     oslcompiler->lineno(), yytext);
                             SETLINE;
                             return (yylval.i=RESERVED);
                         }
@@ -178,14 +185,14 @@ void preprocess (const char *yytext);
 
  /* Identifiers */
 {IDENT}	                {
-                            yylval.s = ustring(YYText()).c_str();
+                            yylval.s = ustring(yytext).c_str();
                             SETLINE;
                             return IDENTIFIER;
                         }
 
  /* Literal values */
 {INTEGER}               {
-                            long long llval = strtoll (YYText(), (char**)NULL, 10);
+                            long long llval = strtoll (yytext, (char**)NULL, 10);
                             // we do not detect overflow when the value is INT_MAX+1,
                             // because negation happens later and -(INT_MAX+1) == INT_MIN
                             if (llval > ((long long)INT_MAX)+1) {
@@ -198,16 +205,32 @@ void preprocess (const char *yytext);
                             SETLINE;
                             return INT_LITERAL;
                         }
+{HEXINTEGER}            {
+                            long long llval = strtoll (yytext, (char**)NULL, 16);
+                            // we do not detect overflow when the value is INT_MAX+1,
+                            // because negation happens later and -(INT_MAX+1) == INT_MIN
+                            if (llval > ((long long)UINT_MAX)+1) {
+                                oslcompiler->error (oslcompiler->filename(),
+                                                    oslcompiler->lineno(),
+                                                    "integer overflow, value must be between %d and %d.",
+                                                    INT_MIN, INT_MAX);
+                            }
+                            yylval.i = (int)llval;
+                            SETLINE;
+                            return INT_LITERAL;
+                        }
+
+
 
 {FLT}                   {
-                            yylval.f = atof (YYText());
+                            yylval.f = atof (yytext);
                             SETLINE;
                             return FLOAT_LITERAL;
                         }
 
 {STR}                   {
                             // grab the material between the quotes
-                            ustring s (YYText(), 1, strlen(YYText())-2);
+                            ustring s (yytext, 1, yyleng-2);
                             yylval.s = s.c_str();
                             SETLINE;
                             return STRING_LITERAL;
@@ -251,7 +274,7 @@ void preprocess (const char *yytext);
 
  /* catch-all rule for any other single characters */
 !			{  SETLINE;  return (yylval.i = NOT_OP); }
-.			{  SETLINE;  return (yylval.i = *YYText()); }
+.			{  SETLINE;  return (yylval.i = *yytext); }
 
 %%
 
@@ -317,3 +340,26 @@ preprocess (const char *yytext)
     }
     SETLINE;
 }
+
+
+
+OSL_NAMESPACE_ENTER
+namespace pvt {   // OSL::pvt
+
+
+bool
+OSLCompilerImpl::osl_parse_buffer (const std::string &preprocessed_buffer)
+{
+    // Thread safety with the lexer/parser
+    static OIIO::mutex oslcompiler_mutex;
+    OIIO::lock_guard lock (oslcompiler_mutex);
+    osl_switch_to_buffer (osl_scan_string (preprocessed_buffer.c_str()));
+    oslcompiler = this;
+    oslparse ();
+    bool parseerr = error_encountered();
+    osl_delete_buffer (YY_CURRENT_BUFFER);
+    return parseerr;
+}
+
+}; // namespace pvt
+OSL_NAMESPACE_EXIT

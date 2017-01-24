@@ -43,7 +43,7 @@
 
 \def\langname{Open Shading Language\xspace}
 \def\product{{\sffamily Open Shading Language}\xspace}
-\def\versionnumber{1.6}
+\def\versionnumber{1.7}
 \def\productver{\product\ {\sffamily \versionnumber}\xspace}
 
 
@@ -55,14 +55,14 @@ Language Specification
 %\\ \large (CONFIDENTIAL --- draft in progress) 
 } \bigskip }
 \author{
-\copyright\ Copyright 2009-2015 Sony Pictures Imageworks Inc., et al. All rights reserved.
+\copyright\ Copyright 2009-2016 Sony Pictures Imageworks Inc., et al. All rights reserved.
  \bigskip \\
 \vspace{1in} \\
 Editor: Larry Gritz \\
 \emph{lg@imageworks.com}
 }
-\date{{\large Date: 6 May, 2015 \\
-%~ (with corrections, 2 Oct 2014)
+\date{{\large Date: 14 Jan, 2016 \\
+ (with corrections, 5 Jul 2016)
 }
 \bigskip
 \bigskip
@@ -92,7 +92,6 @@ Editor: Larry Gritz \\
 \def\P{{\cf P}\xspace}
 \def\dPdu{{\cf dPdu}\xspace}
 \def\dPdv{{\cf dPdv}\xspace}
-\def\currentspace{{\cf "current"} space\xspace}
 \def\commonspace{{\cf "common"} space\xspace}
 \def\shaderspace{{\cf "shader"} space\xspace}
 \def\worldspace{{\cf "world"} space\xspace}
@@ -130,7 +129,7 @@ documentation are:
 
 \vspace*{0.2in}
 
-Copyright (c) 2009-2015 Sony Pictures Imageworks Inc., et al.
+Copyright (c) 2009-2016 Sony Pictures Imageworks Inc., et al.
 All Rights Reserved.
 
 \vspace{0.5in}
@@ -473,15 +472,15 @@ overridden with an instance-specific value of {\cf 2.2}.
 
 
 
-\subsection*{Shader groups and layers}
+\subsection*{Shader groups, layers, and connections}
 
-A \emph{shader group} is an ordered sequence of individual shaders
-called \emph{layers} that are executed in turn.  Output parameters of an
-earlier-executed layer may be \emph{connected} to an input parameter of
-a later-executed layer.  This connected network of layers is sometimes
-called a \emph{shader network} or a \emph{shader DAG} (directed acyclic
-graph).  Of course, it is fine for the shader group to consist of a
-single shader layer.
+A \emph{shader group}\index{shader group} is an ordered sequence of
+individual shaders called \emph{layers}\index{layer}\index{shader layer}
+that are executed in turn.  Output parameters of an earlier-executed layer
+may be \emph{connected} to an input parameter of a later-executed layer.
+This connected network of layers is sometimes called a \emph{shader network}
+or a \emph{shader DAG} (directed acyclic graph).  Of course, it is fine for
+the shader group to consist of a single shader layer.
 
 Below is a schematic showing how several shader instances may be
 connected to form a shader group.
@@ -518,7 +517,7 @@ it might be done.}:
 \end{code}
 
 \noindent Or, expressed as serialized text (as detailed in
-Appendix~\ref{chap:serialize}):
+Chapter~\ref{sec:serialize}):
 
 \begin{code}
     param string name "rings.tx" ;
@@ -536,7 +535,18 @@ Appendix~\ref{chap:serialize}):
     connect gam2.Cout wood1.grain ;
 \end{code}
 
-
+The rules for which data types may be connected are generally the same as
+the rules determining which variables may be assigned to each other in OSL
+source code:
+\begin{itemize}
+\item {\cf source} and {\cf dest} are the same data type.
+\item {\cf source} and {\cf dest} are both \emph{triples} (\color, \point,
+\vector, or \normal), even if they are not the same kind of triple.
+\item {\cf source} is an {\cf int} and {\cf dest} is a {\cf float}.
+\item {\cf source} is a {\cf float} or {\cf int} and {\cf dest} is a
+\emph{triple} (the scalar value will be replicated for all three components
+of the triple).
+\end{itemize}
 
 \subsection*{Geometric primitives}
 
@@ -548,7 +558,8 @@ polygons, and curves.  The exact set of supported primitives may vary
 from renderer to renderer.
 
 Each geometric primitive carries around a set of named \emph{primitive
-  variables}.  Nearly all shape types will have, among their primitive
+variables} (also sometimes called \emph{interpolated values} or
+\emph{user data}).  Nearly all shape types will have, among their primitive
 variables, control point positions that, when interpolated, actually
 designate the shape.  Some shapes will also allow the specification of
 normals or other shape-specific data.  Arbitrary user data may also be
@@ -576,11 +587,10 @@ primitives.
 
 The attribute state also includes shader assignments --- the shaders or
 shader groups for each of several \emph{shader uses}, such as surface
-shaders that designate how light reflects from each point on the shape,
+shaders that designate how light reflects or emits from each point on a shape,
 displacement shaders that can add fine detail to the shape on a
-point-by-point basis, volume shaders that describe how light is
-scattered within a region of space, and light shaders that describe how
-light is emitted from a light source.  A particular renderer may have
+point-by-point basis, and volume shaders that describe how light is
+scattered within a region of space.  A particular renderer may have
 additional shader types that it supports.
 
 %\subsection*{Shader types}
@@ -844,6 +854,7 @@ uniform union unsigned varying virtual volatile
 \indexapi{\#else}
 \indexapi{\#endif}
 \indexapi{\#include}
+\indexapi{\#pragma}
 
 Shader source code is passed through a standard C preprocessor as a
 first step in parsing.  
@@ -866,6 +877,7 @@ directives, including:
     #else
     #endif
     #include
+    #pragma once
 \end{code}
 
 
@@ -1452,7 +1464,8 @@ the {\cf int} type is renderer-dependent, but is guaranteed to be at
 least 32 bits.
 
 Integer constants are constructed the same way as in C.  The following
-are examples of {\cf int} constants: {\cf 1}, {\cf -32}, etc.
+are examples of {\cf int} constants: {\cf 1}, {\cf -32}, etc. Integer
+constants may be specified as hexidecimal, for example: {\cf 0x01cf}.
 
 Unlike C, no unsigned, bool, char, short, or long types are supplied.
 This is to simplify the process of writing shaders (as well as
@@ -1746,9 +1759,9 @@ The choice of \commonspace is renderer-dependent, though will usually
 be equivalent to either \cameraspace or \worldspace.
 
 Some computations may be easier in a coordinate system other than
-\currentspace.  For example, it is much more convenient to apply a
+\commonspace.  For example, it is much more convenient to apply a
 ``solid texture'' to a moving object in its \objectspace than in
-\currentspace.  For these reasons, SL provides a built-in 
+\commonspace.  For these reasons, OSL provides a built-in
 {\cf transform} function that
 allows you to transform points, vectors, and normals 
 among different coordinate systems (see Section~\ref{sec:stdlib:geom}).  Note,
@@ -1889,7 +1902,7 @@ reference to a named space:
 \end{code}
 
 \noindent The first form creates the matrix that transforms points from
-\currentspace to \shaderspace.  Transforming points by this matrix
+\commonspace to \shaderspace.  Transforming points by this matrix
 is identical to calling {\cf transform("shader",...)}.
 The second form prepends the current-to-world transformation matrix
 onto the $4 \times 4$ matrix with components $m_{0,0} ... m_{3,3}$.
@@ -2575,7 +2588,7 @@ loop:
 
 \indexapi{for}
 As in C++, a {\cf for} loop's initialization may contain variable
-declarations and initializations, which are scoped locally to {\cf for}
+declarations and initializations, which are scoped locally to the {\cf for}
 loop itself.  For example,
 
 \begin{code}
@@ -2658,9 +2671,9 @@ P/\partial u$ and $\partial P/\partial v$ tangent to the surface at \P.  \\
 %         {\cf Pl}). \\
 %\hline
 %\color\ {\ce Cl} & Incoming light color at P. \\
-%\hline
+\hline
 \point\ {\ce Ps} & Position at which the light is being queried 
-    (currently only used for light attentuation shaders) \\
+    (currently only used for light attenuation shaders) \\
 %\\
 %\hline
 %\normal\ {\ce Ns} & Axis about which the light is being queried
@@ -2717,9 +2730,10 @@ P/\partial u$ and $\partial P/\partial v$ tangent to the surface at \P.  \\
 {\cf Nl}      &       &    &  & R \\
 \hline 
 \end{tabular}
+\end{table}
 \end{comment}
 
-\begin{table}[c]
+\begin{table}
 \begin{tabular}{|p{1in}p{0.75in}p{0.75in}p{0.75in}|}
 \hline
 {\bf Variable} & surface & displacement & volume  \\
@@ -2730,6 +2744,7 @@ P/\partial u$ and $\partial P/\partial v$ tangent to the surface at \P.  \\
 {\cf Ng}      & R     & R  &    \\
 {\cf dPdu}    & R     & R  &    \\
 {\cf dPdv}    & R     & R  &    \\
+{\cf Ps}      &       &    & R   \\
 {\cf u, v}    & R     & R  & R   \\
 {\cf time}    & R     & R  & R       \\
 {\cf dtime}   & R     & R  & R       \\
@@ -3314,6 +3329,14 @@ The \emph{type} may be any of of \float, \color, \point, \vector, or
 performed component-by-component (separately for $x$, $y$, and $z$).
 \apiend
 
+\apiitem{float {\ce linearstep} (float edge0, float edge1, float x)}
+\indexapi{linearstep()}
+\NEW % 1.7
+Returns 0 if $x \le {\mathit edge0}$, and 1 if $x \ge {\mathit edge1}$,
+and performs a linear
+interpolation between 0 and 1 when ${\mathit edge0} < x < {\mathit edge1}$.
+\apiend
+
 \apiitem{float {\ce smoothstep} (float edge0, float edge1, float x)}
 \indexapi{smoothstep()}
 Returns 0 if $x \le {\mathit edge0}$, and 1 if $x \ge {\mathit edge1}$,
@@ -3322,6 +3345,18 @@ interpolation between 0 and 1 when ${\mathit edge0} < x < {\mathit edge1}$.
 This is useful in cases where you would want a thresholding function
 with a smooth transition.
 \apiend
+
+\apiitem{float {\ce smooth_linearstep} (float edge0, float edge1, float x, float eps)}
+\indexapi{smooth_linearstep()}
+\NEW % 1.7
+This function is strictly linear between ${\mathit edge0}+{\mathit eps}$ and ${\mathit edge1}-{\mathit eps}$
+but smoothly ramps to 0 between ${\mathit edge0}-{\mathit eps}$ and ${\mathit edge0}+{\mathit eps}$
+and smoothly ramps to 1 between ${\mathit edge1}-{\mathit eps}$ and ${\mathit edge1}+{\mathit eps}$.
+It is 0 when $x \le {\mathit edge0}-{\mathit eps}$, and 1 if $x \ge {\mathit edge1}+{\mathit eps}$,
+and performs a linear
+interpolation between 0 and 1 when ${\mathit edge0} < x < {\mathit edge1}$.
+\apiend
+
 
 %\section{Noise functions}
 %\label{sec:stdlib:noise}
@@ -3398,7 +3433,7 @@ derivatives.  Gabor noise allows several optional parameters to the
 "direction", <vector>}
 \vspace{12pt}
 If {\cf anisotropic} is 0 (the default), Gabor noise
-will be isotropic.  If {\cf anisotripic} is 1, the Gabor noise will
+will be isotropic.  If {\cf anisotropic} is 1, the Gabor noise will
 be anisotropic with the 3D frequency given by the {\cf direction} 
 vector (which defaults to {\cf (1,0,0)}).  If {\cf anisotropic} is
 2, a hybrid mode will be used which is anisotropic along the
@@ -3656,7 +3691,7 @@ void {\ce displace} (vector offset)}
 \indexapi{displace()}
 
 Displace the surface in the direction of the shading normal \N by
-\emph{amp} units as measured in the named \emph{space} (or \currentspace
+\emph{amp} units as measured in the named \emph{space} (or \commonspace
 if none is specified).  Alternately, the surface may be moved by a fully
 general \emph{offset}, which does not need to be in the direction of the
 surface normal.
@@ -3708,7 +3743,7 @@ expected.
 \indexapi{format()}
 The {\cf format} function works similarly to {\cf printf}, except that
 instead of printing the results, it returns the formatted text as a
-\string.
+{\cf string}.
 \apiend
 
 \apiitem{void {\ce error} (string fmt, ...) \\
@@ -3786,6 +3821,19 @@ is omitted, return the rest of \emph{s}, starting with \emph{start}.  If
 \emph{start} is negative, it counts backwards from the end of the string
 (for example, {\cf substr(s,-1)} returns just the last character of
 \emph{s}).
+\apiend
+
+\apiitem{int {\ce getchar} (string s, int n)}
+\indexapi{getchar()}
+\NEW % 1.7
+Returns the numeric value of the $n^{\mathrm{th}}$ character of the string,
+or {\cf 0} if {\cf n} does not index a valid character of the string.
+\apiend
+
+\apiitem{int {\ce hash} (string s)}
+\indexapi{hash()}
+\NEW % 1.7
+Returns a deterministic, repeatable \emph{hash} of the string.
 \apiend
 
 \apiitem{int {\ce regex_search} (string subject, string regex) \\
@@ -4149,7 +4197,7 @@ parameters recognized are listed below:
 
 \smallskip
 
-\begin{tabular}{p{1.2in} p{0.5in} p{3.3in}}
+\begin{tabular}{p{1.1in} p{0.5in} p{3.4in}}
 {\bf Name} & {\bf Type} & {\bf Description} \\
 \hline
 
@@ -4171,16 +4219,16 @@ volumetric texture, the third component ($z$ resolution) will be
 map. \\[0.75ex]
 
 \qkw{type} & {\cf string} & Returns the semantic type of the texture,
-one of: \qkw{Plain Texture}, \qkw{Shadow}, \qkw{Environment},
-\qkw{Volume Texture}. \\[0.75ex]
+one of: \qkws{Plain Texture}, \qkws{Shadow}, \qkws{Environment},
+\qkws{Volume Texture}. \\[0.75ex]
 
 \qkw{subimages} & {\cf int} & Returns the number of subimages in the
 texture file. \\[0.75ex]
 
 \qkw{textureformat} & {\cf string} & Returns the texture format, one of:
-\qkw{Plain Texture}, \qkw{Shadow}, \qkw{CubeFace Shadow}, \qkw{Volume
-  Shadow}, \qkw{CubeFace Environment}, \qkw{LatLong Environment},
-\qkw{Volume Texture}. Note that this differs from \qkw{type} in that it
+\qkws{Plain Texture}, \qkws{Shadow}, \qkws{CubeFace Shadow}, \qkws{Volume
+  Shadow}, \qkws{CubeFace Environment}, \qkws{LatLong Environment},
+\qkws{Volume Texture}. Note that this differs from \qkw{type} in that it
 specifically distinguishes between the different types of shadows and
 environment maps.  \\[0.75ex]
 
@@ -4201,9 +4249,10 @@ they will be 0). \\[0.75ex]
 \noindent ...continued...
 \end{tabular}
 
-\begin{tabular}{p{1.2in} p{0.5in} p{3.3in}}
+\begin{tabular}{p{1.1in} p{0.5in} p{3.4in}}
 {\bf Name} & {\bf Type} & {\bf Description} \\
 \hline
+
 \qkw{worldtocamera} & \matrix & If the texture is a rendered image,
 retrieves the world-to-camera 3D transformation matrix that was used when it
 was created.\\[0.75ex]
@@ -4240,7 +4289,7 @@ given {\cf data} arrays.  If the optional {\cf sort} parameter is present
 and is nonzero, the ordering of the points
 found will be sorted by distance from {\cf pos}, from closest to farthest;
 otherwise, the results are guaranteed to be the {\cf maxpoints} closest
-to {\cf pos}, but not necessarily softed by distance (this may be
+to {\cf pos}, but not necessarily sorted by distance (this may be
 faster for some implementations than when sorted results are
 required).  The return value is the number of points returned, ranging
 from 0 (nothing found in the neighborhood) to the lesser of {\cf maxpoints}
@@ -4474,9 +4523,9 @@ anisotropic case {\cf U} must be a vector orthogonal to {\cf N} to specify the
 direction.  These values are expected to be the alpha values of the distribution
 as it appears in the literature, not a universal roughness measure.
 The {\cf eta} parameter is the index of refraction of the material, and
-{\cf refract} is a boolean flag to make the BSDF refractive instead of
-reflective. The implementation must not rely on {\cf U} when the roughness is
-isotropic or the given vector is zero.
+{\cf refract} is a enumeration flag that controls if the BSDF is reflective ({\cf 0}),
+refractive ({\cf 1}) or both at once ({\cf 2}). The implementation must not rely on
+{\cf U} when the roughness is isotropic or the given vector is zero.
 
 The list of supported distributions will change from renderer to renderer, and
 also the behavior when an unsupported distribution is requested. It is up to the
@@ -4497,7 +4546,7 @@ the previous function.
 \apiend
 
 
-\apiitem{\colorclosure\ \colorclosure\ {\ce reflection} (normal N, float eta)}
+\apiitem{\colorclosure\ {\ce reflection} (normal N, float eta)}
 \indexapi{reflection()}
 
 Returns a \colorclosure that represents sharp mirror-like reflection
@@ -4681,7 +4730,8 @@ int {\ce getattribute} (string object, string name, output \emph{type} destinati
 int {\ce getattribute} (string object, string name, int arrayindex, \\
 \bigspc\spc\spc output \emph{type} destination)}
 \indexapi{getattribute()}
-Searches for the renderer attribute with the given \emph{name}.
+Retrieves a named renderer attribute or the value of an interpolated
+geometric variable.
 If an object is explicitly named, that is the only place that will be
 searched (\qkw{global} means the global scene-wide attributes).  For the
 forms of the function with no object name, or if the object name is the
@@ -4877,10 +4927,24 @@ from the ``front'' or the ``outside'' of a closed object.
 \apiitem{int {\ce isconnected} (\emph{type} parameter)}
 \indexapi{isconnected()}
 Returns {\cf 1} if the argument is a shader parameter and is connected
-to an earlier layer in the shader group, otherwise returns {\cf 0}.
+to an earlier layer in the shader group, 
+{\cf 2} if the argument is a shader output parameter connected
+to a later layer in the shader group, {\cf 3} if connected to both
+earlier and later layers, otherwise returns {\cf 0}.
 Remember that function arguments in OSL are always pass-by-reference,
 so {\cf isconnected()} applied to a function parameter will depend on
 what was passed in as the actual parameter.
+\apiend
+
+\apiitem{int {\ce isconstant} (\emph{type} expr)}
+\indexapi{isconstant()}
+Returns {\cf 1} if the expression can, at runtime (knowing the values of all
+the shader group's parameter values and connections), be discerned to be
+reducible to a constant value, otherwise returns {\cf 0}.
+
+This is primarily a debugging aid for advanced shader writers to verify
+their assumptions about what expressions can end up being constant-folded
+by the runtime optimizer.
 \apiend
 
 
@@ -5030,7 +5094,12 @@ nothing (empty, no token).
 
 <digit-sequence> ::= <digit> \{ <digit> \}
 
+<hexdigit> ::= <digit> | "a" | "A" | "b" | "B" | "c" | "C" | "d" | "D" | "e" | "E" | "f" | "F"
+
+<hexdigit-sequence> ::= <hexdigit> \{ <hexdigit> \}
+
 <integer> ::= <sign> <digit-sequence>
+\alt <sign> "0x" <hexdigit-sequence>
 
 <floating-point> ::= <digit-sequence> <decimal-part-opt> <exponent-opt>
 \alt <decimal-part> <exponent-opt>

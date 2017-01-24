@@ -91,7 +91,15 @@ examples), as you are just coding in C++, but there are some rules:
 */
 
 
+// Some gcc versions on some platforms seem to have max_align_t missing from
+// their <cstddef>. Putting this here appears to make it build cleanly on
+// those platforms while not hurting anything elsewhere.
+namespace {
+typedef long double max_align_t;
+}
+
 #include <iostream>
+#include <cstddef>
 
 #include "OSL/oslconfig.h"
 #include "OSL/shaderglobals.h"
@@ -138,7 +146,6 @@ void * __dso_handle = 0; // necessary to avoid linkage issues in bitcode
 #define DVEC(x) (*(Dual2<Vec3> *)x)
 #define COL(x) (*(Color3 *)x)
 #define DCOL(x) (*(Dual2<Color3> *)x)
-#define TYPEDESC(x) (*(TypeDesc *)&x)
 
 
 #ifndef OSL_SHADEOP
@@ -519,11 +526,12 @@ inline Dual2<float> fabsf (const Dual2<float> &x) {
 MAKE_UNARY_PERCOMPONENT_OP (abs, fabsf, fabsf);
 MAKE_UNARY_PERCOMPONENT_OP (fabs, fabsf, fabsf);
 
+OSL_SHADEOP int osl_safe_mod_iii (int a, int b) {
+    return (b != 0) ? (a % b) : 0;
+}
+
 inline float safe_fmod (float a, float b) {
-    if (b == 0.0f)
-        return 0.0f;
-    else
-        return std::fmod (a, b);
+    return (b != 0.0f) ? std::fmod (a,b) : 0.0f;
 }
 
 inline Dual2<float> safe_fmod (const Dual2<float> &a, const Dual2<float> &b) {
@@ -532,6 +540,14 @@ inline Dual2<float> safe_fmod (const Dual2<float> &a, const Dual2<float> &b) {
 
 MAKE_BINARY_PERCOMPONENT_OP (fmod, safe_fmod, safe_fmod);
 MAKE_BINARY_PERCOMPONENT_VF_OP (fmod, safe_fmod, safe_fmod)
+
+OSL_SHADEOP float osl_safe_div_fff (float a, float b) {
+    return (b != 0.0f) ? (a / b) : 0.0f;
+}
+
+OSL_SHADEOP int osl_safe_div_iii (int a, int b) {
+    return (b != 0) ? (a / b) : 0;
+}
 
 OSL_SHADEOP float osl_smoothstep_ffff(float e0, float e1, float x) { return smoothstep(e0, e1, x); }
 
@@ -634,14 +650,14 @@ OSL_SHADEOP void osl_transformn_vmv(void *result, void* M_, void* v_)
 {
    const Vec3 &v = VEC(v_);
    const Matrix44 &M = MAT(M_);
-   M.inverse().transpose().multDirMatrix (v, VEC(result));
+   M.inverse().transposed().multDirMatrix (v, VEC(result));
 }
 
 OSL_SHADEOP void osl_transformn_dvmdv(void *result, void* M_, void* v_)
 {
    const Dual2<Vec3> &v = DVEC(v_);
    const Matrix44    &M = MAT(M_);
-   multDirMatrix (M.inverse().transpose(), v, DVEC(result));
+   multDirMatrix (M.inverse().transposed(), v, DVEC(result));
 }
 
 
@@ -814,5 +830,3 @@ OSL_SHADEOP int osl_raytype_bit (void *sg_, int bit)
     ShaderGlobals *sg = (ShaderGlobals *)sg_;
     return (sg->raytype & bit) != 0;
 }
-
-

@@ -30,10 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
 #include <map>
+#include <set>
 
 #include <boost/version.hpp>
 #if BOOST_VERSION >= 104900
 # include <boost/container/flat_map.hpp>
+# include <boost/container/flat_set.hpp>
 # define USE_FLAT_MAP 1
 #endif
 
@@ -48,8 +50,10 @@ namespace pvt {   // OSL::pvt
 
 #if USE_FLAT_MAP
 typedef boost::container::flat_map<int,int> FastIntMap;
+typedef boost::container::flat_set<int> FastIntSet;
 #else
 typedef std::map<int,int> FastIntMap;
+typedef std::set<int> FastIntSet;
 #endif
 
 
@@ -73,8 +77,10 @@ public:
     void optimize_instance ();
 
     /// One optimization pass over a range of instructions [begin, end).
-    /// Return the number of changes made.
-    int optimize_ops (int beginop, int endop);
+    /// Return the number of changes made. If seed_block_aliases is not
+    /// NULL, use that as the initial set of block_aliases.
+    int optimize_ops (int beginop, int endop,
+                      FastIntMap *seed_block_aliases = NULL);
 
     /// Post-optimization cleanup of a layer: add 'useparam' instructions,
     /// track variable lifetimes, coalesce temporaries.
@@ -102,6 +108,11 @@ public:
     /// Search for the given global, adding it to the symbol table if
     /// necessary, and returning its index.
     int add_global (ustring name, const TypeSpec &type);
+
+    /// Add a new symbol to the current instance's symbol list. Don't push
+    /// onto the symbol table yourself during optimization; this does some
+    /// other essential housekeeping.
+    int add_symbol (const Symbol &sym);
 
     /// Turn the op into a simple assignment of the new symbol index to the
     /// previous first argument of the op.  That is, changes "OP arg0 arg1..."
@@ -134,6 +145,15 @@ public:
     /// of instructions that were altered.
     int turn_into_nop (int begin, int end, string_view why=NULL);
 
+    void debug_opt_impl (string_view message) const;
+    TINYFORMAT_WRAP_FORMAT (void, debug_opt, const,
+                            std::ostringstream msg;, msg,
+                            debug_opt_impl(msg.str());)
+    void debug_opt_ops (int opbegin, int opend, string_view message) const;
+    void debug_turn_into (const Opcode &op, int numops,
+                          string_view newop, int newarg0,
+                          int newarg1, int newarg2, string_view why);
+
     void simplify_params ();
 
     void find_params_holding_globals ();
@@ -161,12 +181,9 @@ public:
     }
 
     /// Reset the block-local alias of 'symindex' so it doesn't alias to
-    /// anything.
-    void block_unalias (int symindex) {
-        FastIntMap::iterator i = m_block_aliases.find (symindex);
-        if (i != m_block_aliases.end())
-            i->second = -1;
-    }
+    /// anything. Also will unalias from any saved alias lists on the
+    /// m_block_aliases_stack.
+    void block_unalias (int symindex);
 
     /// Clear local block aliases for any args that are written by this op.
     void block_unalias_written_args (Opcode &op) {
@@ -176,9 +193,15 @@ public:
     }
 
     /// Reset all block-local aliases (done when we enter a new basic
-    /// block).
-    void clear_block_aliases () {
-        m_block_aliases.clear ();
+    /// block).  If new_block_aliases is non-NULL, copy its contents to the
+    /// current block aliases.
+    void clear_block_aliases (FastIntMap *new_block_aliases=NULL) {
+        if (new_block_aliases) {
+            if (new_block_aliases != &m_block_aliases)
+                m_block_aliases = *new_block_aliases;
+        } else {
+            m_block_aliases.clear ();
+        }
     }
 
     /// Set the new global alias of 'symindex' to 'alias'.
@@ -325,9 +348,12 @@ public:
     /// instructions in the same basic block as opnum, return 0.
     int next_block_instruction (int opnum);
 
-    /// Search for pairs of ops to perform peephole optimization on.
-    /// 
-    int peephole2 (int opnum);
+    /// Perform peephole optimization on pairs of adjacent instructions
+    /// within the same basic block.
+    int peephole2 (int opnum, int op2num);
+
+    /// Perform various optimizations specific to assignments.
+    int optimize_assignment (Opcode &op, int opnum);
 
     bool opt_elide_unconnected_outputs () const {
         return m_opt_elide_unconnected_outputs;
@@ -355,6 +381,21 @@ public:
         return s;
     }
 
+    std::ostream & printinst (std::ostream &out) const;
+
+    /// Add to syms the indices of all symbols that may be written by
+    /// instructions in the half-closed range [opbegin, opend).
+    void catalog_symbol_writes (int opbegin, int opend, FastIntSet &syms);
+
+    /// Copy block_aliases from old to new, except any aliases involving
+    /// symbols in the excluded list (which may be NULL if there no
+    /// exclusions). If copy_temps is false, aliases involving temp symbols
+    /// will not be copied.
+    void copy_block_aliases (const FastIntMap &old_block_aliases,
+                             FastIntMap &new_block_aliases,
+                             const FastIntSet *excluded=NULL,
+                             bool copy_temps=false);
+
 private:
     int m_optimize;                   ///< Current optimization level
     bool m_opt_simplify_param;            ///< Turn instance params into const?
@@ -381,6 +422,7 @@ private:
     int m_next_newtemp;               ///< Unique ID for next new temp we add
     FastIntMap m_symbol_aliases;      ///< Global symbol aliases
     FastIntMap m_block_aliases;         ///< Local block aliases
+    std::vector<FastIntMap *> m_block_aliases_stack; ///< Stack of saved local block aliases
     FastIntMap m_param_aliases;         ///< Params aliasing to params/globals
     FastIntMap m_stale_syms;            ///< Stale symbols for this block
     int m_local_unknown_message_sent;   ///< Non-const setmessage in this inst

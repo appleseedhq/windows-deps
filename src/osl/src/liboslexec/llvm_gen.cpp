@@ -107,20 +107,36 @@ BackendLLVM::llvm_gen_debug_printf (const std::string &message)
                       ll.constant(s));
 }
 
+    
+
+void
+BackendLLVM::llvm_gen_warning (const std::string &message)
+{
+    ll.call_function ("osl_warning", sg_void_ptr(), ll.constant("%s\n"),
+                      ll.constant(message));
+}
+
+
+
+void
+BackendLLVM::llvm_gen_error (const std::string &message)
+{
+    ll.call_function ("osl_error", sg_void_ptr(), ll.constant("%s\n"),
+                      ll.constant(message));
+}
+
 
 
 void
 BackendLLVM::llvm_call_layer (int layer, bool unconditional)
 {
     // Make code that looks like:
-    //     if (! groupdata->run[parentlayer]) {
-    //         groupdata->run[parentlayer] = 1;
+    //     if (! groupdata->run[parentlayer])
     //         parent_layer (sg, groupdata);
-    //     }
     // if it's a conditional call, or
-    //     groupdata->run[parentlayer] = 1;
     //     parent_layer (sg, groupdata);
     // if it's run unconditionally.
+    // The code in the parent layer itself will set its 'executed' flag.
 
     llvm::Value *args[2];
     args[0] = sg_ptr ();
@@ -139,12 +155,12 @@ BackendLLVM::llvm_call_layer (int layer, bool unconditional)
         // insert point is now then_block
     }
 
-    ll.op_store (trueval, layerfield);
     std::string name = Strutil::format ("%s_%d", parent->layername().c_str(),
                                         parent->id());
     // Mark the call as a fast call
     llvm::Value *funccall = ll.call_function (name.c_str(), args, 2);
-    ll.mark_fast_func_call (funccall);
+    if (!parent->entry_layer())
+        ll.mark_fast_func_call (funccall);
 
     if (! unconditional)
         ll.op_branch (after_block);  // also moves insert point
@@ -200,6 +216,13 @@ BackendLLVM::llvm_run_connected_layers (Symbol &sym, int symindex,
             llvm_call_layer (con.srclayer);
         }
     }
+}
+
+
+
+LLVMGEN (llvm_gen_nop)
+{
+    return true;
 }
 
 
@@ -587,19 +610,28 @@ LLVMGEN (llvm_gen_div)
 
     // The following should handle f/f, v/v, v/f, f/v, i/i
     // That's all that should be allowed by oslc.
+    const char *safe_div = is_float ? "osl_safe_div_fff" : "osl_safe_div_iii";
     bool deriv = (Result.has_derivs() && (A.has_derivs() || B.has_derivs()));
     for (int i = 0; i < num_components; i++) {
         llvm::Value *a = rop.llvm_load_value (A, 0, i, type);
         llvm::Value *b = rop.llvm_load_value (B, 0, i, type);
         if (!a || !b)
             return false;
-        llvm::Value *a_div_b = rop.ll.op_make_safe_div (type, a, b);
+        llvm::Value *a_div_b;
+        if (B.is_constant() && ! rop.is_zero(B))
+            a_div_b = rop.ll.op_div (a, b);
+        else
+            a_div_b = rop.ll.call_function (safe_div, a, b);
         llvm::Value *rx = NULL, *ry = NULL;
 
         if (deriv) {
             // Division of duals: (a/b, 1/b*(ax-a/b*bx), 1/b*(ay-a/b*by))
             ASSERT (is_float);
-            llvm::Value *binv = rop.ll.op_make_safe_div (type, rop.ll.constant(1.0f), b);
+            llvm::Value *binv;
+            if (B.is_constant() && ! rop.is_zero(B))
+                binv = rop.ll.op_div (rop.ll.constant(1.0f), b);
+            else
+                binv = rop.ll.call_function (safe_div, rop.ll.constant(1.0f), b);
             llvm::Value *ax = rop.llvm_load_value (A, 1, i, type);
             llvm::Value *bx = rop.llvm_load_value (B, 1, i, type);
             llvm::Value *a_div_b_mul_bx = rop.ll.op_mul (a_div_b, bx);
@@ -649,12 +681,17 @@ LLVMGEN (llvm_gen_modulus)
 
     // The following should handle f%f, v%v, v%f, i%i
     // That's all that should be allowed by oslc.
+    const char *safe_mod = is_float ? "osl_fmod_fff" : "osl_safe_mod_iii";
     for (int i = 0; i < num_components; i++) {
         llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
         llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
         if (!a || !b)
             return false;
-        llvm::Value *r = rop.ll.op_make_safe_mod (type, a, b);
+        llvm::Value *r;
+        if (B.is_constant() && ! rop.is_zero(B))
+            r = rop.ll.op_mod (a, b);
+        else
+            r = rop.ll.call_function (safe_mod, a, b);
         rop.storeLLVMValue (r, Result, i, 0);
     }
 
@@ -992,11 +1029,16 @@ LLVMGEN (llvm_gen_compref)
     if (rop.shadingsys().range_checking()) {
         if (! (Index.is_constant() &&  *(int *)Index.data() >= 0 &&
                *(int *)Index.data() < 3)) {
-            llvm::Value *args[5] = { c, rop.ll.constant(3),
-                                     rop.sg_void_ptr(),
-                                     rop.ll.constant(op.sourcefile()),
-                                     rop.ll.constant(op.sourceline()) };
-            c = rop.ll.call_function ("osl_range_check", args, 5);
+            llvm::Value *args[] = { c, rop.ll.constant(3),
+                                    rop.ll.constant(Val.name()),
+                                    rop.sg_void_ptr(),
+                                    rop.ll.constant(op.sourcefile()),
+                                    rop.ll.constant(op.sourceline()),
+                                    rop.ll.constant(rop.group().name()),
+                                    rop.ll.constant(rop.layer()),
+                                    rop.ll.constant(rop.inst()->layername()),
+                                    rop.ll.constant(rop.inst()->shadername()) };
+            c = rop.ll.call_function ("osl_range_check", args);
             ASSERT (c);
         }
     }
@@ -1031,11 +1073,16 @@ LLVMGEN (llvm_gen_compassign)
     if (rop.shadingsys().range_checking()) {
         if (! (Index.is_constant() &&  *(int *)Index.data() >= 0 &&
                *(int *)Index.data() < 3)) {
-            llvm::Value *args[5] = { c, rop.ll.constant(3),
-                                     rop.sg_void_ptr(),
-                                     rop.ll.constant(op.sourcefile()),
-                                     rop.ll.constant(op.sourceline()) };
-            c = rop.ll.call_function ("osl_range_check", args, 5);
+            llvm::Value *args[] = { c, rop.ll.constant(3),
+                                    rop.ll.constant(Result.name()),
+                                    rop.sg_void_ptr(),
+                                    rop.ll.constant(op.sourcefile()),
+                                    rop.ll.constant(op.sourceline()),
+                                    rop.ll.constant(rop.group().name()),
+                                    rop.ll.constant(rop.layer()),
+                                    rop.ll.constant(rop.inst()->layername()),
+                                    rop.ll.constant(rop.inst()->shadername()) };
+            c = rop.ll.call_function ("osl_range_check", args);
         }
     }
 
@@ -1068,13 +1115,18 @@ LLVMGEN (llvm_gen_mxcompref)
     llvm::Value *row = rop.llvm_load_value (Row);
     llvm::Value *col = rop.llvm_load_value (Col);
     if (rop.shadingsys().range_checking()) {
-        llvm::Value *args[5] = { row, rop.ll.constant(4),
-                                 rop.sg_void_ptr(),
-                                 rop.ll.constant(op.sourcefile()),
-                                 rop.ll.constant(op.sourceline()) };
-        row = rop.ll.call_function ("osl_range_check", args, 5);
+        llvm::Value *args[] = { row, rop.ll.constant(4),
+                                rop.ll.constant(M.name()),
+                                rop.sg_void_ptr(),
+                                rop.ll.constant(op.sourcefile()),
+                                rop.ll.constant(op.sourceline()),
+                                rop.ll.constant(rop.group().name()),
+                                rop.ll.constant(rop.layer()),
+                                rop.ll.constant(rop.inst()->layername()),
+                                rop.ll.constant(rop.inst()->shadername()) };
+        row = rop.ll.call_function ("osl_range_check", args);
         args[0] = col;
-        col = rop.ll.call_function ("osl_range_check", args, 5);
+        col = rop.ll.call_function ("osl_range_check", args);
     }
 
     llvm::Value *val = NULL; 
@@ -1108,13 +1160,18 @@ LLVMGEN (llvm_gen_mxcompassign)
     llvm::Value *row = rop.llvm_load_value (Row);
     llvm::Value *col = rop.llvm_load_value (Col);
     if (rop.shadingsys().range_checking()) {
-        llvm::Value *args[5] = { row, rop.ll.constant(4),
-                                 rop.sg_void_ptr(),
-                                 rop.ll.constant(op.sourcefile()),
-                                 rop.ll.constant(op.sourceline()) };
-        row = rop.ll.call_function ("osl_range_check", args, 5);
+        llvm::Value *args[] = { row, rop.ll.constant(4),
+                                rop.ll.constant(Result.name()),
+                                rop.sg_void_ptr(),
+                                rop.ll.constant(op.sourcefile()),
+                                rop.ll.constant(op.sourceline()),
+                                rop.ll.constant(rop.group().name()),
+                                rop.ll.constant(rop.layer()),
+                                rop.ll.constant(rop.inst()->layername()),
+                                rop.ll.constant(rop.inst()->shadername()) };
+        row = rop.ll.call_function ("osl_range_check", args);
         args[0] = col;
-        col = rop.ll.call_function ("osl_range_check", args, 5);
+        col = rop.ll.call_function ("osl_range_check", args);
     }
 
     llvm::Value *val = rop.llvm_load_value (Val, 0, 0, TypeDesc::TypeFloat);
@@ -1165,12 +1222,17 @@ LLVMGEN (llvm_gen_aref)
     if (rop.shadingsys().range_checking()) {
         if (! (Index.is_constant() &&  *(int *)Index.data() >= 0 &&
                *(int *)Index.data() < Src.typespec().arraylength())) {
-            llvm::Value *args[5] = { index,
-                                     rop.ll.constant(Src.typespec().arraylength()),
-                                     rop.sg_void_ptr(),
-                                     rop.ll.constant(op.sourcefile()),
-                                     rop.ll.constant(op.sourceline()) };
-            index = rop.ll.call_function ("osl_range_check", args, 5);
+            llvm::Value *args[] = { index,
+                                    rop.ll.constant(Src.typespec().arraylength()),
+                                    rop.ll.constant(Src.name()),
+                                    rop.sg_void_ptr(),
+                                    rop.ll.constant(op.sourcefile()),
+                                    rop.ll.constant(op.sourceline()),
+                                    rop.ll.constant(rop.group().name()),
+                                    rop.ll.constant(rop.layer()),
+                                    rop.ll.constant(rop.inst()->layername()),
+                                    rop.ll.constant(rop.inst()->shadername()) };
+            index = rop.ll.call_function ("osl_range_check", args);
         }
     }
 
@@ -1204,12 +1266,17 @@ LLVMGEN (llvm_gen_aassign)
     if (rop.shadingsys().range_checking()) {
         if (! (Index.is_constant() &&  *(int *)Index.data() >= 0 &&
                *(int *)Index.data() < Result.typespec().arraylength())) {
-            llvm::Value *args[5] = { index,
-                                     rop.ll.constant(Result.typespec().arraylength()),
-                                     rop.sg_void_ptr(),
-                                     rop.ll.constant(op.sourcefile()),
-                                     rop.ll.constant(op.sourceline()) };
-            index = rop.ll.call_function ("osl_range_check", args, 5);
+            llvm::Value *args[] = { index,
+                                    rop.ll.constant(Result.typespec().arraylength()),
+                                    rop.ll.constant(Result.name()),
+                                    rop.sg_void_ptr(),
+                                    rop.ll.constant(op.sourcefile()),
+                                    rop.ll.constant(op.sourceline()),
+                                    rop.ll.constant(rop.group().name()),
+                                    rop.ll.constant(rop.layer()),
+                                    rop.ll.constant(rop.inst()->layername()),
+                                    rop.ll.constant(rop.inst()->shadername()) };
+            index = rop.ll.call_function ("osl_range_check", args);
         }
     }
 
@@ -1956,8 +2023,8 @@ llvm_gen_texture_options (BackendLLVM &rop, int opnum,
 
         Symbol &Val (*rop.opargsym(op,a));
         TypeDesc valtype = Val.typespec().simpletype ();
-        const int *ival = Val.typespec().is_int() ? (const int *)Val.data() : NULL;
-        const float *fval = Val.typespec().is_float() ? (const float *)Val.data() : NULL;
+        const int *ival = Val.typespec().is_int() && Val.is_constant() ? (const int *)Val.data() : NULL;
+        const float *fval = Val.typespec().is_float() && Val.is_constant() ? (const float *)Val.data() : NULL;
 
 #define PARAM_INT(paramname)                                            \
         if (name == Strings::paramname && valtype == TypeDesc::INT)   { \
@@ -2192,6 +2259,7 @@ LLVMGEN (llvm_gen_texture)
     args.push_back (rop.ll.void_ptr (dalphadx ? dalphadx : rop.ll.void_ptr_null()));
     args.push_back (rop.ll.void_ptr (dalphady ? dalphady : rop.ll.void_ptr_null()));
     rop.ll.call_function ("osl_texture", &args[0], (int)args.size());
+    rop.generated_texture_call (texture_handle != NULL);
     return true;
 }
 
@@ -2225,11 +2293,13 @@ LLVMGEN (llvm_gen_texture3d)
     std::vector<llvm::Value *> args;
     args.push_back (rop.sg_void_ptr());
     RendererServices::TextureHandle *texture_handle = NULL;
+#if OIIO_VERSION >= 10602
     if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
         texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
         if (! rop.renderer()->good (texture_handle))
             texture_handle = NULL;
     }
+#endif
     args.push_back (rop.llvm_load_value (Filename));
     args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (opt);
@@ -2264,6 +2334,7 @@ LLVMGEN (llvm_gen_texture3d)
     args.push_back (rop.ll.void_ptr (dalphady ? dalphady : rop.ll.void_ptr_null()));
     args.push_back (rop.ll.void_ptr_null());  // No dalphadz for now
     rop.ll.call_function ("osl_texture3d", &args[0], (int)args.size());
+    rop.generated_texture_call (texture_handle != NULL);
     return true;
 }
 
@@ -2296,11 +2367,13 @@ LLVMGEN (llvm_gen_environment)
     std::vector<llvm::Value *> args;
     args.push_back (rop.sg_void_ptr());
     RendererServices::TextureHandle *texture_handle = NULL;
+#if OIIO_VERSION >= 10602
     if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
         texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
         if (! rop.renderer()->good (texture_handle))
             texture_handle = NULL;
     }
+#endif
     args.push_back (rop.llvm_load_value (Filename));
     args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (opt);
@@ -2327,6 +2400,7 @@ LLVMGEN (llvm_gen_environment)
         args.push_back (rop.ll.void_ptr_null());
     }
     rop.ll.call_function ("osl_environment", &args[0], (int)args.size());
+    rop.generated_texture_call (texture_handle != NULL);
     return true;
 }
 
@@ -2719,11 +2793,13 @@ LLVMGEN (llvm_gen_gettextureinfo)
 
     args.push_back (rop.sg_void_ptr());
     RendererServices::TextureHandle *texture_handle = NULL;
+#if OIIO_VERSION >= 10602
     if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
         texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
         if (! rop.renderer()->good (texture_handle))
             texture_handle = NULL;
     }
+#endif
     args.push_back (rop.llvm_load_value (Filename));
     args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (rop.llvm_load_value (Dataname));
@@ -2963,7 +3039,7 @@ LLVMGEN (llvm_gen_spline)
 
 
 static void
-llvm_gen_keyword_fill(BackendLLVM &rop, Opcode &op, const ClosureRegistry::ClosureEntry *clentry, ustring clname, llvm::Value *attr_p, int argsoffset)
+llvm_gen_keyword_fill(BackendLLVM &rop, Opcode &op, const ClosureRegistry::ClosureEntry *clentry, ustring clname, llvm::Value *mem_void_ptr, int argsoffset)
 {
     DASSERT(((op.nargs() - argsoffset) % 2) == 0);
 
@@ -2981,30 +3057,22 @@ llvm_gen_keyword_fill(BackendLLVM &rop, Opcode &op, const ClosureRegistry::Closu
         bool legal = false;
         // Make sure there is some keyword arg that has the name and the type
         for (int t = 0; t < clentry->nkeyword; ++t) {
-            const ClosureParam &param = clentry->params[clentry->nformal + t];
+            const ClosureParam &p = clentry->params[clentry->nformal + t];
             // strcmp might be too much, we could precompute the ustring for the param,
             // but in this part of the code is not a big deal
-            if (equivalent(param.type,ValueType) && !strcmp(key->c_str(), param.key))
+            if (equivalent(p.type,ValueType) && !strcmp(key->c_str(), p.key)) {
+            	// store data
+            	DASSERT(p.offset + p.field_size <= clentry->struct_size);
+                llvm::Value* dst = rop.ll.offset_ptr (mem_void_ptr, p.offset);
+                llvm::Value* src = rop.llvm_void_ptr (Value);
+                rop.ll.op_memcpy (dst, src, (int)p.type.size(),
+                					4 /* use 4 byte alignment for now */);
                 legal = true;
+                break;
+            }
         }
         if (!legal) {
             rop.shadingcontext()->warning("Unsupported closure keyword arg \"%s\" for %s (%s:%d)", key->c_str(), clname.c_str(), op.sourcefile().c_str(), op.sourceline());
-        }
-
-        // Store the keyword and copy the parameter value (or if there
-        // was no matching keyword, copy the empty string and zero out
-        // the value).
-        llvm::Value *key_to   = rop.ll.GEP (attr_p, attr_i, 0);
-        llvm::Value *value_to = rop.ll.void_ptr (rop.ll.GEP (attr_p, attr_i, 1));
-        if (legal) {
-            llvm::Value *key_const = rop.ll.constant_ptr(*((void **)key), rop.ll.type_string());
-            rop.ll.op_store (key_const, key_to);
-            llvm::Value *value_from = rop.llvm_void_ptr (Value);
-            rop.ll.op_memcpy (value_to, value_from, (int)ValueType.size(), 4);
-        } else {
-            llvm::Value *key_const = rop.ll.constant_ptr(*((void **)&u__empty), rop.ll.type_string());
-            rop.ll.op_store (key_const, key_to);
-            rop.ll.op_memset (value_to, 0, (int)ValueType.size(), 4);
         }
     }
 }
@@ -3026,13 +3094,14 @@ LLVMGEN (llvm_gen_closure)
 
     const ClosureRegistry::ClosureEntry * clentry = rop.shadingsys().find_closure(closure_name);
     if (!clentry) {
-        rop.shadingcontext()->error ("Closure '%s' is not supported by the current renderer, called from (%s:%d)",
-                                closure_name.c_str(), op.sourcefile().c_str(), op.sourceline());
+        rop.llvm_gen_error (Strutil::format("Closure '%s' is not supported by the current renderer, called from %s:%d in shader \"%s\", layer %d \"%s\", group \"%s\"",
+                                     closure_name, op.sourcefile(), op.sourceline(),
+                                     rop.inst()->shadername(), rop.layer(),
+                                     rop.inst()->layername(), rop.group().name()));
         return false;
     }
 
     ASSERT (op.nargs() >= (2 + weighted + clentry->nformal));
-    int nattrs = (op.nargs() - (2 + weighted + clentry->nformal)) / 2;
 
     // Call osl_allocate_closure_component(closure, id, size).  It returns
     // the memory for the closure parameter data.
@@ -3040,12 +3109,11 @@ LLVMGEN (llvm_gen_closure)
     llvm::Value *sg_ptr = rop.sg_void_ptr();
     llvm::Value *id_int = rop.ll.constant(clentry->id);
     llvm::Value *size_int = rop.ll.constant(clentry->struct_size);
-    llvm::Value *nattrs_int = rop.ll.constant(nattrs);
-    llvm::Value *alloc_args[5] = { sg_ptr, id_int, size_int, nattrs_int,
+    llvm::Value *alloc_args[4] = { sg_ptr, id_int, size_int,
                                    weighted ? rop.llvm_void_ptr(*weight) : NULL };
     llvm::Value *return_ptr = weighted ?
-          rop.ll.call_function ("osl_allocate_weighted_closure_component", alloc_args, 5)
-        : rop.ll.call_function ("osl_allocate_closure_component", alloc_args, 4);
+          rop.ll.call_function ("osl_allocate_weighted_closure_component", alloc_args, 4)
+        : rop.ll.call_function ("osl_allocate_closure_component", alloc_args, 3);
     llvm::Value *comp_void_ptr = return_ptr;
 
     // For the weighted closures, we need a surrounding "if" so that it's safe
@@ -3062,8 +3130,8 @@ LLVMGEN (llvm_gen_closure)
     }
 
     llvm::Value *comp_ptr = rop.ll.ptr_cast(comp_void_ptr, rop.llvm_type_closure_component_ptr());
-    // Get the address of the primitive buffer, which is the 5th field
-    llvm::Value *mem_void_ptr = rop.ll.GEP (comp_ptr, 0, 5);
+    // Get the address of the primitive buffer, which is the 2nd field
+    llvm::Value *mem_void_ptr = rop.ll.GEP (comp_ptr, 0, 2);
     mem_void_ptr = rop.ll.ptr_cast(mem_void_ptr, rop.ll.type_void_ptr());
 
     // If the closure has a "prepare" method, call
@@ -3082,7 +3150,7 @@ LLVMGEN (llvm_gen_closure)
     for (int carg = 0; carg < clentry->nformal; ++carg) {
         const ClosureParam &p = clentry->params[carg];
         if (p.key != NULL) break;
-        ASSERT(p.offset < clentry->struct_size);
+        DASSERT(p.offset + p.field_size <= clentry->struct_size);
         Symbol &sym = *rop.opargsym (op, carg + 2 + weighted);
         TypeDesc t = sym.typespec().simpletype();
         if (!sym.typespec().is_closure_array() && !sym.typespec().is_structure()
@@ -3108,9 +3176,7 @@ LLVMGEN (llvm_gen_closure)
         rop.ll.call_function (funct_ptr, args, 3);
     }
 
-    llvm::Value *attrs_void_ptr = rop.ll.offset_ptr (mem_void_ptr, clentry->struct_size);
-    llvm::Value *attrs_ptr = rop.ll.ptr_cast(attrs_void_ptr, rop.llvm_type_closure_component_attr_ptr());
-    llvm_gen_keyword_fill(rop, op, clentry, closure_name, attrs_ptr,
+    llvm_gen_keyword_fill(rop, op, clentry, closure_name, mem_void_ptr,
                           2 + weighted + clentry->nformal);
 
     if (next_block)
@@ -3526,6 +3592,19 @@ LLVMGEN (llvm_gen_luminance)
     if (Result.has_derivs() && !C.has_derivs())
         rop.llvm_zero_derivs (Result);
 
+    return true;
+}
+
+
+
+LLVMGEN (llvm_gen_isconstant)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    ASSERT (op.nargs() == 2);
+    Symbol &Result (*rop.opargsym (op, 0));
+    ASSERT (Result.typespec().is_int());
+    Symbol &A (*rop.opargsym (op, 1));
+    rop.llvm_store_value (rop.ll.constant(A.is_constant() ? 1 : 0), Result);
     return true;
 }
 

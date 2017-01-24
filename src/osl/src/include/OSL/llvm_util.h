@@ -317,6 +317,9 @@ public:
     llvm::Value *constant (const char *s) {
         return constant(OIIO::ustring(s));
     }
+    llvm::Value *constant (const std::string &s) {
+        return constant(OIIO::ustring(s));
+    }
 
     /// Return an llvm::Value for a long long that is a packed
     /// representation of a TypeDesc.
@@ -373,6 +376,10 @@ public:
     /// the function, if any.
     llvm::Value *call_function (const char *name,
                                 llvm::Value **args, int nargs);
+    template<size_t N>
+    llvm::Value* call_function (const char *name, llvm::Value* (&args)[N]) {
+        return call_function (name, &args[0], int(N));
+    }
 
     llvm::Value *call_function (const char *name, llvm::Value *arg0) {
         return call_function (name, &arg0, 1);
@@ -456,20 +463,12 @@ public:
     llvm::Value *op_sub (llvm::Value *a, llvm::Value *b);
     llvm::Value *op_neg (llvm::Value *a);
     llvm::Value *op_mul (llvm::Value *a, llvm::Value *b);
+    llvm::Value *op_div (llvm::Value *a, llvm::Value *b);
+    llvm::Value *op_mod (llvm::Value *a, llvm::Value *b);
     llvm::Value *op_float_to_int (llvm::Value *a);
     llvm::Value *op_int_to_float (llvm::Value *a);
     llvm::Value *op_bool_to_int (llvm::Value *a);
     llvm::Value *op_float_to_double (llvm::Value *a);
-
-    /// Generate IR code for simple a/b, but considering OSL's semantics
-    /// that x/0 = 0, not inf.
-    llvm::Value *op_make_safe_div (OIIO::TypeDesc type,
-                                   llvm::Value *a, llvm::Value *b);
-
-    /// Generate IR code for simple a mod b, but considering OSL's
-    /// semantics that x mod 0 = 0, not inf.
-    llvm::Value *op_make_safe_mod (OIIO::TypeDesc type,
-                                   llvm::Value *a, llvm::Value *b);
 
     llvm::Value *op_and (llvm::Value *a, llvm::Value *b);
     llvm::Value *op_or (llvm::Value *a, llvm::Value *b);
