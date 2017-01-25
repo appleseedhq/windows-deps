@@ -19,6 +19,11 @@ find_library ( OPENIMAGEIO_LIBRARY
                HINTS ${OPENIMAGEIOHOME}
                PATH_SUFFIXES lib64 lib
                PATHS "${OPENIMAGEIOHOME}/lib" )
+find_library ( OPENIMAGEIO_UTIL_LIBRARY
+               NAMES OpenImageIO_Util
+               HINTS ${OPENIMAGEIOHOME}
+               PATH_SUFFIXES lib64 lib
+               PATHS "${OPENIMAGEIOHOME}/lib" )
 find_path ( OPENIMAGEIO_INCLUDES
             NAMES OpenImageIO/imageio.h
             HINTS ${OPENIMAGEIOHOME}
@@ -30,6 +35,7 @@ find_program ( OPENIMAGEIO_BIN
 if (NOT OpenImageIO_FIND_QUIETLY)
     MESSAGE ( STATUS "OpenImageIO includes = ${OPENIMAGEIO_INCLUDES}" )
     MESSAGE ( STATUS "OpenImageIO library = ${OPENIMAGEIO_LIBRARY}" )
+    MESSAGE ( STATUS "OpenImageIO_Util library = ${OPENIMAGEIO_UTIL_LIBRARY}" )
     MESSAGE ( STATUS "OpenImageIO bin = ${OPENIMAGEIO_BIN}" )
 endif ()
 IF ( OPENIMAGEIO_INCLUDES AND OPENIMAGEIO_LIBRARY )

@@ -41,6 +41,10 @@
 #include "OpenImageIO/thread.h"
 #include "OpenImageIO/strutil.h"
 
+#if _MSC_VER == 1700
+#include <boost/math/special_functions/log1p.hpp>
+#endif
+
 OIIO_NAMESPACE_BEGIN
 
 
@@ -803,7 +807,9 @@ DeepData::copy_deep_pixel (int pixel, const DeepData &src, int srcpixel)
 void
 DeepData::split (int pixel, float depth)
 {
-#if OIIO_CPLUSPLUS_VERSION >= 11
+#if _MSC_VER == 1700
+    using boost::math::log1p;
+#elif OIIO_CPLUSPLUS_VERSION >= 11
     using std::log1p;
     using std::expm1;
 #endif
@@ -944,7 +950,9 @@ DeepData::sort (int pixel)
 void
 DeepData::merge_overlaps (int pixel)
 {
-#if OIIO_CPLUSPLUS_VERSION >= 11
+#if _MSC_VER == 1700
+    using boost::math::log1p;
+#elif OIIO_CPLUSPLUS_VERSION >= 11
     using std::log1p;
 #endif
     int zchan = m_impl->m_z_channel;
