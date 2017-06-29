@@ -39,6 +39,7 @@
 #include <xercesc/framework/XMLSchemaDescription.hpp>
 #include <xercesc/util/OutOfMemoryException.hpp>
 #include <xercesc/util/XMLEntityResolver.hpp>
+#include <xercesc/util/XMLExceptMsgs.hpp>
 #include <string.h>
 
 XERCES_CPP_NAMESPACE_BEGIN
@@ -1213,7 +1214,7 @@ void SAX2XMLReaderImpl::resetErrors()
 }
 
 
-void SAX2XMLReaderImpl::error(  const   unsigned int
+void SAX2XMLReaderImpl::error(  const   unsigned int        originalExceptCode
                         , const XMLCh* const
                         , const XMLErrorReporter::ErrTypes  errType
                         , const XMLCh* const                errorText
@@ -1224,7 +1225,8 @@ void SAX2XMLReaderImpl::error(  const   unsigned int
 {
     SAXParseException toThrow = SAXParseException
     (
-        errorText
+        static_cast<XMLExcepts::Codes>(originalExceptCode)
+        , errorText
         , publicId
         , systemId
         , lineNum

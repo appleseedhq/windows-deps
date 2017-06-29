@@ -41,6 +41,7 @@
 #include <xercesc/util/Janitor.hpp>
 #include <xercesc/util/OutOfMemoryException.hpp>
 #include <xercesc/util/XMLEntityResolver.hpp>
+#include <xercesc/util/XMLExceptMsgs.hpp>
 
 XERCES_CPP_NAMESPACE_BEGIN
 
@@ -176,7 +177,7 @@ void XercesDOMParser::resetDocumentPool()
 // ---------------------------------------------------------------------------
 //  XercesDOMParser: Implementation of the XMLErrorReporter interface
 // ---------------------------------------------------------------------------
-void XercesDOMParser::error( const   unsigned int
+void XercesDOMParser::error( const   unsigned int                originalExceptCode
                              , const XMLCh* const
                              , const XMLErrorReporter::ErrTypes  errType
                              , const XMLCh* const                errorText
@@ -187,7 +188,8 @@ void XercesDOMParser::error( const   unsigned int
 {
     SAXParseException toThrow = SAXParseException
         (
-        errorText
+        static_cast<XMLExcepts::Codes>(originalExceptCode)
+        , errorText
         , publicId
         , systemId
         , lineNum
