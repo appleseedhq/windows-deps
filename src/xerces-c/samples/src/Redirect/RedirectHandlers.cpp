@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: RedirectHandlers.cpp 673248 2008-07-02 00:58:08Z dbertoni $
+ * $Id$
  */
 
 

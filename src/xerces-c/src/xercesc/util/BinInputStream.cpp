@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: BinInputStream.cpp 670359 2008-06-22 13:43:45Z borisk $
+ * $Id$
  */
 
 
@@ -40,6 +40,14 @@ BinInputStream::~BinInputStream()
 // ---------------------------------------------------------------------------
 BinInputStream::BinInputStream()
 {
+}
+
+// ---------------------------------------------------------------------------
+//  BinInputStream: Default implementations
+// ---------------------------------------------------------------------------
+const XMLCh* BinInputStream::getEncoding() const
+{
+    return 0;
 }
 
 XERCES_CPP_NAMESPACE_END

@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: DOMDocumentImpl.hpp 679340 2008-07-24 10:28:29Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_DOMDOCUMENTIMPL_HPP)
@@ -159,6 +159,8 @@ public:
     virtual void setMemoryAllocationBlockSize(XMLSize_t size);
     virtual void* allocate(XMLSize_t amount);
     virtual void* allocate(XMLSize_t amount, DOMMemoryManager::NodeObjectType type);
+    // try to remove the block from the list of allocated memory
+    virtual void release(void* oldBuffer);
     virtual void release(DOMNode* object, DOMMemoryManager::NodeObjectType type);
     virtual XMLCh* cloneString(const XMLCh *src);
 
@@ -320,6 +322,7 @@ protected:
     //                  class, rather than hanging naked on Document.
     //
     void*                 fCurrentBlock;
+    void*                 fCurrentSingletonBlock;
     char*                 fFreePtr;
     XMLSize_t             fFreeBytesRemaining,
                           fHeapAllocSize;
@@ -360,6 +363,7 @@ inline const XMLCh*  DOMDocumentImpl::getPooledString(const XMLCh *in)
 {
   if (in == 0)
     return 0;
+  XMLSize_t n = XMLString::stringLen(in);
 
   DOMStringPoolEntry    **pspe;
   DOMStringPoolEntry    *spe;
@@ -368,40 +372,7 @@ inline const XMLCh*  DOMDocumentImpl::getPooledString(const XMLCh *in)
   pspe = &fNameTable[inHash];
   while (*pspe != 0)
   {
-    if (XMLString::equals((*pspe)->fString, in))
-      return (*pspe)->fString;
-    pspe = &((*pspe)->fNext);
-  }
-
-  // This string hasn't been seen before.  Add it to the pool.
-  //
-
-  // Compute size to allocate.  Note that there's 1 char of string
-  // declared in the struct, so we don't need to add one again to
-  // account for the trailing null.
-  //
-  XMLSize_t sizeToAllocate = sizeof(DOMStringPoolEntry) + XMLString::stringLen(in)*sizeof(XMLCh);
-  *pspe = spe = (DOMStringPoolEntry *)allocate(sizeToAllocate);
-  spe->fNext = 0;
-  XMLString::copyString((XMLCh*)spe->fString, in);
-
-  return spe->fString;
-}
-
-inline const XMLCh* DOMDocumentImpl::
-getPooledNString(const XMLCh *in, XMLSize_t n)
-{
-  if (in == 0)
-    return 0;
-
-  DOMStringPoolEntry    **pspe;
-  DOMStringPoolEntry    *spe;
-
-  XMLSize_t inHash = XMLString::hashN(in, n, fNameTableSize);
-  pspe = &fNameTable[inHash];
-  while (*pspe != 0)
-  {
-    if (XMLString::equalsN((*pspe)->fString, in, n))
+    if ((*pspe)->fLength == n && XMLString::equals((*pspe)->fString, in))
       return (*pspe)->fString;
     pspe = &((*pspe)->fNext);
   }
@@ -415,6 +386,40 @@ getPooledNString(const XMLCh *in, XMLSize_t n)
   //
   XMLSize_t sizeToAllocate = sizeof(DOMStringPoolEntry) + n*sizeof(XMLCh);
   *pspe = spe = (DOMStringPoolEntry *)allocate(sizeToAllocate);
+  spe->fLength = n;
+  spe->fNext = 0;
+  XMLString::copyString((XMLCh*)spe->fString, in);
+
+  return spe->fString;
+}
+
+inline const XMLCh* DOMDocumentImpl::getPooledNString(const XMLCh *in, XMLSize_t n)
+{
+  if (in == 0)
+    return 0;
+
+  DOMStringPoolEntry    **pspe;
+  DOMStringPoolEntry    *spe;
+
+  XMLSize_t inHash = XMLString::hashN(in, n, fNameTableSize);
+  pspe = &fNameTable[inHash];
+  while (*pspe != 0)
+  {
+    if ((*pspe)->fLength == n && XMLString::equalsN((*pspe)->fString, in, n))
+      return (*pspe)->fString;
+    pspe = &((*pspe)->fNext);
+  }
+
+  // This string hasn't been seen before.  Add it to the pool.
+  //
+
+  // Compute size to allocate.  Note that there's 1 char of string
+  // declared in the struct, so we don't need to add one again to
+  // account for the trailing null.
+  //
+  XMLSize_t sizeToAllocate = sizeof(DOMStringPoolEntry) + n*sizeof(XMLCh);
+  *pspe = spe = (DOMStringPoolEntry *)allocate(sizeToAllocate);
+  spe->fLength = n;
   spe->fNext = 0;
   XMLString::copyNString((XMLCh*)spe->fString, in, n);
 

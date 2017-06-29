@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: StdInParse.cpp 833057 2009-11-05 15:25:10Z borisk $
+ * $Id$
  */
 
 

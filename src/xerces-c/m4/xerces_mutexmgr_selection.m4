@@ -7,7 +7,7 @@ dnl @author James Berry
 dnl @version 2005-05-25
 dnl @license AllPermissive
 dnl
-dnl $Id: xerces_mutexmgr_selection.m4 467302 2006-10-24 10:45:35Z amassari $
+dnl $Id$
 
 AC_DEFUN([XERCES_MUTEXMGR_SELECTION],
 	[

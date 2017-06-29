@@ -22,7 +22,7 @@
 #	This script helps in pretty-printing of build commands.
 #	We invoke it via overridden rules in Makefile.am
 #
-# $Id: pretty-make 904065 2010-01-28 12:31:53Z borisk $
+# $Id$
 #
 
 # Grab the action (what we're doing)

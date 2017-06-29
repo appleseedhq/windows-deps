@@ -7,7 +7,7 @@ dnl @author James Berry
 dnl @version 2005-05-25
 dnl @license AllPermissive
 dnl
-dnl $Id: xerces_filemgr_selection.m4 676848 2008-07-15 09:22:54Z borisk $
+dnl $Id$
 
 AC_DEFUN([XERCES_FILEMGR_SELECTION],
 	[

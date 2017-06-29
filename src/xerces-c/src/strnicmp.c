@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: strnicmp.c 679398 2008-07-24 12:52:20Z borisk $
+ * $Id$
  */
 
 #include "strnicmp.h"

@@ -8,7 +8,7 @@ dnl @author Axel Weiss and James Berry
 dnl @version 2005-05-27
 dnl @license AllPermissive
 dnl
-dnl $Id: xerces_pretty_make.m4 678145 2008-07-19 12:10:43Z borisk $
+dnl $Id$
 
 AC_DEFUN([XERCES_PRETTY_MAKE],
 	[

@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: ValueArrayOf.c 932887 2010-04-11 13:04:59Z borisk $
+ * $Id$
  */
 
 

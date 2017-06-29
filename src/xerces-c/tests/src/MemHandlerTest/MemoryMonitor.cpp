@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: MemoryMonitor.cpp 833057 2009-11-05 15:25:10Z borisk $
+ * $Id$
  */
 
 
@@ -378,6 +378,13 @@ int main (int argC,  char *argV[])
                         XERCES_STD_QUALIFIER cout << "getElementsByTagName didn't return a valid DOMNodeList." << XERCES_STD_QUALIFIER endl;
                     else if(list->item(0)!=doc->getDocumentElement())
                         XERCES_STD_QUALIFIER cout << "getElementsByTagName didn't find the root element." << XERCES_STD_QUALIFIER endl;
+
+                    DOMTreeWalker* pWalker=doc->createTreeWalker(doc->getDocumentElement(), DOMNodeFilter::SHOW_TEXT, NULL, true);
+	                DOMText* textNode=(DOMText*)pWalker->nextNode();
+                    pWalker->release();
+                    // this isn't stored or used, but might throw as part of the test?
+                    if (textNode!=NULL)
+                        textNode->getWholeText();
                 }
                 sax2parser->parse(xmlFile);
                 saxParser->parse(xmlFile);

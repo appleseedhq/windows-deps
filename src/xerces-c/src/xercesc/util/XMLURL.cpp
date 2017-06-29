@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLURL.cpp 901107 2010-01-20 08:45:02Z borisk $
+ * $Id$
  */
 
 
@@ -117,8 +117,8 @@ static const XMLCh gListSix[]    = { chPound, chNull };
 static bool isHexDigit(const XMLCh toCheck)
 {
     if (((toCheck >= chDigit_0) && (toCheck <= chDigit_9))
-    ||  ((toCheck >= chLatin_A) && (toCheck <= chLatin_Z))
-    ||  ((toCheck >= chLatin_a) && (toCheck <= chLatin_z)))
+    ||  ((toCheck >= chLatin_A) && (toCheck <= chLatin_F))
+    ||  ((toCheck >= chLatin_a) && (toCheck <= chLatin_f)))
     {
         return true;
     }
@@ -130,7 +130,7 @@ static unsigned int xlatHexDigit(const XMLCh toXlat)
     if ((toXlat >= chDigit_0) && (toXlat <= chDigit_9))
         return (unsigned int)(toXlat - chDigit_0);
 
-    if ((toXlat >= chLatin_A) && (toXlat <= chLatin_Z))
+    if ((toXlat >= chLatin_A) && (toXlat <= chLatin_F))
         return (unsigned int)(toXlat - chLatin_A) + 10;
 
     return (unsigned int)(toXlat - chLatin_a) + 10;
@@ -611,9 +611,20 @@ BinInputStream* XMLURL::makeNewStream() const
 
             while (percentIndex != -1) {
 
-                if (percentIndex+2 >= (int)end ||
-                    !isHexDigit(realPath[percentIndex+1]) ||
-                    !isHexDigit(realPath[percentIndex+2]))
+            	// Isolate the length/boundary check so we don't try and copy off the end.
+                if (percentIndex+2 >= (int)end)
+                {
+                    XMLCh value1[3];
+                    value1[1] = chNull;
+                    value1[2] = chNull;
+					XMLString::moveChars(value1, &(realPath[percentIndex]), (percentIndex + 1 >= (int)end ? 1 : 2));
+                    ThrowXMLwithMemMgr2(MalformedURLException
+                            , XMLExcepts::XMLNUM_URI_Component_Invalid_EscapeSequence
+                            , realPath
+                            , value1
+                            , fMemoryManager);
+                }
+                else if (!isHexDigit(realPath[percentIndex+1]) || !isHexDigit(realPath[percentIndex+2]))
                 {
                     XMLCh value1[4];
                     XMLString::moveChars(value1, &(realPath[percentIndex]), 3);

@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLHarnessHandlers.cpp 781475 2009-06-03 17:00:27Z amassari $
+ * $Id$
  */
 
 // ---------------------------------------------------------------------------
@@ -33,10 +33,11 @@
 // ---------------------------------------------------------------------------
 //  XMLHarnessHandlers: Constructors and Destructor
 // ---------------------------------------------------------------------------
-XMLHarnessHandlers::XMLHarnessHandlers(const XMLCh* baseURL) : BaseHarnessHandlers(baseURL)
+XMLHarnessHandlers::XMLHarnessHandlers(const XMLCh* baseURL, const XMLCh* scanner) : BaseHarnessHandlers(baseURL)
 , fTestBaseURL(5)
 {
     fParser = XMLReaderFactory::createXMLReader();
+    fParser->setProperty(XMLUni::fgXercesScannerName, (void*)scanner);
     fParser->setFeature(XMLUni::fgSAX2CoreValidation, true);
     fParser->setFeature(XMLUni::fgXercesDynamic, false);
     fParser->setErrorHandler(&fErrorHandler);
@@ -61,11 +62,14 @@ static XMLCh szError[]={ chLatin_e, chLatin_r, chLatin_r, chLatin_o, chLatin_r, 
 static XMLCh szBase[]={ chLatin_x, chLatin_m, chLatin_l, chColon, chLatin_b, chLatin_a, chLatin_s, chLatin_e, chNull };
 static XMLCh szNamespace[]={ chLatin_N, chLatin_A, chLatin_M, chLatin_E, chLatin_S, chLatin_P, chLatin_A, chLatin_C, chLatin_E, chNull };
 static XMLCh szNO[]={ chLatin_n, chLatin_o, chNull };
+static XMLCh szVersion[] = { chLatin_V, chLatin_E, chLatin_R, chLatin_S, chLatin_I, chLatin_O, chLatin_N, chNull };
+static XMLCh szEdition[] = { chLatin_E, chLatin_D, chLatin_I, chLatin_T, chLatin_I, chLatin_O, chLatin_N, chNull };
+static XMLCh szFive[]={ chDigit_5, chNull };
 
 // ---------------------------------------------------------------------------
 //  XMLHarnessHandlers: Implementation of the SAX DocumentHandler interface
 // ---------------------------------------------------------------------------
-void XMLHarnessHandlers::startElement(const XMLCh* const uri
+void XMLHarnessHandlers::startElement(const XMLCh* const /* uri */
                                    , const XMLCh* const localname
                                    , const XMLCh* const /* qname */
                                    , const Attributes& attrs)
@@ -85,6 +89,27 @@ void XMLHarnessHandlers::startElement(const XMLCh* const uri
     {
         const XMLCh* useNS=attrs.getValue(szNamespace);
         const XMLCh* testName=attrs.getValue(szID);
+        const XMLCh* version=attrs.getValue(szVersion);
+        if(version == NULL || XMLString::equals(version, XMLUni::fgVersion1_0))
+        {
+            const XMLCh* editions=attrs.getValue(szEdition);
+            // skip tests that don't apply to v.1.0 5th Edition
+            if(editions)
+            {
+                BaseRefVectorOf<XMLCh>* tokens = XMLString::tokenizeString(editions);
+                bool appliesTo5 = false;
+                for (XMLSize_t i = 0; i < tokens->size(); i++) {
+                    if (XMLString::equals(tokens->elementAt(i), szFive)) {
+                        appliesTo5 = true;
+                        break;
+                    }
+                }
+                delete tokens;
+                if(!appliesTo5)
+                    return;
+            }
+        }
+
         XMLURL testSet;
         testSet.setURL(*fTestBaseURL.peek(), attrs.getValue(szURI));
         bool success=true, fatalFailure=false;
@@ -160,7 +185,7 @@ void XMLHarnessHandlers::startElement(const XMLCh* const uri
     }
 }
 
-void XMLHarnessHandlers::endElement(const XMLCh* const uri, const XMLCh* const localname, const XMLCh* const qname)
+void XMLHarnessHandlers::endElement(const XMLCh* const /* uri */, const XMLCh* const localname, const XMLCh* const /* qname */)
 {
     if(XMLString::equals(localname, szTestCases))
     {

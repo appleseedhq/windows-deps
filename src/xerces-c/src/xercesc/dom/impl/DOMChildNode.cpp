@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: DOMChildNode.cpp 471747 2006-11-06 14:31:56Z amassari $
+ * $Id$
  */
 
 // This class only adds the ability to have siblings

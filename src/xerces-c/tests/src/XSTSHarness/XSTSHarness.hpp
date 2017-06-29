@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XSTSHarness.hpp 804211 2009-08-14 13:18:09Z amassari $
+ * $Id$
  */
 
 #ifndef XSTS_HARNESS_HPP
@@ -154,7 +154,7 @@ public:
     // -----------------------------------------------------------------------
     //  Handlers for the SAX ErrorHandler interface
     // -----------------------------------------------------------------------
-    void warning(const SAXParseException& exc)      {}
+    void warning(const SAXParseException& /* exc */)      {}
     void error(const SAXParseException& exc);
     void fatalError(const SAXParseException& exc);
     void resetErrors()                              { fSawErrors=false; fErrorText.reset(); }

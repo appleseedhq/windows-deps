@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: IGXMLScanner2.cpp 925236 2010-03-19 14:29:47Z borisk $
+ * $Id$
  */
 
 // ---------------------------------------------------------------------------
@@ -975,6 +975,17 @@ bool IGXMLScanner::normalizeAttValue( const   XMLAttDef* const    attDef
     // Get the type and name
     const XMLAttDef::AttTypes type = (attDef)?attDef->getType():XMLAttDef::CData;
 
+    // check to see if it's a tokenized type that is declared externally 
+    bool  isAttTokenizedExternal = (attDef)
+                                   ?attDef->isExternal() && (type == XMLAttDef::ID || 
+                                                             type == XMLAttDef::IDRef || 
+                                                             type == XMLAttDef::IDRefs || 
+                                                             type == XMLAttDef::Entity || 
+                                                             type == XMLAttDef::Entities || 
+                                                             type == XMLAttDef::NmToken || 
+                                                             type == XMLAttDef::NmTokens)
+                                   :false;
+
     // Assume its going to go fine, and empty the target buffer in preperation
     bool retVal = true;
     toFill.reset();
@@ -1001,7 +1012,7 @@ bool IGXMLScanner::normalizeAttValue( const   XMLAttDef* const    attDef
             case 0x0D:
                 // Check Validity Constraint for Standalone document declaration
                 // XML 1.0, Section 2.9
-                if (fStandalone && fValidate && attDef && attDef->isExternal())
+                if (fStandalone && fValidate && isAttTokenizedExternal)
                 {
                      // Can't have a standalone document declaration of "yes" if  attribute
                      // values are subject to normalisation
@@ -1065,9 +1076,9 @@ bool IGXMLScanner::normalizeAttValue( const   XMLAttDef* const    attDef
 
                     // Check Validity Constraint for Standalone document declaration
                     // XML 1.0, Section 2.9
-                    if (fStandalone && fValidate && attDef && attDef->isExternal())
+                    if (fStandalone && fValidate && isAttTokenizedExternal)
                     {
-                        if (!firstNonWS || (nextCh != chSpace) || (!*srcPtr) || fReaderMgr.getCurrentReader()->isWhitespace(*srcPtr))
+                        if (!firstNonWS || (nextCh != chSpace && *srcPtr && fReaderMgr.getCurrentReader()->isWhitespace(*srcPtr)))
                         {
                             // Can't have a standalone document declaration of "yes" if  attribute
                             // values are subject to normalisation
@@ -1162,7 +1173,7 @@ void IGXMLScanner::scanReset(const InputSource& src)
     fSchemaInfoList->removeAll ();
 
     // fModel may need updating, as fGrammarResolver could have cleaned it
-    if(fModel && getPSVIHandler())
+    if(getPSVIHandler())
         fModel = fGrammarResolver->getXSModel();
 
     {
@@ -1613,10 +1624,6 @@ void IGXMLScanner::scanRawAttrListforNameSpaces(XMLSize_t attCount)
     // walk through the list again to deal with "xsi:...."
     if (fDoSchema && fSeeXsi)
     {
-        //  Schema Xsi Type yyyy (e.g. xsi:type="yyyyy")
-        XMLBufBid bbXsi(&fBufMgr);
-        XMLBuffer& fXsiType = bbXsi.getBuffer();
-
         for (XMLSize_t index = 0; index < attCount; index++)
         {
             // each attribute has the prefix:suffix="value"
@@ -1632,7 +1639,7 @@ void IGXMLScanner::scanRawAttrListforNameSpaces(XMLSize_t attCount)
             }
 
             // if schema URI has been seen, scan for the schema location and uri
-            // and resolve the schema grammar; or scan for schema type
+            // and resolve the schema grammar
             if (resolvePrefix(prefPtr, ElemStack::Mode_Attribute) == fSchemaNamespaceId) {
 
                 const XMLCh* valuePtr = curPair->getValue();
@@ -1642,71 +1649,100 @@ void IGXMLScanner::scanRawAttrListforNameSpaces(XMLSize_t attCount)
                     parseSchemaLocation(valuePtr);
                 else if (XMLString::equals(suffPtr, SchemaSymbols::fgXSI_NONAMESPACESCHEMALOCATION))
                     resolveSchemaGrammar(valuePtr, XMLUni::fgZeroLenString);
-
-                if ((!fValidator || !fValidator->handlesSchema()) &&
-                    (XMLString::equals(suffPtr, SchemaSymbols::fgXSI_TYPE) ||
-                     XMLString::equals(suffPtr, SchemaSymbols::fgATT_NILL)))
-                {
-                  // If we are in the DTD mode, try to switch to the Schema
-                  // mode. For that we need to find any XML Schema grammar
-                  // that we can switch to. Such a grammar can only come
-                  // from the cache (if it came from the schemaLocation
-                  // attribute, we would be in the Schema mode already).
-                  //
-                  XMLGrammarPool* pool = fGrammarResolver->getGrammarPool ();
-                  RefHashTableOfEnumerator<Grammar> i = pool->getGrammarEnumerator ();
-
-                  while (i.hasMoreElements ())
-                  {
-                    Grammar& gr (i.nextElement ());
-
-                    if (gr.getGrammarType () == Grammar::SchemaGrammarType)
-                    {
-                      switchGrammar (gr.getTargetNamespace ());
-                      break;
-                    }
-                  }
-                }
-
-                if( fValidator && fValidator->handlesSchema() )
-                {
-                    if (XMLString::equals(suffPtr, SchemaSymbols::fgXSI_TYPE))
-                    {
-                        // normalize the attribute according to schema whitespace facet
-                        DatatypeValidator* tempDV = DatatypeValidatorFactory::getBuiltInRegistry()->get(SchemaSymbols::fgDT_QNAME);
-                        ((SchemaValidator*) fValidator)->normalizeWhiteSpace(tempDV, valuePtr, fXsiType, true);
-                    }
-                    else if (XMLString::equals(suffPtr, SchemaSymbols::fgATT_NILL))
-                    {
-                        // normalize the attribute according to schema whitespace facet
-                        XMLBuffer& fXsiNil = fBufMgr.bidOnBuffer();
-                        DatatypeValidator* tempDV = DatatypeValidatorFactory::getBuiltInRegistry()->get(SchemaSymbols::fgDT_BOOLEAN);
-                        ((SchemaValidator*) fValidator)->normalizeWhiteSpace(tempDV, valuePtr, fXsiNil, true);
-                        if(XMLString::equals(fXsiNil.getRawBuffer(), SchemaSymbols::fgATTVAL_TRUE))
-                            ((SchemaValidator*)fValidator)->setNillable(true);
-                        else if(XMLString::equals(fXsiNil.getRawBuffer(), SchemaSymbols::fgATTVAL_FALSE))
-                            ((SchemaValidator*)fValidator)->setNillable(false);
-                        else
-                            emitError(XMLErrs::InvalidAttValue, fXsiNil.getRawBuffer(), valuePtr);
-                        fBufMgr.releaseBuffer(fXsiNil);
-                    }
-                }
             }
         }
 
-        if (fValidator && fValidator->handlesSchema()) {
-            if (!fXsiType.isEmpty()) {
-                int colonPos = -1;
-                unsigned int uriId = resolveQName (
-                      fXsiType.getRawBuffer()
-                    , fPrefixBuf
-                    , ElemStack::Mode_Element
-                    , colonPos
-                );
-                ((SchemaValidator*)fValidator)->setXsiType(fPrefixBuf.getRawBuffer(), fXsiType.getRawBuffer() + colonPos + 1, uriId);
+        // do it another time, as xsi:type and xsi:nill only work if the schema grammar has been already
+        // loaded (JIRA XERCESC-1937)
+        for (XMLSize_t index = 0; index < attCount; index++)
+        {
+            const KVStringPair* curPair = fRawAttrList->elementAt(index);
+            const XMLCh* rawPtr = curPair->getKey();
+            const XMLCh* prefPtr = XMLUni::fgZeroLenString;
+            int   colonInd = fRawAttrColonList[index];
+
+            if (colonInd != -1) {
+
+                fURIBuf.set(rawPtr, colonInd);
+                prefPtr = fURIBuf.getRawBuffer();
+            }
+
+            // scan for schema type
+            if (resolvePrefix(prefPtr, ElemStack::Mode_Attribute) == fSchemaNamespaceId) {
+
+                const XMLCh* valuePtr = curPair->getValue();
+                const XMLCh*  suffPtr = &rawPtr[colonInd + 1];
+
+                if(XMLString::equals(suffPtr, SchemaSymbols::fgXSI_TYPE) ||
+                   XMLString::equals(suffPtr, SchemaSymbols::fgATT_NILL))
+                {
+                    if (!fValidator || !fValidator->handlesSchema())
+                    {
+                        // If we are in the DTD mode, try to switch to the Schema
+                        // mode. For that we need to find any XML Schema grammar
+                        // that we can switch to. Such a grammar can only come
+                        // from the cache (if it came from the schemaLocation
+                        // attribute, we would be in the Schema mode already).
+                        //
+                        XMLGrammarPool* pool = fGrammarResolver->getGrammarPool ();
+                        RefHashTableOfEnumerator<Grammar> i = pool->getGrammarEnumerator ();
+
+                        while (i.hasMoreElements ())
+                        {
+                            Grammar& gr (i.nextElement ());
+
+                            if (gr.getGrammarType () == Grammar::SchemaGrammarType)
+                            {
+                                switchGrammar (gr.getTargetNamespace ());
+                                break;
+                            }
+                        }
+                    }
+
+                    if( fValidator && fValidator->handlesSchema() )
+                    {
+                        if (XMLString::equals(suffPtr, SchemaSymbols::fgXSI_TYPE))
+                        {
+                            XMLBufBid bbXsi(&fBufMgr);
+                            XMLBuffer& fXsiType = bbXsi.getBuffer();
+
+                            // normalize the attribute according to schema whitespace facet
+                            DatatypeValidator* tempDV = DatatypeValidatorFactory::getBuiltInRegistry()->get(SchemaSymbols::fgDT_QNAME);
+                            normalizeAttRawValue(SchemaSymbols::fgXSI_TYPE, valuePtr, fXsiType);
+                            ((SchemaValidator*) fValidator)->normalizeWhiteSpace(tempDV, fXsiType.getRawBuffer(), fXsiType, true);
+                            if (!fXsiType.isEmpty()) {
+                                int colonPos = -1;
+                                unsigned int uriId = resolveQName (
+                                      fXsiType.getRawBuffer()
+                                    , fPrefixBuf
+                                    , ElemStack::Mode_Element
+                                    , colonPos
+                                );
+                                ((SchemaValidator*)fValidator)->setXsiType(fPrefixBuf.getRawBuffer(), fXsiType.getRawBuffer() + colonPos + 1, uriId);
+                            }
+                        }
+                        else if (XMLString::equals(suffPtr, SchemaSymbols::fgATT_NILL))
+                        {
+                            // normalize the attribute according to schema whitespace facet
+                            XMLBufBid bbXsi(&fBufMgr);
+                            XMLBuffer& fXsiNil = bbXsi.getBuffer();
+
+                            DatatypeValidator* tempDV = DatatypeValidatorFactory::getBuiltInRegistry()->get(SchemaSymbols::fgDT_BOOLEAN);
+                            normalizeAttRawValue(SchemaSymbols::fgATT_NILL, valuePtr, fXsiNil);
+                            ((SchemaValidator*) fValidator)->normalizeWhiteSpace(tempDV, fXsiNil.getRawBuffer(), fXsiNil, true);
+                            if(XMLString::equals(fXsiNil.getRawBuffer(), SchemaSymbols::fgATTVAL_TRUE))
+                                ((SchemaValidator*)fValidator)->setNillable(true);
+                            else if(XMLString::equals(fXsiNil.getRawBuffer(), SchemaSymbols::fgATTVAL_FALSE))
+                                ((SchemaValidator*)fValidator)->setNillable(false);
+                            else
+                                emitError(XMLErrs::InvalidAttValue, fXsiNil.getRawBuffer(), valuePtr);
+                        }
+                    }
+                }
             }
         }
     }
+
 }
 
 void IGXMLScanner::parseSchemaLocation(const XMLCh* const schemaLocationStr, bool ignoreLoadSchema)
@@ -2392,10 +2428,16 @@ bool IGXMLScanner::scanAttValue(  const   XMLAttDef* const    attDef
     //  quotes until we hit the same reader again.
     const XMLSize_t curReader = fReaderMgr.getCurrentReaderNum();
 
-    // Get attribute def - to check to see if it's declared externally or not
-    bool  isAttExternal = (attDef)
-                ?attDef->isExternal()
-                :false;
+    // check to see if it's a tokenized type that is declared externally 
+    bool  isAttTokenizedExternal = (attDef)
+                                   ?attDef->isExternal() && (type == XMLAttDef::ID || 
+                                                             type == XMLAttDef::IDRef || 
+                                                             type == XMLAttDef::IDRefs || 
+                                                             type == XMLAttDef::Entity || 
+                                                             type == XMLAttDef::Entities || 
+                                                             type == XMLAttDef::NmToken || 
+                                                             type == XMLAttDef::NmTokens)
+                                   :false;
 
     //  Loop until we get the attribute value. Note that we use a double
     //  loop here to avoid the setup/teardown overhead of the exception
@@ -2510,7 +2552,7 @@ bool IGXMLScanner::scanAttValue(  const   XMLAttDef* const    attDef
                         {
                             // Check Validity Constraint for Standalone document declaration
                             // XML 1.0, Section 2.9
-                            if (fStandalone && fValidate && isAttExternal)
+                            if (fStandalone && fValidate && isAttTokenizedExternal)
                             {
                                 // Can't have a standalone document declaration of "yes" if  attribute
                                 // values are subject to normalisation
@@ -2545,9 +2587,9 @@ bool IGXMLScanner::scanAttValue(  const   XMLAttDef* const    attDef
 
                             // Check Validity Constraint for Standalone document declaration
                             // XML 1.0, Section 2.9
-                            if (fStandalone && fValidate && isAttExternal)
+                            if (fStandalone && fValidate && isAttTokenizedExternal)
                             {
-                                if (!firstNonWS || (nextCh != chSpace) || (fReaderMgr.lookingAtSpace()))
+                                if (!firstNonWS || (nextCh != chSpace && fReaderMgr.lookingAtSpace()))
                                 {
                                      // Can't have a standalone document declaration of "yes" if  attribute
                                      // values are subject to normalisation

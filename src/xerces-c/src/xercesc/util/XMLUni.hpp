@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLUni.hpp 833045 2009-11-05 13:21:27Z borisk $
+ * $Id$
  */
 
 
@@ -34,6 +34,12 @@
 #include <xercesc/util/XercesDefs.hpp>
 
 XERCES_CPP_NAMESPACE_BEGIN
+
+// Ignore warning about private constructor
+#ifdef __GNUC__
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wctor-dtor-privacy"
+#endif
 
 class XMLUTIL_EXPORT XMLUni
 {
@@ -98,6 +104,7 @@ public :
     static const XMLCh fgRefString[];
     static const XMLCh fgRequiredString[];
     static const XMLCh fgStandaloneString[];
+    static const XMLCh fgVersion1[];
     static const XMLCh fgVersion1_0[];
     static const XMLCh fgVersion1_1[];
     static const XMLCh fgSysIDString[];
@@ -326,6 +333,10 @@ private:
     // -----------------------------------------------------------------------
     XMLUni();
 };
+
+#ifdef __GNUC__
+#  pragma GCC diagnostic pop
+#endif
 
 XERCES_CPP_NAMESPACE_END
 

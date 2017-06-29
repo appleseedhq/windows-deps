@@ -19,4 +19,4 @@
 <!ELEMENT br EMPTY>
 <!ELEMENT sup (#PCDATA)>
 
-<!-- CVS $Revision: 807660 $ $Date: 2009-08-25 16:53:52 +0200 (Tue, 25 Aug 2009) $ -->
+<!-- CVS $Revision$ $Date$ -->

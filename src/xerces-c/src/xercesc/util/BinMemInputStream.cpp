@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: BinMemInputStream.cpp 670359 2008-06-22 13:43:45Z borisk $
+ * $Id$
  */
 
 
@@ -65,7 +65,7 @@ BinMemInputStream::~BinMemInputStream()
     //  cast off the const'ness in that case in order to delete it.
     //
     if ((fBufOpt == BufOpt_Adopt) || (fBufOpt == BufOpt_Copy))
-        fMemoryManager->deallocate((XMLByte*)fBuffer);//delete [] (XMLByte*)fBuffer;
+        fMemoryManager->deallocate(const_cast<XMLByte*>(fBuffer));//delete [] (XMLByte*)fBuffer;
 }
 
 

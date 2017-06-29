@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLUTF8Transcoder.hpp 932887 2010-04-11 13:04:59Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_XMLUTF8TRANSCODER_HPP)
@@ -107,7 +107,7 @@ void XMLUTF8Transcoder::checkTrailingBytes(const XMLByte      toCheck
     {
         char len[2]  = {(char)(trailingBytes+0x31), 0};
         char pos[2]  = {(char)(position+0x31), 0};
-        char byte[2] = {toCheck,0};
+        char byte[2] = {(char)toCheck,0};
         ThrowXMLwithMemMgr3(UTFDataFormatException, XMLExcepts::UTF8_FormatError, pos, byte, len, getMemoryManager());
     }
 

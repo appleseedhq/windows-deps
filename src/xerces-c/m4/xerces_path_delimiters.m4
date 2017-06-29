@@ -7,7 +7,7 @@ dnl @author James Berry
 dnl @version 2005-06-07
 dnl @license AllPermissive
 dnl
-dnl $Id: xerces_path_delimiters.m4 676848 2008-07-15 09:22:54Z borisk $
+dnl $Id$
 
 AC_DEFUN([XERCES_PATH_DELIMITERS],
 	[

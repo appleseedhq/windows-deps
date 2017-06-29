@@ -8,7 +8,7 @@ dnl @author James Berry
 dnl @version 2005-05-23
 dnl @license AllPermissive
 dnl
-dnl $Id: xerces_no_threads.m4 678145 2008-07-19 12:10:43Z borisk $
+dnl $Id$
 
 AC_DEFUN([XERCES_NO_THREADS],
 	[

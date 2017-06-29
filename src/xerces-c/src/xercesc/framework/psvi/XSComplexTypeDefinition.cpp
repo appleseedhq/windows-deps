@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XSComplexTypeDefinition.cpp 594002 2007-11-12 01:05:09Z cargilld $
+ * $Id$
  */
 
 #include <xercesc/framework/psvi/XSComplexTypeDefinition.hpp>

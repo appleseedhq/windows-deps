@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XSerializerHandlers.hpp 676796 2008-07-15 05:04:13Z dbertoni $
+ * $Id$
  */
 
 #if !defined(XSERIALIZER_HANDLER_HPP)

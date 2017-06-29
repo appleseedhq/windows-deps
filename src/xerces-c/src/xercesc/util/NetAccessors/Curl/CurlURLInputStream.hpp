@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: CurlURLInputStream.hpp 835245 2009-11-12 05:57:31Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_CURLURLINPUTSTREAM_HPP)

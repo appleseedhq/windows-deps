@@ -45,7 +45,9 @@ XERCES_CPP_NAMESPACE_BEGIN
 BinHTTPInputStreamCommon::BinHTTPInputStreamCommon(MemoryManager *manager)
       : fBytesProcessed(0)
       , fBuffer(1023, manager)
+	  , fBufferPos(0)
       , fContentType(0)
+	  , fEncoding(0)
       , fMemoryManager(manager)
 {
 }
@@ -54,6 +56,7 @@ BinHTTPInputStreamCommon::BinHTTPInputStreamCommon(MemoryManager *manager)
 BinHTTPInputStreamCommon::~BinHTTPInputStreamCommon()
 {
     if(fContentType) fMemoryManager->deallocate(fContentType);
+    if(fEncoding) fMemoryManager->deallocate(fEncoding);
 }
 
 static const char *CRLF = "\r\n";
@@ -222,6 +225,10 @@ int BinHTTPInputStreamCommon::sendRequest(const XMLURL &url, const XMLNetHTTPInf
             ThrowXMLwithMemMgr1(NetAccessorException, XMLExcepts::NetAcc_ReadSocket, url.getURLText(), fMemoryManager);
         }
 
+        // connection closed
+        if(ret == 0)
+            break;
+
         fBuffer.append(tmpBuf, ret);
 
         fBufferPos = strstr(fBuffer.getRawBuffer(), CRLF2X);
@@ -261,6 +268,67 @@ const XMLCh *BinHTTPInputStreamCommon::getContentType() const
         const_cast<BinHTTPInputStreamCommon*>(this)->findHeader("Content-Type");
     }
     return fContentType;
+}
+
+const XMLCh *BinHTTPInputStreamCommon::getEncoding() const
+{
+	if(fEncoding == 0) {
+		const XMLCh* contentTypeHeader = getContentType();
+		if(contentTypeHeader)
+		{
+			const XMLCh szCharsetEquals[] = {chLatin_c, chLatin_h, chLatin_a, chLatin_r, chLatin_s, chLatin_e, chLatin_t, chEqual, chNull };
+
+			BaseRefVectorOf<XMLCh>* tokens=XMLString::tokenizeString(contentTypeHeader, chSemiColon, fMemoryManager);
+			for(XMLSize_t i=0;i<tokens->size();i++)
+			{
+				XMLString::removeWS(tokens->elementAt(i), fMemoryManager);
+				if(XMLString::startsWithI(tokens->elementAt(i), szCharsetEquals))
+				{
+					// mutable
+					const XMLCh* encodingName=tokens->elementAt(i)+XMLString::stringLen(szCharsetEquals);
+					const_cast<BinHTTPInputStreamCommon*>(this)->fEncoding = XMLString::replicate(encodingName, fMemoryManager);
+					break;
+				}
+			}
+			// if the charset=value entry was not present, check if we should use a default value
+			if(fEncoding==0 && tokens->size()>0)
+			{
+				const XMLCh szTextSlash[] = { chLatin_t, chLatin_e, chLatin_x, chLatin_t, chForwardSlash, chNull };
+				const XMLCh szXml[] = {chLatin_x, chLatin_m, chLatin_l, chNull };
+				const XMLCh szXmlDash[] = {chLatin_x, chLatin_m, chLatin_l, chDash, chNull };
+
+				XMLBuffer contentType(XMLString::stringLen(contentTypeHeader), fMemoryManager);
+				contentType.set(tokens->elementAt(0));
+
+				XMLCh* strType = contentType.getRawBuffer();
+				XMLString::removeWS(strType, fMemoryManager);
+				if(XMLString::startsWithI(strType, szTextSlash))
+				{
+					// text/* has a default encoding of iso-8859-1
+					
+					// text/xml, text/xml-external-parsed-entity, or a subtype like text/AnythingAtAll+xml 
+					// has a default encoding of us-ascii
+					XMLCh* subType = strType+XMLString::stringLen(szTextSlash);
+
+					BaseRefVectorOf<XMLCh>* tokens=XMLString::tokenizeString(subType, chPlus, fMemoryManager);
+					for(XMLSize_t i=0;i<tokens->size();i++)
+					{
+						XMLCh* part=tokens->elementAt(i);
+						if(XMLString::compareIStringASCII(part, szXml)==0 || XMLString::startsWithI(part, szXmlDash))
+						{
+							const_cast<BinHTTPInputStreamCommon*>(this)->fEncoding = XMLString::replicate(XMLUni::fgUSASCIIEncodingString, fMemoryManager);
+							break;
+						}
+					}
+					if(fEncoding==0)
+						const_cast<BinHTTPInputStreamCommon*>(this)->fEncoding = XMLString::replicate(XMLUni::fgISO88591EncodingString, fMemoryManager);
+					delete tokens;
+				}
+			}
+			delete tokens;
+		}
+	}
+    return fEncoding;
 }
 
 XMLSize_t BinHTTPInputStreamCommon::readBytes(XMLByte* const    toFill,

@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: DOMTreeErrorReporter.hpp 471735 2006-11-06 13:53:58Z amassari $
+ * $Id$
  */
 
 #include <xercesc/util/XercesDefs.hpp>

@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: IC_Selector.hpp 932887 2010-04-11 13:04:59Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_IC_SELECTOR_HPP)
@@ -95,7 +95,7 @@ public:
     // -----------------------------------------------------------------------
     //  Constructors/Destructor
     // -----------------------------------------------------------------------
-    ~SelectorMatcher() {}
+    ~SelectorMatcher();
 
     int getInitialDepth() const { return fInitialDepth; }
 
@@ -140,7 +140,7 @@ private:
     // -----------------------------------------------------------------------
     int             fInitialDepth;
     int             fElementDepth;
-    int             fMatchedDepth;
+    int*            fMatchedDepth;
     IC_Selector*    fSelector;
     FieldActivator* fFieldActivator;
 };

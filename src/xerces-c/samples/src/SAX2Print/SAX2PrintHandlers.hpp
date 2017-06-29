@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: SAX2PrintHandlers.hpp 557282 2007-07-18 14:54:15Z amassari $
+ * $Id$
  */
 
 #include    <xercesc/sax2/DefaultHandler.hpp>

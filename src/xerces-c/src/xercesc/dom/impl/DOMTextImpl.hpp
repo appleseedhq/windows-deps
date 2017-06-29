@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: DOMTextImpl.hpp 678709 2008-07-22 10:56:56Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_DOMTEXTIMPL_HPP)
@@ -86,6 +86,7 @@ public:
     // Non-standard extension.
     //
     virtual void            appendData(const XMLCh *arg, XMLSize_t n);
+    void                    appendDataFast(const XMLCh *arg, XMLSize_t n);
 
 protected:
     virtual void            setIgnorableWhitespace(bool ignorable);

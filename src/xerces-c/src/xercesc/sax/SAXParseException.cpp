@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: SAXParseException.cpp 672273 2008-06-27 13:57:00Z borisk $
+ * $Id$
  */
 
 
@@ -32,9 +32,9 @@ XERCES_CPP_NAMESPACE_BEGIN
 // ---------------------------------------------------------------------------
 //  SAXParseException: Constructors and Destructor
 // ---------------------------------------------------------------------------
-SAXParseException::SAXParseException(const  XMLCh* const        message
-                                    , const Locator&            locator
-                                    , MemoryManager* const      manager) :
+SAXParseException::SAXParseException(const  XMLCh* const    message
+                                    , const Locator&        locator
+                                    , MemoryManager* const  manager) :
     SAXException(message, manager)
     , fColumnNumber(locator.getColumnNumber())
     , fLineNumber(locator.getLineNumber())
@@ -43,15 +43,13 @@ SAXParseException::SAXParseException(const  XMLCh* const        message
 {
 }
 
-SAXParseException::SAXParseException(const XMLExcepts::Codes    originalExceptCode
-                                    , const  XMLCh* const       message
-                                    , const XMLCh* const        publicId
-                                    , const XMLCh* const        systemId
-                                    , const XMLFileLoc          lineNumber
-                                    , const XMLFileLoc          columnNumber
-                                    , MemoryManager* const      manager) :
+SAXParseException::SAXParseException(const  XMLCh* const    message
+                                    , const XMLCh* const    publicId
+                                    , const XMLCh* const    systemId
+                                    , const XMLFileLoc   lineNumber
+                                    , const XMLFileLoc   columnNumber
+                                    , MemoryManager* const  manager) :
     SAXException(message, manager)
-    , fOriginalExceptCode(originalExceptCode)
     , fColumnNumber(columnNumber)
     , fLineNumber(lineNumber)
     , fPublicId(XMLString::replicate(publicId, manager))
@@ -62,7 +60,6 @@ SAXParseException::SAXParseException(const XMLExcepts::Codes    originalExceptCo
 SAXParseException::SAXParseException(const SAXParseException& toCopy) :
 
     SAXException(toCopy)
-    , fOriginalExceptCode(toCopy.fOriginalExceptCode)
     , fColumnNumber(toCopy.fColumnNumber)
     , fLineNumber(toCopy.fLineNumber)
     , fPublicId(0)
@@ -105,11 +102,6 @@ SAXParseException::operator=(const SAXParseException& toAssign)
 // ---------------------------------------------------------------------------
 //  SAXParseException: Getter methods
 // ---------------------------------------------------------------------------
-XMLExcepts::Codes SAXParseException::getOriginalExceptionCode() const
-{
-    return fOriginalExceptCode;
-}
-
 const XMLCh* SAXParseException::getPublicId() const
 {
     return fPublicId;

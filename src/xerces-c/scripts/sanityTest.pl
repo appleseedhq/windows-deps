@@ -17,7 +17,7 @@
 #
 
 #
-# $Id: sanityTest.pl 696141 2008-09-17 03:06:33Z dbertoni $
+# $Id$
 #
 
 

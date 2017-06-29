@@ -16,14 +16,13 @@
  */
 
 /*
- * $Id: SAXParseException.hpp 932887 2010-04-11 13:04:59Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_SAXPARSEEXCEPTION_HPP)
 #define XERCESC_INCLUDE_GUARD_SAXPARSEEXCEPTION_HPP
 
 #include <xercesc/sax/SAXException.hpp>
-#include <xercesc/util/XMLExceptMsgs.hpp>
 
 XERCES_CPP_NAMESPACE_BEGIN
 
@@ -92,8 +91,7 @@ public:
     */
     SAXParseException
     (
-        const XMLExcepts::Codes originalExceptCode
-        , const XMLCh* const    message
+        const   XMLCh* const    message
         , const XMLCh* const    publicId
         , const XMLCh* const    systemId
         , const XMLFileLoc   lineNumber
@@ -128,13 +126,6 @@ public:
 
     /** @name Getter methods */
     //@{
-   /**
-    * The original code of the exception.
-    *
-    * @return a value from the XMLExcepts::Codes enumeration representing
-    *         the original code of the exception.
-    */
-    XMLExcepts::Codes getOriginalExceptionCode() const;
    /**
     * The column number of the end of the text where the exception occurred.
     *
@@ -177,8 +168,6 @@ public:
 private:
     /* Data Members */
 
-    /* The original code of the exception. */
-    XMLExcepts::Codes fOriginalExceptCode;
     /* The column in the source text where the error occured. */
     XMLFileLoc   fColumnNumber;
     /* The line in the source text where the error occured. */

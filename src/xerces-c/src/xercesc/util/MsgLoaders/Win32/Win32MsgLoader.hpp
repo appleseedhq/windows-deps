@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: Win32MsgLoader.hpp 570552 2007-08-28 19:57:36Z amassari $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_WIN32MSGLOADER_HPP)

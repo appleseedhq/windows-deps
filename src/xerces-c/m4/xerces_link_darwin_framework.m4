@@ -7,7 +7,7 @@ dnl @author James Berry
 dnl @version 2005-02-20
 dnl @license AllPermissive
 dnl
-dnl $Id: xerces_link_darwin_framework.m4 190921 2005-06-16 14:18:12Z jberry $
+dnl $Id$
 
 AC_DEFUN([XERCES_LINK_DARWIN_FRAMEWORK], [
 	case $host_os in

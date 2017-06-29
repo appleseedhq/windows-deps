@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: CoreTestsMain.cpp 470088 2006-11-01 20:35:12Z amassari $
+ * $Id$
  */
 
 

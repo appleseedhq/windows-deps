@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: DTDScanner.hpp 676911 2008-07-15 13:27:32Z amassari $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_DTDSCANNER_HPP)
@@ -143,6 +143,7 @@ private:
     (
         const   DTDElementDecl&     elemDecl
         ,       XMLBuffer&          bufToUse
+        ,       unsigned int&       depth
     );
     bool scanCharRef(XMLCh& toFill, XMLCh& second);
     void scanComment();

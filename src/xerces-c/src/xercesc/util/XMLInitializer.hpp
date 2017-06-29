@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLInitializer.hpp 695427 2008-09-15 11:05:36Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_XMLINITIALIZER_HPP)
@@ -106,6 +106,9 @@ private:
     static void initializeDOMNodeListImpl();
     static void initializeDOMNormalizer();
 
+    // XInclude
+    //
+    static void initializeXInclude();
 
     //
     // Terminate
@@ -142,6 +145,10 @@ private:
     static void terminateDOMDocumentTypeImpl();
     static void terminateDOMNodeListImpl();
     static void terminateDOMNormalizer();
+
+    // XInclude
+    //
+    static void terminateXInclude();
 
     //
     // Extra initialization.

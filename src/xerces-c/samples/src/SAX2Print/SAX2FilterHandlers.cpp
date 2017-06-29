@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: SAX2FilterHandlers.cpp 672311 2008-06-27 16:05:01Z borisk $
+ * $Id$
  */
 
 

@@ -8,7 +8,7 @@ dnl @author James Berry
 dnl @version 2005-06-07
 dnl @license AllPermissive
 dnl
-dnl $Id: xerces_int_types.m4 834826 2009-11-11 10:03:53Z borisk $
+dnl $Id$
 
 AC_DEFUN([XERCES_INT_TYPES],
 	[

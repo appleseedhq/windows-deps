@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: DOMStringPool.hpp 678766 2008-07-22 14:00:16Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_DOMSTRINGPOOL_HPP)
@@ -43,13 +43,14 @@ class   DOMDocumentImpl;
 //                      hash table array itself is a pointer to the head
 //                      of a singly-linked list of these structs.
 //
-//                      Although this struct is delcared with a string length of one,
+//                      Although this struct is declared with a string length of one,
 //                      the factory method allocates enough storage to hold the full
 //                      string length.
 //
 struct DOMStringPoolEntry
 {
     DOMStringPoolEntry    *fNext;
+    XMLSize_t             fLength;
     XMLCh                 fString[1];
 };
 
@@ -74,6 +75,7 @@ public :
     // -----------------------------------------------------------------------
     void append (const XMLCh* const chars);
     void append (const XMLCh* const chars, const XMLSize_t count);
+    void appendInPlace (const XMLCh* const chars, const XMLSize_t count);
 
     void set (const XMLCh* const chars);
     void set (const XMLCh* const chars, const XMLSize_t count);
@@ -116,7 +118,7 @@ public :
     // -----------------------------------------------------------------------
     //  Private helpers
     // -----------------------------------------------------------------------
-    void expandCapacity(const XMLSize_t extraNeeded);
+    void expandCapacity(const XMLSize_t extraNeeded, bool releasePrevious = false);
 
 
 private :
@@ -169,6 +171,19 @@ append (const XMLCh* const chars, const XMLSize_t count)
 {
   if (fIndex + count >= fCapacity)
     expandCapacity(count);
+
+  memcpy(&fBuffer[fIndex], chars, count * sizeof(XMLCh));
+  fIndex += count;
+
+  // Keep it null terminated
+  fBuffer[fIndex] = 0;
+}
+
+inline void DOMBuffer::
+appendInPlace (const XMLCh* const chars, const XMLSize_t count)
+{
+  if (fIndex + count >= fCapacity)
+    expandCapacity(count, true);
 
   memcpy(&fBuffer[fIndex], chars, count * sizeof(XMLCh));
   fIndex += count;

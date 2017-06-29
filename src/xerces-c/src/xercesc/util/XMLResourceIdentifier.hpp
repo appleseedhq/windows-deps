@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLResourceIdentifier.hpp 527149 2007-04-10 14:56:39Z amassari $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_XMLRESOURCEIDENTIFIER_HPP)
@@ -70,7 +70,7 @@ class Locator;
   *<br>
   *&nbsp;class MyResolver : public XMLEntityResolver {<br>
   *&nbsp;&nbsp;public:<br>
-  *&nbsp;&nbsp;&nbsp;InputSource resolveEntity (XMLResourceIdentifier* xmlri);<br>
+  *&nbsp;&nbsp;&nbsp;InputSource* resolveEntity (XMLResourceIdentifier* xmlri);<br>
   *&nbsp;&nbsp;&nbsp;...<br>
   *&nbsp;&nbsp;};<br>
   *<br>

@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: CurlURLInputStream.cpp 936316 2010-04-21 14:19:58Z borisk $
+ * $Id$
  */
 
 #if HAVE_CONFIG_H

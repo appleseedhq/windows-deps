@@ -16,7 +16,7 @@
  */
 
 /**
- * $Id: XMLFormatter.cpp 901107 2010-01-20 08:45:02Z borisk $
+ * $Id$
  */
 
 
@@ -81,7 +81,7 @@ static const XMLCh gEscapeChars[XMLFormatter::EscapeFlags_Count][kEscapeCount] =
         { chNull      , chNull       , chNull        , chNull       , chNull        , chNull    , chNull }
     ,   { chAmpersand , chCloseAngle , chDoubleQuote , chOpenAngle  , chSingleQuote , chNull    , chNull }
     ,   { chAmpersand , chOpenAngle  , chDoubleQuote , chLF         , chCR          , chHTab    , chNull }
-    ,   { chAmpersand , chOpenAngle  , chCloseAngle  , chNull       , chNull        , chNull    , chNull }
+    ,   { chAmpersand , chOpenAngle  , chCloseAngle  , chCR         , chNull        , chNull    , chNull }
 };
 
 // ---------------------------------------------------------------------------
@@ -240,7 +240,6 @@ XMLFormatter::XMLFormatter( const   XMLCh* const            outEncoding
 
     // Copy the encoding string
     fOutEncoding = XMLString::replicate(outEncoding, fMemoryManager);
-
 
     fIsXML11 = XMLString::equals(docVersion, XMLUni::fgVersion1_1);
 }
@@ -418,7 +417,7 @@ XMLFormatter::formatBuf(const   XMLCh* const    toFormat
      else
     {
         //
-        //  Escape chars that require it according tot he scale flags
+        //  Escape chars that require it according to the scale flags
         //  we were given. For the others, try to accumulate them and
         //  format them in as big as bulk as we can.
         //

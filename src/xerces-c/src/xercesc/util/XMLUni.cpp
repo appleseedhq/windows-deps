@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLUni.cpp 833045 2009-11-05 13:21:27Z borisk $
+ * $Id$
  */
 
 
@@ -316,6 +316,11 @@ const XMLCh XMLUni::fgStandaloneString[] =
     chLatin_s, chLatin_t, chLatin_a, chLatin_n, chLatin_d, chLatin_a, chLatin_l, chLatin_o, chLatin_n, chLatin_e, chNull
 };
 
+const XMLCh XMLUni::fgVersion1[] =
+{
+    chDigit_1, chPeriod, chNull
+};
+
 const XMLCh XMLUni::fgVersion1_0[] =
 {
     chDigit_1, chPeriod, chDigit_0, chNull
@@ -337,7 +342,7 @@ const XMLCh XMLUni::fgUnknownURIName[] =
     ,   chForwardSlash, chLatin_a, chLatin_p, chLatin_a, chLatin_c
     ,   chLatin_h, chLatin_e, chPeriod, chLatin_o, chLatin_r, chLatin_g
     ,   chForwardSlash, chLatin_x, chLatin_m, chLatin_l, chForwardSlash
-    ,   chLatin_U, chLatin_k, chLatin_n, chLatin_o, chLatin_w, chLatin_n
+    ,   chLatin_U, chLatin_n, chLatin_k, chLatin_n, chLatin_o, chLatin_w, chLatin_n
     ,   chLatin_N, chLatin_S, chNull
 };
 
@@ -1045,6 +1050,7 @@ const XMLCh XMLUni::fgXercesLoadSchema[] =
     ,   chLatin_a, chLatin_t, chLatin_i, chLatin_n, chLatin_g, chForwardSlash
     ,   chLatin_l, chLatin_o, chLatin_a, chLatin_d, chDash
     ,   chLatin_s, chLatin_c, chLatin_h, chLatin_e, chLatin_m, chLatin_a
+    ,   chNull
 };
 
 //Xerces: http://apache.org/xml/features/validation/identity-constraint-checking

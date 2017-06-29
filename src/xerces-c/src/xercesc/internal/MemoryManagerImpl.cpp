@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: MemoryManagerImpl.cpp 673975 2008-07-04 09:23:56Z borisk $
+ * $Id$
  */
 
 
@@ -30,7 +30,7 @@ XERCES_CPP_NAMESPACE_BEGIN
 
 MemoryManager* MemoryManagerImpl::getExceptionMemoryManager()
 {
-  return this;
+    return this;
 }
 
 void* MemoryManagerImpl::allocate(XMLSize_t size)
@@ -42,10 +42,9 @@ void* MemoryManagerImpl::allocate(XMLSize_t size)
     catch(...) {
         throw OutOfMemoryException();
     }
-    if (memptr != NULL) {
-        return memptr;
-    }
-    throw OutOfMemoryException();
+    if(memptr==NULL && size!=0)
+        throw OutOfMemoryException();
+    return memptr;
 }
 
 void MemoryManagerImpl::deallocate(void* p)

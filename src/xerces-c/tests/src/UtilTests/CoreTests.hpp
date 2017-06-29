@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: CoreTests.hpp 470088 2006-11-01 20:35:12Z amassari $
+ * $Id$
  */
 
 #include <xercesc/util/XMLException.hpp>

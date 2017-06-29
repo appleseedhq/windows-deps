@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: SAX2XMLReader.hpp 932887 2010-04-11 13:04:59Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_SAX2XMLREADER_HPP)
@@ -257,7 +257,10 @@ public:
     * <br>(See the SAX2 Programming Guide for detail description).
     *
     * <br>http://apache.org/xml/properties/schema/external-schemaLocation
-    * <br>http://apache.org/xml/properties/schema/external-noNamespaceSchemaLocation.
+    * <br>http://apache.org/xml/properties/schema/external-noNamespaceSchemaLocation
+    * <br>http://apache.org/xml/properties/security-manager
+    * <br>http://apache.org/xml/properties/low-water-mark
+    * <br>http://apache.org/xml/properties/scannerName
     *
     * It takes a void pointer as the property value.  Application is required to initialize this void
     * pointer to a correct type.  See the SAX2 Programming Guide

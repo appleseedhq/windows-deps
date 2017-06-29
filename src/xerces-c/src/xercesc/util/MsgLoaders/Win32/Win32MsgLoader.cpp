@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: Win32MsgLoader.cpp 570552 2007-08-28 19:57:36Z amassari $
+ * $Id$
  */
 
 

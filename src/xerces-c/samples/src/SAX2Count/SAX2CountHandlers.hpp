@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: SAX2CountHandlers.hpp 679377 2008-07-24 11:56:42Z borisk $
+ * $Id$
  */
 
 

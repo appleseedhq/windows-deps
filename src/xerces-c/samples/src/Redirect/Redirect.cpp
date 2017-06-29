@@ -35,7 +35,7 @@
  * callback returns NULL indicating that do the default behaviour which is
  * to read the contents of 'personal.dtd'.
  *
- * $Id: Redirect.cpp 471735 2006-11-06 13:53:58Z amassari $
+ * $Id$
  */
 
 

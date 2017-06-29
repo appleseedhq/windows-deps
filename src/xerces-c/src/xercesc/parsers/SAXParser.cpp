@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: SAXParser.cpp 882548 2009-11-20 13:44:14Z borisk $
+ * $Id$
  */
 
 
@@ -38,7 +38,6 @@
 #include <xercesc/util/Janitor.hpp>
 #include <xercesc/util/OutOfMemoryException.hpp>
 #include <xercesc/util/XMLEntityResolver.hpp>
-#include <xercesc/util/XMLExceptMsgs.hpp>
 #include <string.h>
 
 XERCES_CPP_NAMESPACE_BEGIN
@@ -1183,7 +1182,7 @@ void SAXParser::resetErrors()
 }
 
 
-void SAXParser::error(  const   unsigned int                originalExceptCode
+void SAXParser::error(  const   unsigned int
                         , const XMLCh* const
                         , const XMLErrorReporter::ErrTypes  errType
                         , const XMLCh* const                errorText
@@ -1194,8 +1193,7 @@ void SAXParser::error(  const   unsigned int                originalExceptCode
 {
     SAXParseException toThrow = SAXParseException
     (
-        static_cast<XMLExcepts::Codes>(originalExceptCode)
-        , errorText
+        errorText
         , publicId
         , systemId
         , lineNum

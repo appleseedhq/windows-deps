@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: ValueVectorOf.c 676911 2008-07-15 13:27:32Z amassari $
+ * $Id$
  */
 
 

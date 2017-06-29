@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: SEnumVal.cpp 933155 2010-04-12 09:07:02Z amassari $
+ * $Id$
  */
 // ---------------------------------------------------------------------------
 //  Includes
@@ -469,8 +469,8 @@ void processDatatypeValidator( const DatatypeValidator* dtValidator, bool margin
 	{
 		XERCES_STD_QUALIFIER cout << "Enumeration:\t\t\n";
 
-        int enumLength = enums->size();
-        for ( int i = 0; i < enumLength; i++)
+		XMLSize_t enumLength = enums->size();
+		for ( XMLSize_t i = 0; i < enumLength; i++)
         {
             XERCES_STD_QUALIFIER cout << "\t" << StrX( enums->elementAt(i)) << "\n";
         }
@@ -502,6 +502,7 @@ void processContentSpecNode( const ContentSpecNode* cSpecNode, bool margin )
         case ContentSpecNode::ModelGroupSequence:  
         case ContentSpecNode::Sequence:            XERCES_STD_QUALIFIER cout << "Sequence";       break;
         case ContentSpecNode::All:                 XERCES_STD_QUALIFIER cout << "All";            break;
+        case ContentSpecNode::Loop:                XERCES_STD_QUALIFIER cout << "Loop";           break;
         case ContentSpecNode::Any:                 XERCES_STD_QUALIFIER cout << "Any";            break;
         case ContentSpecNode::Any_Other:           XERCES_STD_QUALIFIER cout << "Any_Other";      break;
         case ContentSpecNode::Any_NS:              XERCES_STD_QUALIFIER cout << "Any_NS";         break;

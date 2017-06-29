@@ -20,11 +20,11 @@
 #
 
 #
-# $Id: configure.ac 935350 2010-04-18 15:02:36Z borisk $
+# $Id$
 #
 
 AC_PREREQ(2.60)
-AC_INIT([xerces-c],[3.1.1])
+AC_INIT([xerces-c],[3.2.0])
 AC_CONFIG_SRCDIR([src/Makefile.am])
 AC_CONFIG_LIBOBJ_DIR([src])
 AC_CONFIG_AUX_DIR([config])
@@ -32,7 +32,6 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([config.h src/xercesc/util/Xerces_autoconf_config.hpp])
 AC_CONFIG_FILES([Makefile \
                  src/Makefile \
-                 src/xercesc/util/MsgLoaders/MsgCatalog/Makefile \
                  tests/Makefile \
                  samples/Makefile \
 		 xerces-c.pc])
@@ -141,9 +140,27 @@ AC_CHECK_FUNCS([getcwd pathconf realpath \
         wcsupr wcslwr wcsnicmp wcsicmp \
 		])
 
+# Some Unix systems, like Gnu Hurd, don't define PATH_MAX
+AC_MSG_CHECKING([for PATH_MAX])
+AC_COMPILE_IFELSE( [AC_LANG_PROGRAM([[#include <limits.h>]],
+                                    [[char dummy[PATH_MAX];]])],
+                   [
+                      AC_MSG_RESULT([yes])
+                      AC_DEFINE_UNQUOTED([HAVE_PATH_MAX], 1, [Define to 1 if you have the PATH_MAX macro.])
+                    ],
+                    [
+                      AC_MSG_RESULT([no])
+                      AC_DEFINE_UNQUOTED([HAVE_PATH_MAX], 0, [Define to 1 if you have the PATH_MAX macro.])
+                    ]
+                 )
+
 # The check for mbrlen, wcsrtombs and mbsrtowcs gives a false
 # positive on HP-UX, so we use a different snippet to set the
 # corresponding macro
+# Furthermore, OpenBSD 5.1 doesn't follow the standard that states
+# that the "src" pointer must be set to NULL when a \0 has been 
+# converted in the source data, a behaviour that we rely on
+# So we also check for this scenario before using these functions
 AC_MSG_CHECKING([for mbrlen])
 AC_COMPILE_IFELSE(  [AC_LANG_PROGRAM([[#include <wchar.h>]],
                                      [[mbstate_t st; mbrlen( "t", 5, &st );]])],
@@ -157,8 +174,18 @@ AC_COMPILE_IFELSE(  [AC_LANG_PROGRAM([[#include <wchar.h>]],
                     ]
                  )
 AC_MSG_CHECKING([for wcsrtombs])
-AC_COMPILE_IFELSE(  [AC_LANG_PROGRAM([[#include <wchar.h>]],
-                                     [[mbstate_t st; char buffer[2]; const wchar_t* src=0; wcsrtombs(buffer, &src, 2, &st);]])],
+AC_RUN_IFELSE(  [AC_LANG_PROGRAM([[#include <wchar.h>
+#include <string.h>]],
+                                 [[
+mbstate_t st;
+memset(&st, 0, sizeof(st));
+char buffer[32];
+const wchar_t* src=L"help";
+wcsrtombs(buffer, &src, 32, &st);
+if(src==0)
+    return 0;
+else
+    return 1;]])],
                     [
                       AC_MSG_RESULT([yes])
                       AC_DEFINE_UNQUOTED([HAVE_WCSRTOMBS], 1, [Define to 1 if you have the `wcsrtombs' function.])
@@ -169,8 +196,18 @@ AC_COMPILE_IFELSE(  [AC_LANG_PROGRAM([[#include <wchar.h>]],
                     ]
                  )
 AC_MSG_CHECKING([for mbsrtowcs])
-AC_COMPILE_IFELSE(  [AC_LANG_PROGRAM([[#include <wchar.h>]],
-                                     [[mbstate_t st; wchar_t buffer[2]; const char* src=0; mbsrtowcs(buffer, &src, 2, &st);]])],
+AC_RUN_IFELSE(  [AC_LANG_PROGRAM([[#include <wchar.h>
+#include <string.h>]],
+                                 [[
+mbstate_t st;
+memset(&st, 0, sizeof(st));
+wchar_t buffer[32];
+const char* src="help";
+mbsrtowcs(buffer, &src, 32, &st);
+if(src==0)
+    return 0;
+else
+    return 1;]])],
                     [
                       AC_MSG_RESULT([yes])
                       AC_DEFINE_UNQUOTED([HAVE_MBSRTOWCS], 1, [Define to 1 if you have the `mbsrtowcs' function.])
@@ -438,11 +475,11 @@ fi
 
 AS_IF([test x$ac_cv_type_size_t = xyes],
 	AC_DEFINE([XERCES_SIZE_T], [size_t], [Define as the appropriate size_t type]),
-	AC_DEFINE([XERCES_SIZE_T], [long], [Define as the appropriate size_t type]))
+	AC_DEFINE([XERCES_SIZE_T], [unsigned long], [Define as the appropriate size_t type]))
 
 AS_IF([test x$ac_cv_type_ssize_t = xyes],
 	AC_DEFINE([XERCES_SSIZE_T], [ssize_t], [Define as the appropriate ssize_t type]),
-	AC_DEFINE([XERCES_SSIZE_T], [unsigned long], [Define as the appropriate ssize_t type]))
+	AC_DEFINE([XERCES_SSIZE_T], [long], [Define as the appropriate ssize_t type]))
 
 AS_IF([test x$ac_cv_cxx_have_namespaces = xyes],
 	AC_DEFINE([XERCES_HAS_CPP_NAMESPACE], 1, [Define if namespaces is supported by the compiler]))

@@ -16,13 +16,12 @@
 #
 
 #
-# $Id: Makefile.am 883272 2009-11-23 08:17:49Z borisk $
+# $Id$
 #
 
 include ${top_srcdir}/version.incl
 
 DEFS += -DXERCES_BUILDING_LIBRARY
-SUBDIRS =
 
 #
 #
@@ -56,7 +55,12 @@ nodist_autoconfheaders_HEADERS = ${top_builddir}/src/xercesc/util/Xerces_autocon
 
 # Compatibility library.
 #
-EXTRA_DIST = stricmp.h strnicmp.h towlower.h towupper.h
+EXTRA_DIST = CMakeLists.txt \
+        XercesCConfig.cmake.in \
+        stricmp.h strnicmp.h towlower.h towupper.h \
+        xercesc/util/Xerces_autoconf_config.hpp.cmake.in \
+	xercesc/util/MsgLoaders/Win32
+
 libxerces_c_la_LIBADD = ${LTLIBOBJS}
 
 # NetAccessors, conditionally built based on settings from configure
@@ -147,7 +151,19 @@ if XERCES_USE_MSGLOADER_ICONV
 libxerces_c_la_SOURCES += ${msgiconv_sources}
 nobase_libxerces_c_la_HEADERS += ${msgiconv_headers}
 
-SUBDIRS += xercesc/util/MsgLoaders/MsgCatalog
+# Resource shortname
+PKGNAME=XercesMessages
+
+# Resource file
+RESFILE=$(PKGNAME)_en_US.cat
+
+# Resources
+XercesMessages_en_US.cat: @srcdir@/xercesc/util/MsgLoaders/MsgCatalog/XercesMessages_en_US.Msg
+	@echo "generating $@ from @srcdir@/xercesc/util/MsgLoaders/MsgCatalog/XercesMessages_en_US.Msg"
+	gencat $@ @srcdir@/xercesc/util/MsgLoaders/MsgCatalog/XercesMessages_en_US.Msg
+
+iconv_msgdir=$(prefix)/msg
+iconv_msg_DATA = $(RESFILE)
 endif
 
 

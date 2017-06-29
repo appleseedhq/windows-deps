@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLString.cpp 901107 2010-01-20 08:45:02Z borisk $
+ * $Id$
  */
 
 
@@ -802,7 +802,7 @@ void XMLString::sizeToText(  const  XMLSize_t            toFormat
     {
             chDigit_0, chDigit_1, chDigit_2, chDigit_3, chDigit_4, chDigit_5
         ,   chDigit_6, chDigit_7, chDigit_8, chDigit_9, chLatin_A, chLatin_B
-        ,   chLatin_C, chLatin_D, chLatin_e, chLatin_F
+        ,   chLatin_C, chLatin_D, chLatin_E, chLatin_F
     };
 
     if (!maxChars)
@@ -893,7 +893,7 @@ void XMLString::binToText(  const   unsigned long   toFormat
     {
             chDigit_0, chDigit_1, chDigit_2, chDigit_3, chDigit_4, chDigit_5
         ,   chDigit_6, chDigit_7, chDigit_8, chDigit_9, chLatin_A, chLatin_B
-        ,   chLatin_C, chLatin_D, chLatin_e, chLatin_F
+        ,   chLatin_C, chLatin_D, chLatin_E, chLatin_F
     };
 
     if (!maxChars)
@@ -1580,6 +1580,54 @@ void XMLString::subString(XMLCh* const targetStr, const XMLCh* const srcStr
     }
 
     targetStr[copySize] = 0;
+}
+
+BaseRefVectorOf<XMLCh>* XMLString::tokenizeString(const XMLCh* const tokenizeSrc
+                                                , XMLCh delimiter
+                                                , MemoryManager*    const manager)
+{
+    XMLCh* orgText = replicate(tokenizeSrc, manager);
+    ArrayJanitor<XMLCh> janText(orgText, manager);
+    XMLCh* tokenizeStr = orgText;
+
+    RefArrayVectorOf<XMLCh>* tokenStack = new (manager) RefArrayVectorOf<XMLCh>(16, true, manager);
+
+    XMLSize_t len = stringLen(tokenizeStr);
+    XMLSize_t skip;
+    XMLSize_t index = 0;
+
+    while (index != len) {
+        // find the first non-space character
+        for (skip = index; skip < len; skip++)
+        {
+            if (tokenizeStr[skip]!=delimiter)
+                break;
+        }
+        index = skip;
+
+        // find the delimiter (space character)
+        for (; skip < len; skip++)
+        {
+            if (tokenizeStr[skip]==delimiter)
+                break;
+        }
+
+        // we reached the end of the string
+        if (skip == index)
+            break;
+
+        // these tokens are adopted in the RefVector and will be deleted
+        // when the vector is deleted by the caller
+        XMLCh* token = (XMLCh*) manager->allocate
+        (
+            (skip+1-index) * sizeof(XMLCh)
+        );//new XMLCh[skip+1-index];
+
+        XMLString::subString(token, tokenizeStr, index, skip, len, manager);
+        tokenStack->addElement(token);
+        index = skip;
+    }
+    return tokenStack;
 }
 
 BaseRefVectorOf<XMLCh>* XMLString::tokenizeString(const XMLCh*      const   tokenizeSrc

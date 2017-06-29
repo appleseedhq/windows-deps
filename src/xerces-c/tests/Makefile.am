@@ -16,7 +16,7 @@
 #
 
 #
-# $Id: Makefile.am 883272 2009-11-23 08:17:49Z borisk $
+# $Id$
 #
 
 check_PROGRAMS =                                ${testprogs}
@@ -26,7 +26,9 @@ LDADD =	                                        ${top_builddir}/src/libxerces-c.
 # header file when doing out-of-tree builds
 AM_CPPFLAGS =                                   -I${top_builddir}/src -I${top_srcdir}/src
 
-EXTRA_DIST =                                    src/DOM/Normalizer/expectedOutput \
+EXTRA_DIST =                                    CMakeLists.txt \
+                                                expected \
+                                                src/DOM/Normalizer/expectedOutput \
                                                 src/DOM/TypeInfo/data/combined.dtd \
                                                 src/DOM/TypeInfo/data/combined.xml \
                                                 src/DOM/TypeInfo/data/combined.xsd \

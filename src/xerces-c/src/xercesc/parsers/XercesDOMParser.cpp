@@ -20,7 +20,7 @@
 *  handler with the scanner. In these handler methods, appropriate DOM nodes
 *  are created and added to the DOM tree.
 *
-* $Id: XercesDOMParser.cpp 882548 2009-11-20 13:44:14Z borisk $
+* $Id$
 *
 */
 
@@ -41,7 +41,6 @@
 #include <xercesc/util/Janitor.hpp>
 #include <xercesc/util/OutOfMemoryException.hpp>
 #include <xercesc/util/XMLEntityResolver.hpp>
-#include <xercesc/util/XMLExceptMsgs.hpp>
 
 XERCES_CPP_NAMESPACE_BEGIN
 
@@ -177,7 +176,7 @@ void XercesDOMParser::resetDocumentPool()
 // ---------------------------------------------------------------------------
 //  XercesDOMParser: Implementation of the XMLErrorReporter interface
 // ---------------------------------------------------------------------------
-void XercesDOMParser::error( const   unsigned int                originalExceptCode
+void XercesDOMParser::error( const   unsigned int
                              , const XMLCh* const
                              , const XMLErrorReporter::ErrTypes  errType
                              , const XMLCh* const                errorText
@@ -188,8 +187,7 @@ void XercesDOMParser::error( const   unsigned int                originalExceptC
 {
     SAXParseException toThrow = SAXParseException
         (
-        static_cast<XMLExcepts::Codes>(originalExceptCode)
-        , errorText
+        errorText
         , publicId
         , systemId
         , lineNum

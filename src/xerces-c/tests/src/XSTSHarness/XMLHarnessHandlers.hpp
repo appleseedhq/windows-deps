@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLHarnessHandlers.hpp 781475 2009-06-03 17:00:27Z amassari $
+ * $Id$
  */
 
 
@@ -37,7 +37,7 @@ public:
     // -----------------------------------------------------------------------
     //  Constructors and Destructor
     // -----------------------------------------------------------------------
-    XMLHarnessHandlers(const XMLCh* baseURL);
+    XMLHarnessHandlers(const XMLCh* baseURL, const XMLCh* scanner);
     ~XMLHarnessHandlers();
 
     // -----------------------------------------------------------------------

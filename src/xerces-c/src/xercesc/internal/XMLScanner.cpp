@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XMLScanner.cpp 882548 2009-11-20 13:44:14Z borisk $
+ * $Id$
  */
 
 
@@ -1270,8 +1270,15 @@ void XMLScanner::scanProlog()
                     if (sawDocTypeDecl) {
                         emitError(XMLErrs::DuplicateDocTypeDecl);
                     }
-                    scanDocTypeDecl();
-                    sawDocTypeDecl = true;
+
+                    const char* envvar = getenv("XERCES_DISABLE_DTD");
+                    if (fDisallowDTD || (envvar && !strcmp(envvar, "1"))) {
+                    	emitError(XMLErrs::InvalidDocumentStructure);
+                    }
+                    else {
+                    	scanDocTypeDecl();
+                    	sawDocTypeDecl = true;
+                    }
 
                     // if reusing grammar, this has been validated already in first scan
                     // skip for performance
@@ -1438,17 +1445,23 @@ void XMLScanner::scanXMLDecl(const DeclTypes type)
         {
             if (XMLString::equals(rawValue, XMLUni::fgVersion1_1)) {
                 if (type == Decl_XML) {
-                	fXMLVersion = XMLReader::XMLV1_1;
+                    fXMLVersion = XMLReader::XMLV1_1;
                     fReaderMgr.setXMLVersion(XMLReader::XMLV1_1);
                 }
                 else {
-            	    if (fXMLVersion != XMLReader::XMLV1_1)
-            	        emitError(XMLErrs::UnsupportedXMLVersion, rawValue);
-            	}
+                    if (fXMLVersion != XMLReader::XMLV1_1)
+                        emitError(XMLErrs::UnsupportedXMLVersion, rawValue);
+                }
             }
             else if (XMLString::equals(rawValue, XMLUni::fgVersion1_0)) {
                 if (type == Decl_XML) {
-                	fXMLVersion = XMLReader::XMLV1_0;
+                    fXMLVersion = XMLReader::XMLV1_0;
+                    fReaderMgr.setXMLVersion(XMLReader::XMLV1_0);
+                }
+            }
+            else if (XMLString::startsWith(rawValue, XMLUni::fgVersion1)) {
+                if (type == Decl_XML) {
+                    fXMLVersion = XMLReader::XMLV1_0;
                     fReaderMgr.setXMLVersion(XMLReader::XMLV1_0);
                 }
             }

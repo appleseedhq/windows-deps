@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: DOMLSParser.hpp 832686 2009-11-04 08:55:59Z borisk $
+ * $Id$
  *
  */
 
@@ -162,11 +162,11 @@ public:
       *         protocols.
       *
       * "disallow-doctype"
-      *     true [optional]
+      *     true
       *         Throw a fatal "doctype-not-allowed" error if a doctype node is found while
       *         parsing the document. This is useful when dealing with things like SOAP
       *         envelopes where doctype nodes are not allowed.
-      *     false [required] (default)
+      *     false (default)
       *         Allow doctype nodes in the document.
       *
       * "ignore-unknown-character-denormalizations"

@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: GrammarResolver.hpp 932887 2010-04-11 13:04:59Z borisk $
+ * $Id$
  */
 
 #if !defined(XERCESC_INCLUDE_GUARD_GRAMMARRESOLVER_HPP)

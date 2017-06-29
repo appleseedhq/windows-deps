@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: ICUTransService.cpp 901107 2010-01-20 08:45:02Z borisk $
+ * $Id$
  */
 
 
@@ -38,6 +38,9 @@
 #include <unicode/udata.h>
 #if (U_ICU_VERSION_MAJOR_NUM >= 2)
     #include <unicode/uclean.h>
+#endif
+#if (U_ICU_VERSION_MAJOR_NUM >= 4)
+    #include <unicode/utf16.h>
 #endif
 
 #if !defined(XML_OS390) && !defined(XML_AS400) && !defined(XML_HPUX) && !defined(XML_PTX)
@@ -483,7 +486,7 @@ ICUTranscoder::transcodeFrom(const  XMLByte* const          srcData
     UChar* startTarget;
     if (sizeof(XMLCh) == sizeof(UChar))
         startTarget = (UChar*)toFill;
-     else
+    else
         startTarget = (UChar*) getMemoryManager()->allocate
         (
             maxChars * sizeof(UChar)
@@ -546,9 +549,9 @@ ICUTranscoder::transcodeFrom(const  XMLByte* const          srcData
     if (fFixed)
     {
         const unsigned char fillSize = (unsigned char)ucnv_getMaxCharSize(fConverter);
-        memset(charSizes, fillSize, maxChars);
+        memset(charSizes, fillSize, charsDecoded);
     }
-     else
+    else
     {
         //
         //  We have to convert the series of offsets into a series of
@@ -560,7 +563,7 @@ ICUTranscoder::transcodeFrom(const  XMLByte* const          srcData
         {
             charSizes[0] = (unsigned char)bytesEaten;
         }
-         else
+        else
         {
             //  ICU does not return an extra element to allow us to figure
             //  out the last char size, so we have to compute it from the
@@ -666,7 +669,7 @@ ICUTranscoder::transcodeTo( const   XMLCh* const    srcData
     );
 
     // Rememember the status before we possibly overite the error code
-    const bool res = (err == U_ZERO_ERROR);
+    const bool res = ((err == U_ZERO_ERROR) || (err == U_BUFFER_OVERFLOW_ERROR && startSrc > srcPtr));
 
     // Put the old handler back
     err = U_ZERO_ERROR;
@@ -711,7 +714,7 @@ bool ICUTranscoder::canTranscodeTo(const unsigned int toCheck)
         srcBuf[1] = UChar(toCheck & 0x3FF) + 0xDC00;
         srcCount++;
     }
-     else
+    else
     {
         srcBuf[0] = UChar(toCheck);
     }
@@ -738,7 +741,7 @@ bool ICUTranscoder::canTranscodeTo(const unsigned int toCheck)
          , &err
          );
 
-    // Set upa temp buffer to format into. Make it more than big enough
+    // Set up a temp buffer to format into. Make it more than big enough
     char            tmpBuf[64];
     char*           startTarget = tmpBuf;
     const UChar*    startSrc = srcBuf;
@@ -920,7 +923,7 @@ char* ICULCPTranscoder::transcode(const XMLCh* const toTranscode,
     {
         actualSrc = (const UChar*)toTranscode;
     }
-     else
+    else
     {
         // Allocate a non-const temp buf, but store it also in the actual
         ncActual = convertToUChar(toTranscode, 0, manager);
@@ -1070,7 +1073,7 @@ XMLCh* ICULCPTranscoder::transcode(const char* const toTranscode,
     {
         actualRet = (XMLCh*)targetBuf;
     }
-     else
+    else
     {
         actualRet = convertToXMLCh(targetBuf, manager);
         manager->deallocate(targetBuf);//delete [] targetBuf;
@@ -1183,7 +1186,7 @@ bool ICULCPTranscoder::transcode(   const   XMLCh* const    toTranscode
     {
         actualSrc = (const UChar*)toTranscode;
     }
-     else
+    else
     {
         // Allocate a non-const temp buf, but store it also in the actual
         ncActual = convertToUChar(toTranscode, 0, manager);

@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: XSTSHarnessHandlers.cpp 833057 2009-11-05 15:25:10Z borisk $
+ * $Id$
  */
 
 // ---------------------------------------------------------------------------
@@ -33,9 +33,10 @@
 // ---------------------------------------------------------------------------
 //  XSTSHarnessHandlers: Constructors and Destructor
 // ---------------------------------------------------------------------------
-XSTSHarnessHandlers::XSTSHarnessHandlers(const XMLCh* baseURL) : BaseHarnessHandlers(baseURL)
+XSTSHarnessHandlers::XSTSHarnessHandlers(const XMLCh* baseURL, const XMLCh* scanner) : BaseHarnessHandlers(baseURL)
 {
     fParser = XMLReaderFactory::createXMLReader();
+    fParser->setProperty(XMLUni::fgXercesScannerName, (void*)scanner);
     fParser->setFeature(XMLUni::fgSAX2CoreNameSpaces, true);
     fParser->setFeature(XMLUni::fgSAX2CoreNameSpacePrefixes, true);
     fParser->setFeature(XMLUni::fgSAX2CoreValidation, true);

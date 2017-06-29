@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: DTest.cpp 830538 2009-10-28 13:41:11Z amassari $
+ * $Id$
  */
 
 
@@ -33,11 +33,13 @@
 #include <xercesc/util/XMLException.hpp>
 #include <xercesc/util/XMLString.hpp>
 #include <xercesc/util/BinInputStream.hpp>
+#include <xercesc/util/regx/Match.hpp>
+#include <xercesc/util/TransService.hpp>
+#include <xercesc/util/OutOfMemoryException.hpp>
 #include <xercesc/parsers/XercesDOMParser.hpp>
 #include <xercesc/dom/DOMException.hpp>
 #include <xercesc/dom/DOMLSException.hpp>
 #include <xercesc/dom/DOMLSParserFilter.hpp>
-#include <xercesc/util/OutOfMemoryException.hpp>
 #include <xercesc/framework/MemBufInputSource.hpp>
 #include <xercesc/validators/common/CMStateSet.hpp>
 
@@ -2239,7 +2241,8 @@ bool DOMTest::testDocument(DOMDocument* document)
         XMLString::transcode(elementNames[i], tempStr, 3999);
         if (XMLString::compareString(tempStr, n->getNodeName()))
         {
-            fprintf(stderr, "Comparison of this document's elements failed at element number %d at line %i \n", i, __LINE__);
+            fprintf(stderr, "Comparison of this document's elements failed at element number %llu at line %i \n",
+                    (unsigned long long) i, __LINE__);
             OK = false;
             break;
         }
@@ -2271,7 +2274,8 @@ bool DOMTest::testDocument(DOMDocument* document)
         XMLString::transcode(newElementNames[i], tempStr, 3999);
         if (XMLString::compareString(tempStr, n->getNodeName()))
         {
-            fprintf(stderr, "Comparison of new document's elements failed at element number %d at line %i \n", i, __LINE__);
+            fprintf(stderr, "Comparison of new document's elements failed at element number %llu at line %i \n",
+                    (unsigned long long) i, __LINE__);
             OK = false;
             break;
         }
@@ -2290,7 +2294,8 @@ bool DOMTest::testDocument(DOMDocument* document)
         XMLString::transcode(elementNames[i], tempStr, 3999);
         if (XMLString::compareString(tempStr, n->getNodeName()))
         {
-            fprintf(stderr, "Comparison of restored document's elements failed at element number %d at line %i \n", i, __LINE__);
+            fprintf(stderr, "Comparison of restored document's elements failed at element number %llu at line %i \n",
+                    (unsigned long long) i, __LINE__);
             OK = false;
             break;
         }
@@ -2712,7 +2717,8 @@ bool DOMTest::testDOMerrors(DOMDocument* document) {
         XMLString::transcode(xpath,xpathStr,99); \
         DOMXPathResult* result=(DOMXPathResult*)document->evaluate(xpathStr, document->getDocumentElement(), NULL, DOMXPathResult::ORDERED_NODE_SNAPSHOT_TYPE, NULL); \
         if(result->getSnapshotLength() != expected) {  \
-            fprintf(stderr, "DOMDocument::evaluate does not work in line %i (%d nodes instead of %d)\n", line, result->getSnapshotLength(), expected);  \
+            fprintf(stderr, "DOMDocument::evaluate does not work in line %i (%llu nodes instead of %d)\n", line, \
+                    (unsigned long long) result->getSnapshotLength(), expected); \
             OK = false; \
         }   \
         result->release(); \
@@ -2730,7 +2736,8 @@ bool DOMTest::testDOMerrors(DOMDocument* document) {
         XMLString::transcode(xpath,xpathStr,99); \
         DOMXPathResult* result=(DOMXPathResult*)document->evaluate(xpathStr, document->getDocumentElement(), resolver, DOMXPathResult::ORDERED_NODE_SNAPSHOT_TYPE, NULL); \
         if(result->getSnapshotLength() != expected) {  \
-            fprintf(stderr, "DOMDocument::evaluate does not work in line %i (%d nodes instead of %d)\n", line, result->getSnapshotLength(), expected);  \
+            fprintf(stderr, "DOMDocument::evaluate does not work in line %i (%llu nodes instead of %d)\n", line, \
+                    (unsigned long long) result->getSnapshotLength(), expected); \
             OK = false; \
         }   \
         result->release(); \
@@ -2988,7 +2995,8 @@ bool DOMTest::testElement(DOMDocument* document)
         if (XMLString::compareString(tempStr, n->getNodeName()))
         {
             fprintf(stderr, "Warning!!! Comparison of DOMElement's 'getElementsByTagName' "
-                            "and/or 'item' failed at element number %d at line %i \n", i, __LINE__ );
+                            "and/or 'item' failed at element number %llu at line %i \n",
+                    (unsigned long long) i, __LINE__ );
             fprintf(stderr, "\n");
             OK = false;
             break;
@@ -3017,7 +3025,8 @@ bool DOMTest::testElement(DOMDocument* document)
             if (XMLString::compareString(tempStr, n->getNodeValue()))
             {
                 fprintf(stderr, "Warning!!! Comparison of original text nodes via DOMNode*  'getChildNodes' & DOMNodeList 'item'\n"
-                    "     failed at text node: #%d at line %i \n     ", j, __LINE__ );
+                        "     failed at text node: #%llu at line %i \n     ",
+                        (unsigned long long) j, __LINE__ );
                 OK = false;
                 break;
             }
@@ -4947,7 +4956,7 @@ class ParserSkipper : public DOMLSParserFilter
 public:
     ParserSkipper() : fCallbackCalls(0) { }
 
-    virtual FilterAction acceptNode(DOMNode* node) { fCallbackCalls++; return DOMLSParserFilter::FILTER_ACCEPT;}
+    virtual FilterAction acceptNode(DOMNode* /* node */) { fCallbackCalls++; return DOMLSParserFilter::FILTER_ACCEPT;}
     virtual FilterAction startElement(DOMElement* node) 
     {
         XMLCh elem[]={chLatin_e, chLatin_l, chLatin_e, chLatin_m, chNull };
@@ -4988,7 +4997,7 @@ bool DOMTest::testLSExceptions() {
     {
         ParserAborter aborter;
         domBuilder->setFilter(&aborter);
-        DOMDocument* doc=domBuilder->parse(input);
+        domBuilder->parse(input);
 
         fprintf(stderr, "checking testLSExceptions failed at line %i\n",  __LINE__);
         OK=false;
@@ -5006,7 +5015,7 @@ bool DOMTest::testLSExceptions() {
     {
         ParserNester nester(domBuilder, input);
         domBuilder->setFilter(&nester);
-        DOMDocument* doc=domBuilder->parse(input);
+        domBuilder->parse(input);
 
         fprintf(stderr, "checking testLSExceptions failed at line %i\n",  __LINE__);
         OK=false;
@@ -5498,7 +5507,23 @@ bool DOMTest::testRegex() {
 
     TEST_VALID_SCHEMA_REGEX("-0 +3989 -90.76754,+9E77, -0.3e+9", "(((\\+|\\-)?(0|[1-9][0-9]*)?(\\.[0-9]*)?((E|e)(\\+|\\-)?[0-9]+)?)?( )?(,)?( )?)*", __LINE__);
 
-    delete hugeString;
+    try
+    {
+        Match match;
+        RegularExpression p("([\\-\\(]?\\d{1,3}([, ]\\d{3})+\\.\\d+[\\)]?|[\\-\\(]?\\d+\\.\\d+[\\)]?).*");
+        if(!p.matches("13.13", &match) || match.getStartPos(0)!=0 || match.getEndPos(0)!=5)
+        {
+            fprintf(stderr, "Regular expression test failed at line %i\n", __LINE__);
+            OK = false;
+        }
+    }
+    catch(XMLException& )
+    {
+        fprintf(stderr, "Regular expression test failed at line %i\n", __LINE__);
+        OK = false;
+    }
+
+    delete [] hugeString;
 
     return OK;
 }
@@ -5973,5 +5998,87 @@ bool DOMTest::testUtilFunctions()
         fprintf(stderr, "bitset test failed at line %i\n", __LINE__);
         OK = false;
     }
+
+	// TranscodeFrom/ToStr
+
+	const char* utf8 = "UTF-8";
+	char* empty = (char*)TranscodeToStr(XMLUni::fgZeroLenString,utf8).adopt(); 
+	if(XMLString::stringLen(empty)!=0)
+	{
+        fprintf(stderr, "TranscodeToStr failed at line %i\n", __LINE__);
+        OK = false;
+	}
+	XMLCh* empty2 = TranscodeFromStr((XMLByte*)empty,strlen(empty),utf8).adopt(); 
+	if(XMLString::stringLen(empty2)!=0)
+	{
+        fprintf(stderr, "TranscodeFromStr failed at line %i\n", __LINE__);
+        OK = false;
+	}
+	XMLString::release(&empty);
+	XMLString::release(&empty2);
+
+	const XMLCh aval [] = { 0x0041, 0x0000}; //LATIN CAPITAL LETTER A
+	char* ac = (char*)TranscodeToStr(aval,utf8).adopt(); 
+	if(!XMLString::equals(ac, "A"))
+	{
+        fprintf(stderr, "TranscodeToStr failed at line %i\n", __LINE__);
+        OK = false;
+	}
+	XMLCh* ac2=TranscodeFromStr((XMLByte*)ac, strlen(ac), utf8).adopt();
+	if(!XMLString::equals(ac2, aval))
+	{
+        fprintf(stderr, "TranscodeFromStr failed at line %i\n", __LINE__);
+        OK = false;
+	}
+	XMLString::release(&ac);
+	XMLString::release(&ac2);
+	const XMLCh uval [] = { 0x254B, 0x0000}; //BOX DRAWINGS HEAVY VERTICAL AND HORIZONTAL (needs 3 bytes for utf-8)
+	char* uc = (char*)TranscodeToStr(uval,utf8).adopt(); 
+	if(!XMLString::equals(uc, "\xE2\x95\x8B"))
+	{
+        fprintf(stderr, "TranscodeToStr failed at line %i\n", __LINE__);
+        OK = false;
+	}
+	XMLCh* uc2=TranscodeFromStr((XMLByte*)uc, strlen(uc), utf8).adopt();
+	if(!XMLString::equals(uc2, uval))
+	{
+        fprintf(stderr, "TranscodeFromStr failed at line %i\n", __LINE__);
+        OK = false;
+	}
+	XMLString::release(&uc);
+	XMLString::release(&uc2);
+
+	XMLCh uc3[] = { 0x6B65, 0 }; // Unicode Han Character 'step, pace; walk, stroll' (U+6B65); UTF-8 = 0xE6 0xAD 0xA5 (e6ada5)
+	char* uc4 = (char*)TranscodeToStr(uc3, utf8).adopt();
+	if(!XMLString::equals(uc4, "\xE6\xAD\xA5"))
+	{
+        fprintf(stderr, "TranscodeToStr failed at line %i\n", __LINE__);
+        OK = false;
+	}
+	XMLString::release(&uc4);
+
+	// Input:                    U+7D5E U+308A U+8FBC U+307F U+691C U+7D22
+	// Expected byte sequence:   E7 B5 9E E3 82 8A E8 BE BC E3 81 BF E6 A4 9C E7 B4 A2
+	const XMLCh xmlStr [] = { 0x7D5E, 0x308A, 0x8FBC, 0x307F, 0x691C, 0x7D22, 0x0000};
+	char* bytes = (char*)TranscodeToStr(xmlStr, "UTF-8").adopt();
+	if(!XMLString::equals(bytes, "\xE7\xB5\x9E\xE3\x82\x8A\xE8\xBE\xBC\xE3\x81\xBF\xE6\xA4\x9C\xE7\xB4\xA2"))
+	{
+        fprintf(stderr, "TranscodeToStr failed at line %i\n", __LINE__);
+        OK = false;
+	}
+	XMLString::release(&bytes);
+
+    // XERCESC-2052
+    // Input:                    U+4E2D U+56FD U+5236 U+9020 U+4E2D U+570B U+88FD U+9020
+    // Expected byte sequence:   E4 B8 AD E5 9B BD E5 88 B6 E9 80 A0 20 2F 20 E4 B8 AD E5 9C 8B E8 A3 BD E9 80 A0
+    const XMLCh xmlStr2[] = { 0x4E2D, 0x56FD, 0x5236, 0x9020, 0x20, 0x2F, 0x20, 0x4E2D, 0x570B, 0x88FD, 0x9020, 0x0000 };
+    char* bytes2 = (char*)TranscodeToStr(xmlStr2, "UTF-8").adopt();
+    if (!XMLString::equals(bytes2, "\xE4\xB8\xAD\xE5\x9B\xBD\xE5\x88\xB6\xE9\x80\xA0\x20\x2F\x20\xE4\xB8\xAD\xE5\x9C\x8B\xE8\xA3\xBD\xE9\x80\xA0"))
+    {
+        fprintf(stderr, "TranscodeToStr failed at line %i\n", __LINE__);
+        OK = false;
+    }
+    XMLString::release(&bytes2);
+
     return OK;
 }

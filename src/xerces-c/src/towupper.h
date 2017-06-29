@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: towupper.h 631983 2008-02-28 14:30:15Z borisk $
+ * $Id$
  */
 
 #ifndef TOWUPPER_H

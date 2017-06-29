@@ -16,7 +16,7 @@
  */
 
 /*
- * $Id: SimpleValueHashTableOf.hpp 679340 2008-07-24 10:28:29Z borisk $
+ * $Id$
  */
 
 //
