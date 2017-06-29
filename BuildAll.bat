@@ -93,14 +93,20 @@ REM ============================================================================
 :xercesc
 echo [ 1/11] Building Xerces-C...
 
-    pushd %src%\xerces-c\Projects\Win32\%xercesc_project_dir%\xerces-all
+    mkdir %root%build\%platform%\xerces-c-debug 2>nul
+    pushd %root%build\%platform%\xerces-c-debug
         type NUL > BUILDLOG.txt
-        devenv xerces-all.sln /build "Static Debug" /project all %redirect%
-        devenv xerces-all.sln /build "Static Release" /project all %redirect%
-        xcopy /E /Q /Y %src%\xerces-c\src\*.hpp %root%stage\%platform%\xerces-c\include\ %redirect%
-        xcopy /E /Q /Y %src%\xerces-c\src\*.c %root%stage\%platform%\xerces-c\include\ %redirect%
+        cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\xerces-c-debug %src%\xerces-c %redirect%
+        devenv xerces-c.sln /build Debug /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
-        move %src%\xerces-c\Projects\Win32\%xercesc_project_dir%\xerces-all\BUILDLOG.txt %root%build\%platform%\xerces-c > nul
+    popd
+
+    mkdir %root%build\%platform%\xerces-c-release 2>nul
+    pushd %root%build\%platform%\xerces-c-release
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\xerces-c-release %src%\xerces-c %redirect%
+        devenv xerces-c.sln /build Release /project INSTALL %redirect%
+        type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
 REM ===============================================================================
