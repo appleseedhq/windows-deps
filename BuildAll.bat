@@ -168,8 +168,8 @@ REM ============================================================================
 :libjpeg
 echo [ 5/11] Building libjpeg-turbo...
 
-    mkdir build\%platform%\libjpeg-turbo-debug 2>nul
-    pushd build\%platform%\libjpeg-turbo-debug
+    mkdir %root%build\%platform%\libjpeg-turbo-debug 2>nul
+    pushd %root%build\%platform%\libjpeg-turbo-debug
         type NUL > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DWITH_SIMD=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libjpeg-turbo-debug %src%\libjpeg-turbo %redirect%
         devenv libjpeg-turbo.sln /build Debug /project INSTALL %redirect%
@@ -177,8 +177,8 @@ echo [ 5/11] Building libjpeg-turbo...
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
-    mkdir build\%platform%\libjpeg-turbo-release 2>nul
-    pushd build\%platform%\libjpeg-turbo-release
+    mkdir %root%build\%platform%\libjpeg-turbo-release 2>nul
+    pushd %root%build\%platform%\libjpeg-turbo-release
         type NUL > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DWITH_SIMD=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libjpeg-turbo-release %src%\libjpeg-turbo %redirect%
         devenv libjpeg-turbo.sln /build Release /project INSTALL %redirect%
