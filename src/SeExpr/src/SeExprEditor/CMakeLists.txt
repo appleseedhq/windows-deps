@@ -29,7 +29,6 @@ if(QT4_FOUND)
 
     qt4_wrap_cpp(SeExprEd_MOC_SRCS ${SeExprEd_MOC_HDRS})
     
-    add_library(SeExprEditor SHARED ${SeExprEd_CPPS} ${SeExprEd_MOC_SRCS} ${editor_parser_cpp})
 IF(WIN32)
     add_library(SeExprEditor ${SeExprEd_CPPS} ${SeExprEd_MOC_SRCS} ${editor_parser_cpp})
     GENERATE_EXPORT_HEADER( SeExprEditor
@@ -38,6 +37,8 @@ IF(WIN32)
              EXPORT_FILE_NAME SeExprEditor_Export.h
              STATIC_DEFINE SeExprEditor_BUILT_AS_STATIC
     )
+ELSE()
+    add_library(SeExprEditor SHARED ${SeExprEd_CPPS} ${SeExprEd_MOC_SRCS} ${editor_parser_cpp})
 ENDIF(WIN32)
 
     
