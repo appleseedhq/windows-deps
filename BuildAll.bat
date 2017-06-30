@@ -86,7 +86,8 @@ goto end
 set src=%cd%\src
 set redirect=^>^> BUILDLOG.txt 2^>^&1
 
-type NUL > %root%build\%platform%\BUILDLOG.txt
+mkdir %root%build\%platform% 2>nul
+type nul > %root%build\%platform%\BUILDLOG.txt
 
 REM ===============================================================================
 
