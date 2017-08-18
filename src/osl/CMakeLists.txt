@@ -1,24 +1,28 @@
 project (OSL)
 
 # Release version of the library
-set (OSL_LIBRARY_VERSION_MAJOR 1)
-set (OSL_LIBRARY_VERSION_MINOR 7)
-set (OSL_LIBRARY_VERSION_PATCH 5)
+set (PROJ_NAME OSL)
+set (PROJECT_VERSION_MAJOR 1)
+set (PROJECT_VERSION_MINOR 8)
+set (PROJECT_VERSION_PATCH 10)
+set (OSL_LIBRARY_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set (OSL_LIBRARY_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set (OSL_LIBRARY_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+set (OSL_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set (OSL_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set (OSL_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 set (OSL_LIBRARY_VERSION_RELEASE_TYPE "")   # "dev", "betaX", "RCY", ""
 
 # Version of the OSO file format and instruction set
 set (OSO_FILE_VERSION_MAJOR 1)
 set (OSO_FILE_VERSION_MINOR 0)
 
-cmake_minimum_required (VERSION 2.6)
-if (NOT CMAKE_VERSION VERSION_LESS 2.8.4)
-    cmake_policy (SET CMP0017 NEW)
-endif ()
-if (NOT CMAKE_VERSION VERSION_LESS 3.0)
-    cmake_policy (SET CMP0025 NEW)  # Detect AppleClang for new CMake
-endif ()
+message (STATUS "CMake version is ${CMAKE_VERSION}")
+cmake_minimum_required (VERSION 3.0)
+cmake_policy (SET CMP0017 NEW)
+cmake_policy (SET CMP0025 NEW)  # Detect AppleClang for new CMake
 if (NOT CMAKE_VERSION VERSION_LESS 3.2.2)
-    cmake_policy (SET CMP0042 OLD)
+    # cmake_policy (SET CMP0042 OLD)
     cmake_policy (SET CMP0046 OLD)
 endif ()
 set (CMAKE_ALLOW_LOOSE_LOOP_CONSTRUCTS TRUE)
@@ -117,14 +121,14 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_CLANG)
             # Linux/FreeBSD/Hurd: also hide all the symbols of dependent
             # libraries to prevent clashes if an app using this library is
             # linked against other verions of our dependencies.
-            set (VISIBILITY_MAP_COMMAND "-Wl,--version-script=${PROJECT_SOURCE_DIR}/src/libOpenImageIO/libOpenImageIO.map")
+            set (VISIBILITY_MAP_COMMAND "-Wl,--version-script=${PROJECT_SOURCE_DIR}/src/build-scripts/hidesymbols.map")
         endif ()
     endif ()
     if (LLVM_STATIC AND ${CMAKE_SYSTEM_NAME} STREQUAL "Linux" AND NOT DEBUGMODE)
         # Linux: When linking against LLVM statically, we can also hide
         # all its symbols to prevent clashes if OSL is linked against an
         # app that also embeds LLVM.
-        set (VISIBILITY_MAP_COMMAND "-Wl,--version-script=${PROJECT_SOURCE_DIR}/src/liboslexec/liboslexec.map")
+        set (VISIBILITY_MAP_COMMAND "-Wl,--version-script=${PROJECT_SOURCE_DIR}/src/build-scripts/hidesymbols.map")
     endif ()
 endif ()
 
@@ -159,7 +163,7 @@ if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_APPLECLANG)
 endif ()
 
 # gcc specific options
-if (CMAKE_COMPILER_IS_GNUCC AND (NOT CMAKE_COMPILER_IS_CLANG))
+if (CMAKE_COMPILER_IS_GNUCC AND NOT (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_APPLECLANG))
     if (NOT ${GCC_VERSION} VERSION_LESS 4.8)
         add_definitions ("-Wno-error=strict-overflow")
         # suppress a warning that Boost::Python hits in g++ 4.8
@@ -232,15 +236,18 @@ else ()
     set (USE_LLVM_BITCODE ON CACHE BOOL "Generated embedded LLVM bitcode")
 endif ()
 set (USE_PARTIO ON CACHE BOOL "Use Partio if found")
+set (PARTIO_HOME "" CACHE STRING "Search path for Partio components")
 set (USE_FAST_MATH ON CACHE BOOL "Use fast math approximations (if no, then use system math library)")
-set (OSL_BUILD_CPP11 OFF CACHE BOOL "Compile in C++11 mode")
-set (OSL_BUILD_CPP14 OFF CACHE BOOL "Compile in C++14 mode")
-set (OSL_BUILD_LIBCPLUSPLUS OFF CACHE BOOL "Compile with clang libc++")
+set (USE_CPP11 ON CACHE BOOL "Compile in C++11 mode")
+set (USE_CPP14 OFF CACHE BOOL "Compile in C++14 mode")
+set (USE_LIBCPLUSPLUS OFF CACHE BOOL "Compile with clang libc++")
 set (EXTRA_CPP_ARGS "" CACHE STRING "Extra C++ command line definitions")
 set (USE_SIMD "" CACHE STRING "Use SIMD directives (0, sse2, sse3, sse4.1, sse4.2)")
 set (OSL_NO_DEFAULT_TEXTURESYSTEM OFF CACHE BOOL "Do not use create a raw OIIO::TextureSystem")
 set (OSL_BUILD_PLUGINS ON CACHE BOOL "Bool OSL plugins, for example OIIO plugin")
 set (USE_CCACHE ON CACHE BOOL "Use ccache if found")
+set (CODECOV OFF CACHE BOOL "Build code coverage tests")
+option (USE_BOOST_WAVE "Use Boost Wave for C preprocessor (alternative is to use clang)" OFF)
 
 # Use ccache if found
 find_program (CCACHE_FOUND ccache)
@@ -248,7 +255,6 @@ if (CCACHE_FOUND AND USE_CCACHE)
     set_property (GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
     set_property (GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
 endif ()
-
 
 if (LLVM_NAMESPACE)
     add_definitions ("-DLLVM_NAMESPACE=${LLVM_NAMESPACE}")
@@ -278,26 +284,40 @@ if (EXTRA_CPP_ARGS)
     add_definitions ("${EXTRA_CPP_ARGS}")
 endif()
 
-if (OSL_BUILD_CPP11 OR OSL_BUILD_CPP14)
-    if (OSL_BUILD_CPP11)
-        message (STATUS "Building for C++11")
-        add_definitions ("-std=c++11")
-        set (OSL_CSTD_FLAGS ${OSL_CSTD_FLAGS} "-std=c++11")
-    endif()
-    if (OSL_BUILD_CPP14)
+if (USE_CPP11 OR USE_CPP14)
+    if (USE_CPP14)
         message (STATUS "Building for C++14")
         add_definitions ("-std=c++14")
         set (OSL_CSTD_FLAGS ${OSL_CSTD_FLAGS} "-std=c++14")
-    endif()
+    elseif (USE_CPP11)
+        message (STATUS "Building for C++11")
+        add_definitions ("-std=c++11")
+        set (OSL_CSTD_FLAGS ${OSL_CSTD_FLAGS} "-std=c++11")
+    endif ()
     if (CMAKE_COMPILER_IS_CLANG)
         # C++ >= 11 doesn't like 'register' keyword, which is in Qt headers
         add_definitions ("-Wno-deprecated-register")
     endif ()
+else ()
+    message (STATUS "Building for C++98!")
 endif ()
 
 if (USE_LIBCPLUSPLUS AND CMAKE_COMPILER_IS_CLANG)
     message (STATUS "Using libc++")
-    add_definitions ("-stdlib=libc++")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+endif ()
+
+# Options common to gcc and clang
+if (CODECOV AND (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_CLANG))
+    message (STATUS "Compiling for code coverage analysis")
+    add_definitions ("-ftest-coverage -fprofile-arcs -O0 -DOSL_CODE_COVERAGE=1")
+    set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -ftest-coverage -fprofile-arcs")
+    set (CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -ftest-coverage -fprofile-arcs")
+    set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -ftest-coverage -fprofile-arcs")
+endif ()
+
+if (DEFINED ENV{TRAVIS})
+    add_definitions ("-DOSL_TRAVIS=1")
 endif ()
 
 set (OSL_SIMD_FLAGS "")
@@ -336,12 +356,10 @@ set (CMAKE_MODULE_PATH
 include (util_macros)
 include (platform)
 include (externalpackages)
-include (oiio)
 include (flexbison)
 include_directories (
     "${CMAKE_SOURCE_DIR}/src/include"
     "${CMAKE_BINARY_DIR}/include/OSL"
-    "${OPENIMAGEIO_INCLUDES}"
   )
 
 
@@ -438,6 +456,7 @@ include (CTest)
 add_subdirectory (src/liboslcomp)
 add_subdirectory (src/liboslquery)
 add_subdirectory (src/liboslexec)
+add_subdirectory (src/liboslnoise)
 
 add_subdirectory (src/oslc)
 add_subdirectory (src/shaders)
@@ -478,6 +497,7 @@ macro ( TESTSUITE )
         set (_ats_LABEL "broken")
     endif ()
     # Add the tests if all is well.
+    set (ALL_TEST_LIST "")
     foreach (_testname ${_ats_DEFAULT_ARGS})
         set (_testsrcdir "${CMAKE_SOURCE_DIR}/testsuite/${_testname}")
         set (_testdir "${CMAKE_BINARY_DIR}/testsuite/${_testname}")
@@ -491,16 +511,13 @@ macro ( TESTSUITE )
                                       --solution-path "${CMAKE_BINARY_DIR}" )
         endif ()
 
-        if (VERBOSE)
-            message (STATUS "TEST ${_testname}: ${CMAKE_BINARY_DIR}/testsuite/runtest.py ${_testdir} ${_extra_test_args}")
-        endif ()
-
         file (MAKE_DIRECTORY "${_testdir}")
 
         # Run the test unoptimized, unless it's a "render_*" or "oslinfo_*"
         # test, which we don't bother testing unoptimized.
         if (NOT _testname MATCHES "^render" AND
             NOT _testname MATCHES "^oslinfo" AND
+            NOT _testname MATCHES "^getattribute-shader" AND
             NOT EXISTS "${_testsrcdir}/OPTIMIZEONLY")
           set (_env TESTSHADE_OPT=0 OPENIMAGEIOHOME=${OPENIMAGEIOHOME})
           add_test ( NAME ${_testname}
@@ -509,9 +526,13 @@ macro ( TESTSUITE )
         # Run the same test again with aggressive -O2 runtime
         # optimization, triggered by setting TESTSHADE_OPT env variable
         set (_env TESTSHADE_OPT=2 OPENIMAGEIOHOME=${OPENIMAGEIOHOME})
+        set (ALL_TEST_LIST "${ALL_TEST_LIST} ${_testname}")
         add_test ( NAME ${_testname}.opt
                    COMMAND env ${_env} ${_runtest} )
     endforeach ()
+    if (VERBOSE)
+        message (STATUS "Added tests: ${ALL_TEST_LIST}")
+    endif ()
 endmacro ()
 
 if (OSL_BUILD_TESTS)
@@ -529,9 +550,10 @@ TESTSUITE ( and-or-not-synonyms aastep arithmetic array array-derivs array-range
             draw_string
             error-dupes exit exponential
             function-earlyreturn function-simple function-outputelem
-            geomath getattribute-camera getsymbol-nonheap gettextureinfo
+            geomath getattribute-camera getattribute-shader
+            getsymbol-nonheap gettextureinfo
             group-outputs groupstring
-            hex hyperb
+            hash hashnoise hex hyperb
             ieee_fp if incdec initops intbits isconnected isconstant
             layers layers-Ciassign layers-entry layers-lazy
             layers-nonlazycopy layers-repeatedoutputs
@@ -551,27 +573,33 @@ TESTSUITE ( and-or-not-synonyms aastep arithmetic array array-derivs array-range
             oslc-err-struct-array-init oslc-err-struct-dup
             oslc-warn-commainit
             oslc-variadic-macro
+            oslc-version
             oslinfo-arrayparams oslinfo-colorctrfloat
             oslinfo-metadata oslinfo-noparams
             osl-imageio
             printf-whole-array
-            raytype reparam
+            raytype raytype-specialized reparam
             render-background render-bumptest
             render-cornell render-furnace-diffuse
             render-microfacet render-oren-nayar render-veachmis render-ward
-            shortcircuit spline splineinverse spline-derivbug
+            select shortcircuit spline splineinverse
+            spline-boundarybug spline-derivbug
             string
             struct struct-array struct-array-mixture
-            struct-err struct-in-struct-init struct-init-copy struct-layers
-            struct-with-array struct-within-struct
+            struct-err struct-init-copy struct-layers
+            struct-return struct-with-array
+            struct-nested struct-nested-assign struct-nested-deep
             ternary
             testshade-expr
             texture-alpha texture-blur texture-connected-options
-            texture-derivs texture-firstchannel texture-interp
+            texture-derivs texture-errormsg
+            texture-firstchannel texture-interp
             texture-missingcolor texture-simple
-            texture-smallderivs texture-swirl
+            texture-smallderivs texture-swirl texture-udim
             texture-width texture-withderivs texture-wrap
-            trailing-commas transform transformc trig typecast
+            trailing-commas
+            transitive-assign
+            transform transformc trig typecast
             unknown-instruction
             vararray-connect vararray-default
             vararray-deserialize vararray-param

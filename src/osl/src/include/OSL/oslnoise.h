@@ -30,13 +30,88 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <limits>
 
-#include "OSL/dual.h"
-#include "OSL/dual_vec.h"
-#include "oslexec_pvt.h"
+#include <OSL/dual.h>
+#include <OSL/dual_vec.h>
 #include <OpenImageIO/hash.h>
 #include <OpenImageIO/simd.h>
 
 OSL_NAMESPACE_ENTER
+
+
+namespace oslnoise {
+
+/////////////////////////////////////////////////////////////////////////
+//
+// Simple public API for computing the same noise functions that you get
+// from OSL shaders.
+//
+// These match the properties of OSL noises that have the same names,
+// please see the OSL specification for more detailed descriptions, we
+// won't recapitulate it here.
+//
+// For the sake of compactness, we express the noise functions as
+// templates for a either one or two domain parameters, which may be:
+//     (float)                 // 1-D domain noise, 1-argument variety
+//     (float, float)          // 2-D domain noise, 2-argument variety
+//     (const Vec3 &)          // 3-D domain noise, 1-argument variety
+//     (const Vec3 &, float)   // 4-D domain noise, 2-argument variety
+// And the range type may be
+//     float noisename ()      // float-valued noise
+//     Vec3  vnoisename()      // vector-valued noise
+// Note that in OSL we can overload function calls by return type, but we
+// can't in C++, so we prepend a "v" in front of the names of functions
+// that return vector-valued noise.
+//
+/////////////////////////////////////////////////////////////////////////
+
+// Signed Perlin-like noise on 1-4 dimensional domain, range [-1,1].
+template <typename S >             float snoise (S x);
+template <typename S, typename T>  float snoise (S x, T y);
+template <typename S >             Vec3  vsnoise (S x);
+template <typename S, typename T>  Vec3  vsnoise (S x, T y);
+
+// Unsigned Perlin-like noise on 1-4 dimensional domain, range [0,1].
+template <typename S >             float noise (S x);
+template <typename S, typename T>  float noise (S x, T y);
+template <typename S >             Vec3  vnoise (S x);
+template <typename S, typename T>  Vec3  vnoise (S x, T y);
+
+// Cell noise on 1-4 dimensional domain, range [0,1].
+// cellnoise is constant within each unit cube (cell) on the domain, but
+// discontinuous at integer boundaries (and uncorrellated from cell to
+// cell).
+template <typename S >             float cellnoise (S x);
+template <typename S, typename T>  float cellnoise (S x, T y);
+template <typename S >             Vec3  vcellnoise (S x);
+template <typename S, typename T>  Vec3  vcellnoise (S x, T y);
+
+// Hash noise on 1-4 dimensional domain, range [0,1].
+// hashnoise is like cellnoise, but without the 'floor' -- in other words,
+// it's an uncorrellated hash that is different for every floating point
+// value.
+template <typename S >             float hashnoise (S x);
+template <typename S, typename T>  float hashnoise (S x, T y);
+template <typename S >             Vec3  vhashnoise (S x);
+template <typename S, typename T>  Vec3  vhashnoise (S x, T y);
+
+// FIXME -- eventually consider adding to the public API:
+//  * periodic varieties
+//  * varieties with derivatives
+//  * varieties that take/return simd::float3 rather than Imath::Vec3f.
+//  * exposing the simplex & gabor varieties
+
+
+}   // namespace oslnoise
+
+
+
+///////////////////////////////////////////////////////////////////////
+// Implementation follows...
+//
+// Users don't need to worry about this part
+///////////////////////////////////////////////////////////////////////
+
+struct NoiseParams;
 
 namespace pvt {
 using namespace OIIO::simd;
@@ -341,6 +416,232 @@ struct PeriodicCellNoise {
         iv[1] = quick_floor (wrap (p.y, pp.y));
         iv[2] = quick_floor (wrap (p.z, pp.z));
         iv[3] = quick_floor (wrap (t, tt));
+        hash3<5> (result, iv);
+    }
+
+private:
+    template <int N>
+    inline void hash1 (float &result, const unsigned int k[N]) const {
+        result = bits_to_01(inthash<N>(k));
+    }
+
+    template <int N>
+    inline void hash3 (Vec3 &result, unsigned int k[N]) const {
+        k[N-1] = 0; result.x = bits_to_01 (inthash<N> (k));
+        k[N-1] = 1; result.y = bits_to_01 (inthash<N> (k));
+        k[N-1] = 2; result.z = bits_to_01 (inthash<N> (k));
+    }
+
+    inline float wrap (float s, float period) const {
+        period = floorf (period);
+        if (period < 1.0f)
+            period = 1.0f;
+        return s - period * floorf (s / period);
+    }
+
+    inline Vec3 wrap (const Vec3 &s, const Vec3 &period) {
+        return Vec3 (wrap (s[0], period[0]),
+                     wrap (s[1], period[1]),
+                     wrap (s[2], period[2]));
+    }
+};
+
+
+
+inline int
+inthashi (int x)
+{
+    unsigned int i[1];
+    i[0] = (unsigned int)x;
+    return (int) inthash<1>(i);
+}
+
+inline int
+inthashf (float x)
+{
+    unsigned int i[1];
+    i[0] = OIIO::bit_cast<float,unsigned int>(x);
+    return (int) inthash<1>(i);
+}
+
+inline int
+inthashf (float x, float y)
+{
+    unsigned int i[2];
+    i[0] = OIIO::bit_cast<float,unsigned int>(x);
+    i[1] = OIIO::bit_cast<float,unsigned int>(y);
+    return (int) inthash<2>(i);
+}
+
+
+inline int
+inthashf (const float *x)
+{
+    unsigned int i[3];
+    i[0] = OIIO::bit_cast<float,unsigned int>(x[0]);
+    i[1] = OIIO::bit_cast<float,unsigned int>(x[1]);
+    i[2] = OIIO::bit_cast<float,unsigned int>(x[2]);
+    return (int) inthash<3>(i);
+}
+
+
+inline int
+inthashf (const float *x, float y)
+{
+    unsigned int i[4];
+    i[0] = OIIO::bit_cast<float,unsigned int>(x[0]);
+    i[1] = OIIO::bit_cast<float,unsigned int>(x[1]);
+    i[2] = OIIO::bit_cast<float,unsigned int>(x[2]);
+    i[3] = OIIO::bit_cast<float,unsigned int>(y);
+    return (int) inthash<4>(i);
+}
+
+
+
+struct HashNoise {
+    HashNoise () { }
+
+    inline void operator() (float &result, float x) const {
+        unsigned int iv[1];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (x);
+        hash1<1> (result, iv);
+    }
+
+    inline void operator() (float &result, float x, float y) const {
+        unsigned int iv[2];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (x);
+        iv[1] = OIIO::bit_cast<float,unsigned int> (y);
+        hash1<2> (result, iv);
+    }
+
+    inline void operator() (float &result, const Vec3 &p) const {
+        unsigned int iv[3];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (p.x);
+        iv[1] = OIIO::bit_cast<float,unsigned int> (p.y);
+        iv[2] = OIIO::bit_cast<float,unsigned int> (p.z);
+        hash1<3> (result, iv);
+    }
+
+    inline void operator() (float &result, const Vec3 &p, float t) const {
+        unsigned int iv[4];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (p.x);
+        iv[1] = OIIO::bit_cast<float,unsigned int> (p.y);
+        iv[2] = OIIO::bit_cast<float,unsigned int> (p.z);
+        iv[3] = OIIO::bit_cast<float,unsigned int> (t);
+        hash1<4> (result, iv);
+    }
+
+    inline void operator() (Vec3 &result, float x) const {
+        unsigned int iv[2];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (x);
+        hash3<2> (result, iv);
+    }
+
+    inline void operator() (Vec3 &result, float x, float y) const {
+        unsigned int iv[3];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (x);
+        iv[1] = OIIO::bit_cast<float,unsigned int> (y);
+        hash3<3> (result, iv);
+    }
+
+    inline void operator() (Vec3 &result, const Vec3 &p) const {
+        unsigned int iv[4];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (p.x);
+        iv[1] = OIIO::bit_cast<float,unsigned int> (p.y);
+        iv[2] = OIIO::bit_cast<float,unsigned int> (p.z);
+        hash3<4> (result, iv);
+    }
+
+    inline void operator() (Vec3 &result, const Vec3 &p, float t) const {
+        unsigned int iv[5];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (p.x);
+        iv[1] = OIIO::bit_cast<float,unsigned int> (p.y);
+        iv[2] = OIIO::bit_cast<float,unsigned int> (p.z);
+        iv[3] = OIIO::bit_cast<float,unsigned int> (t);
+        hash3<5> (result, iv);
+    }
+
+private:
+    template <int N>
+    inline void hash1 (float &result, const unsigned int k[N]) const {
+        result = bits_to_01(inthash<N>(k));
+    }
+
+    template <int N>
+    inline void hash3 (Vec3 &result, unsigned int k[N]) const {
+        k[N-1] = 0; result.x = bits_to_01 (inthash<N> (k));
+        k[N-1] = 1; result.y = bits_to_01 (inthash<N> (k));
+        k[N-1] = 2; result.z = bits_to_01 (inthash<N> (k));
+    }
+};
+
+
+
+struct PeriodicHashNoise {
+    PeriodicHashNoise () { }
+
+    inline void operator() (float &result, float x, float px) const {
+        unsigned int iv[1];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (wrap (x, px));
+        hash1<1> (result, iv);
+    }
+
+    inline void operator() (float &result, float x, float y,
+                            float px, float py) const {
+        unsigned int iv[2];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (wrap (x, px));
+        iv[1] = OIIO::bit_cast<float,unsigned int> (wrap (y, py));
+        hash1<2> (result, iv);
+    }
+
+    inline void operator() (float &result, const Vec3 &p,
+                            const Vec3 &pp) const {
+        unsigned int iv[3];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (wrap (p.x, pp.x));
+        iv[1] = OIIO::bit_cast<float,unsigned int> (wrap (p.y, pp.y));
+        iv[2] = OIIO::bit_cast<float,unsigned int> (wrap (p.z, pp.z));
+        hash1<3> (result, iv);
+    }
+
+    inline void operator() (float &result, const Vec3 &p, float t,
+                            const Vec3 &pp, float tt) const {
+        unsigned int iv[4];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (wrap (p.x, pp.x));
+        iv[1] = OIIO::bit_cast<float,unsigned int> (wrap (p.y, pp.y));
+        iv[2] = OIIO::bit_cast<float,unsigned int> (wrap (p.z, pp.z));
+        iv[3] = OIIO::bit_cast<float,unsigned int> (wrap (t, tt));
+        hash1<4> (result, iv);
+    }
+
+    inline void operator() (Vec3 &result, float x, float px) const {
+        unsigned int iv[2];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (wrap (x, px));
+        hash3<2> (result, iv);
+    }
+
+    inline void operator() (Vec3 &result, float x, float y,
+                            float px, float py) const {
+        unsigned int iv[3];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (wrap (x, px));
+        iv[1] = OIIO::bit_cast<float,unsigned int> (wrap (y, py));
+        hash3<3> (result, iv);
+    }
+
+    inline void operator() (Vec3 &result, const Vec3 &p, const Vec3 &pp) const {
+        unsigned int iv[4];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (wrap (p.x, pp.x));
+        iv[1] = OIIO::bit_cast<float,unsigned int> (wrap (p.y, pp.y));
+        iv[2] = OIIO::bit_cast<float,unsigned int> (wrap (p.z, pp.z));
+        hash3<4> (result, iv);
+    }
+
+    inline void operator() (Vec3 &result, const Vec3 &p, float t,
+                            const Vec3 &pp, float tt) const {
+        unsigned int iv[5];
+        iv[0] = OIIO::bit_cast<float,unsigned int> (wrap (p.x, pp.x));
+        iv[1] = OIIO::bit_cast<float,unsigned int> (wrap (p.y, pp.y));
+        iv[2] = OIIO::bit_cast<float,unsigned int> (wrap (p.z, pp.z));
+        iv[3] = OIIO::bit_cast<float,unsigned int> (wrap (t, tt));
         hash3<5> (result, iv);
     }
 
@@ -2526,5 +2827,51 @@ Dual2<Vec3> pgabor3 (const Dual2<float> &x, float xperiod,
 
 
 }; // namespace pvt
+
+namespace oslnoise {
+
+#define DECLNOISE(name,impl)                    \
+    template <class S>                          \
+    inline float name (S x) {                   \
+        pvt::impl noise;                        \
+        float r;                                \
+        noise (r, x);                           \
+        return r;                               \
+    }                                           \
+                                                \
+    template <class S, class T>                 \
+    inline float name (S x, T y) {              \
+        pvt::impl noise;                        \
+        float r;                                \
+        noise (r, x, y);                        \
+        return r;                               \
+    }                                           \
+                                                \
+    template <class S>                          \
+    inline Vec3 v ## name (S x) {               \
+        pvt::impl noise;                        \
+        Vec3 r;                                 \
+        noise (r, x);                           \
+        return r;                               \
+    }                                           \
+                                                \
+    template <class S, class T>                 \
+    inline Vec3 v ## name (S x, T y) {          \
+        pvt::impl noise;                        \
+        Vec3 r;                                 \
+        noise (r, x, y);                        \
+        return r;                               \
+    }
+
+
+DECLNOISE (snoise, SNoise)
+DECLNOISE (noise, Noise)
+DECLNOISE (cellnoise, CellNoise)
+DECLNOISE (hashnoise, HashNoise)
+
+#undef DECLNOISE
+
+}   // namespace oslnoise
+
 
 OSL_NAMESPACE_EXIT

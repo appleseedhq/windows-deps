@@ -59,6 +59,7 @@ static ustring op_for("for");
 static ustring op_format("format");
 static ustring op_ge("ge");
 static ustring op_gt("gt");
+static ustring op_hashnoise("hashnoise");
 static ustring op_if("if");
 static ustring op_le("le");
 static ustring op_logb("logb");
@@ -99,18 +100,18 @@ LLVMGEN (llvm_gen_generic);
 
 
 void
-BackendLLVM::llvm_gen_debug_printf (const std::string &message)
+BackendLLVM::llvm_gen_debug_printf (string_view message)
 {
-    ustring s = ustring::format ("(%s %s) %s", inst()->shadername().c_str(),
-                                 inst()->layername().c_str(), message.c_str());
+    ustring s = ustring::format ("(%s %s) %s", inst()->shadername(),
+                                 inst()->layername(), message);
     ll.call_function ("osl_printf", sg_void_ptr(), ll.constant("%s\n"),
                       ll.constant(s));
 }
 
-    
+
 
 void
-BackendLLVM::llvm_gen_warning (const std::string &message)
+BackendLLVM::llvm_gen_warning (string_view message)
 {
     ll.call_function ("osl_warning", sg_void_ptr(), ll.constant("%s\n"),
                       ll.constant(message));
@@ -119,7 +120,7 @@ BackendLLVM::llvm_gen_warning (const std::string &message)
 
 
 void
-BackendLLVM::llvm_gen_error (const std::string &message)
+BackendLLVM::llvm_gen_error (string_view message)
 {
     ll.call_function ("osl_error", sg_void_ptr(), ll.constant("%s\n"),
                       ll.constant(message));
@@ -861,6 +862,52 @@ LLVMGEN (llvm_gen_mix)
         rop.llvm_zero_derivs (Result);
     }
         
+    return true;
+}
+
+
+
+LLVMGEN (llvm_gen_select)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
+    Symbol& X = *rop.opargsym (op, 3);
+    TypeDesc type = Result.typespec().simpletype();
+    ASSERT (!Result.typespec().is_closure_based() &&
+            Result.typespec().is_floatbased());
+    int num_components = type.aggregate;
+    int x_components = X.typespec().aggregate();
+    bool derivs = (Result.has_derivs() &&
+                   (A.has_derivs() || B.has_derivs()));
+
+    llvm::Value *zero = X.typespec().is_int() ? rop.ll.constant (0)
+                                              : rop.ll.constant (0.0f);
+    llvm::Value *cond[3];
+    for (int i = 0; i < x_components; ++i)
+        cond[i] = rop.ll.op_ne (rop.llvm_load_value (X, 0, i), zero);
+
+    for (int i = 0; i < num_components; i++) {
+        llvm::Value *a = rop.llvm_load_value (A, 0, i, type);
+        llvm::Value *b = rop.llvm_load_value (B, 0, i, type);
+        llvm::Value *c = (i >= x_components) ? cond[0] : cond[i];
+        llvm::Value *r = rop.ll.op_select (c, b, a);
+        rop.llvm_store_value (r, Result, 0, i);
+        if (derivs) {
+            for (int d = 1; d < 3; ++d) {
+                a = rop.llvm_load_value (A, d, i, type);
+                b = rop.llvm_load_value (B, d, i, type);
+                r = rop.ll.op_select (c, b, a);
+                rop.llvm_store_value (r, Result, d, i);
+            }
+        }
+    }
+
+    if (Result.has_derivs() && !derivs) {
+        // Result has derivs, operands do not
+        rop.llvm_zero_derivs (Result);
+    }
     return true;
 }
 
@@ -1997,7 +2044,7 @@ static llvm::Value *
 llvm_gen_texture_options (BackendLLVM &rop, int opnum,
                           int first_optional_arg, bool tex3d, int nchans,
                           llvm::Value* &alpha, llvm::Value* &dalphadx,
-                          llvm::Value* &dalphady)
+                          llvm::Value* &dalphady, llvm::Value* &errormessage)
 {
     llvm::Value* opt = rop.ll.call_function ("osl_get_texture_options",
                                              rop.sg_void_ptr());
@@ -2125,6 +2172,12 @@ llvm_gen_texture_options (BackendLLVM &rop, int opnum,
         PARAM_INT (subimage)
 
         if (name == Strings::subimage && valtype == TypeDesc::STRING) {
+            if (Val.is_constant()) {
+                ustring v = *(ustring *)Val.data();
+                if (! v && ! subimage_set) {
+                    continue;     // Ignore nulls unless they are overrides
+                }
+            }
             llvm::Value *val = rop.llvm_load_value (Val);
             rop.ll.call_function ("osl_texture_set_subimagename", opt, val);
             subimage_set = true;
@@ -2141,7 +2194,10 @@ llvm_gen_texture_options (BackendLLVM &rop, int opnum,
                 // NO z derivs!  dalphadz = rop.llvm_get_pointer (Val, 3);
             }
             continue;
-
+        }
+        if (name == Strings::errormessage && valtype == TypeDesc::STRING) {
+            errormessage = rop.llvm_get_pointer (Val);
+            continue;
         }
         if (name == Strings::missingcolor &&
                    equivalent(valtype,TypeDesc::TypeColor)) {
@@ -2218,9 +2274,10 @@ LLVMGEN (llvm_gen_texture)
 
     llvm::Value* opt;   // TextureOpt
     llvm::Value *alpha = NULL, *dalphadx = NULL, *dalphady = NULL;
+    llvm::Value *errormessage = NULL;
     opt = llvm_gen_texture_options (rop, opnum, first_optional_arg,
                                     false /*3d*/, nchans,
-                                    alpha, dalphadx, dalphady);
+                                    alpha, dalphadx, dalphady, errormessage);
 
     // Now call the osl_texture function, passing the options and all the
     // explicit args like texture coordinates.
@@ -2258,6 +2315,7 @@ LLVMGEN (llvm_gen_texture)
     args.push_back (rop.ll.void_ptr (alpha    ? alpha    : rop.ll.void_ptr_null()));
     args.push_back (rop.ll.void_ptr (dalphadx ? dalphadx : rop.ll.void_ptr_null()));
     args.push_back (rop.ll.void_ptr (dalphady ? dalphady : rop.ll.void_ptr_null()));
+    args.push_back (rop.ll.void_ptr (errormessage ? errormessage : rop.ll.void_ptr_null()));
     rop.ll.call_function ("osl_texture", &args[0], (int)args.size());
     rop.generated_texture_call (texture_handle != NULL);
     return true;
@@ -2284,9 +2342,10 @@ LLVMGEN (llvm_gen_texture3d)
 
     llvm::Value* opt;   // TextureOpt
     llvm::Value *alpha = NULL, *dalphadx = NULL, *dalphady = NULL;
+    llvm::Value *errormessage = NULL;
     opt = llvm_gen_texture_options (rop, opnum, first_optional_arg,
                                     true /*3d*/, nchans,
-                                    alpha, dalphadx, dalphady);
+                                    alpha, dalphadx, dalphady, errormessage);
 
     // Now call the osl_texture3d function, passing the options and all the
     // explicit args like texture coordinates.
@@ -2333,6 +2392,7 @@ LLVMGEN (llvm_gen_texture3d)
     args.push_back (rop.ll.void_ptr (dalphadx ? dalphadx : rop.ll.void_ptr_null()));
     args.push_back (rop.ll.void_ptr (dalphady ? dalphady : rop.ll.void_ptr_null()));
     args.push_back (rop.ll.void_ptr_null());  // No dalphadz for now
+    args.push_back (rop.ll.void_ptr (errormessage ? errormessage : rop.ll.void_ptr_null()));
     rop.ll.call_function ("osl_texture3d", &args[0], (int)args.size());
     rop.generated_texture_call (texture_handle != NULL);
     return true;
@@ -2358,9 +2418,10 @@ LLVMGEN (llvm_gen_environment)
 
     llvm::Value* opt;   // TextureOpt
     llvm::Value *alpha = NULL, *dalphadx = NULL, *dalphady = NULL;
+    llvm::Value *errormessage = NULL;
     opt = llvm_gen_texture_options (rop, opnum, first_optional_arg,
                                     false /*3d*/, nchans,
-                                    alpha, dalphadx, dalphady);
+                                    alpha, dalphadx, dalphady, errormessage);
 
     // Now call the osl_environment function, passing the options and all the
     // explicit args like texture coordinates.
@@ -2399,6 +2460,7 @@ LLVMGEN (llvm_gen_environment)
         args.push_back (rop.ll.void_ptr_null());
         args.push_back (rop.ll.void_ptr_null());
     }
+    args.push_back (rop.ll.void_ptr (errormessage ? errormessage : rop.ll.void_ptr_null()));
     rop.ll.call_function ("osl_environment", &args[0], (int)args.size());
     rop.generated_texture_call (texture_handle != NULL);
     return true;
@@ -2564,7 +2626,8 @@ llvm_gen_noise_options (BackendLLVM &rop, int opnum,
 LLVMGEN (llvm_gen_noise)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
-    bool periodic = (op.opname() == Strings::pnoise);
+    bool periodic = (op.opname() == Strings::pnoise ||
+                     op.opname() == Strings::psnoise);
 
     int arg = 0;   // Next arg to read
     Symbol &Result = *rop.opargsym (op, arg++);
@@ -2627,6 +2690,9 @@ LLVMGEN (llvm_gen_noise)
     } else if (name == Strings::cell || name == Strings::cellnoise) {
         name = periodic ? Strings::pcellnoise : Strings::cellnoise;
         derivs = false;  // cell noise derivs are always zero
+    } else if (name == Strings::hash || name == Strings::hashnoise) {
+        name = periodic ? Strings::phashnoise : Strings::hashnoise;
+        derivs = false;  // hash noise derivs are always zero
     } else if (name == Strings::simplex && !periodic) {
         name = Strings::simplexnoise;
     } else if (name == Strings::usimplex && !periodic) {
@@ -2643,6 +2709,24 @@ LLVMGEN (llvm_gen_noise)
                                 (periodic ? "periodic " : ""), name.c_str(),
                                 op.sourcefile().c_str(), op.sourceline());
         return false;
+    }
+
+    if (rop.shadingsys().no_noise()) {
+        // renderer option to replace noise with constant value. This can be
+        // useful as a profiling aid, to see how much it speeds up to have
+        // trivial expense for noise calls.
+        if (name == Strings::uperlin || name == Strings::noise ||
+            name == Strings::usimplexnoise || name == Strings::usimplex ||
+            name == Strings::cell || name == Strings::cellnoise ||
+            name == Strings::hash || name == Strings::hashnoise ||
+            name == Strings::pcellnoise || name == Strings::pnoise)
+            name = ustring("unullnoise");
+        else
+            name = ustring("nullnoise");
+        pass_name = false;
+        periodic = false;
+        pass_sg = false;
+        pass_options = false;
     }
 
     llvm::Value *opt = NULL;
@@ -2710,6 +2794,9 @@ LLVMGEN (llvm_gen_noise)
     // Clear derivs if result has them but we couldn't compute them
     if (Result.has_derivs() && !derivs)
         rop.llvm_zero_derivs (Result);
+
+    if (rop.shadingsys().profile() >= 1)
+        rop.ll.call_function ("osl_count_noise", rop.sg_void_ptr());
 
     return true;
 }

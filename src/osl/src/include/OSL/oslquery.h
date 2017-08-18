@@ -156,9 +156,6 @@ public:
         return e;
     }
 
-    OSL_DEPRECATED("Use geterror(). (Deprecated since 1.5)")
-    std::string error (void) { return geterror(); }
-
 private:
     ustring m_shadername;              ///< Name of shader
     ustring m_shadertypename;          ///< Type of shader
@@ -167,11 +164,18 @@ private:
     std::vector<Parameter> m_meta;     ///< Meta-data about the shader
     friend class pvt::OSOReaderQuery;
 
+#if OIIO_VERSION >= 10803
     /// Internal error reporting routine, with printf-like arguments.
-    /// void error (const char *message, ...) const
+    template<typename... Args>
+    inline void error (string_view fmt, const Args&... args) const {
+        append_error(OIIO::Strutil::format (fmt, args...));
+    }
+#else
+    // Fallback for older OIIO
     TINYFORMAT_WRAP_FORMAT (void, error, const,
-        std::ostringstream msg;, msg, append_error(msg.str());)
-    void append_error (string_view message) const {
+                            std::ostringstream msg;, msg, append_error(msg.str());)
+#endif
+    void append_error (const std::string& message) const {
         if (m_error.size())
             m_error += '\n';
         m_error += message;

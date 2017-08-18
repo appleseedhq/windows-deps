@@ -94,10 +94,11 @@ namespace Strings {
     extern ustring blur, sblur, tblur, rblur;
     extern ustring wrap, swrap, twrap, rwrap;
     extern ustring black, clamp, periodic, mirror;
-    extern ustring firstchannel, fill, alpha;
+    extern ustring firstchannel, fill, alpha, errormessage;
     extern ustring interp, closest, linear, cubic, smartcubic;
     extern ustring perlin, uperlin, noise, snoise, pnoise, psnoise;
     extern ustring cell, cellnoise, pcellnoise;
+    extern ustring hash, hashnoise, phashnoise;
     extern ustring genericnoise, genericpnoise, gabor, gabornoise, gaborpnoise;
     extern ustring simplex, usimplex, simplexnoise, usimplexnoise;
     extern ustring anisotropic, direction, do_filter, bandwidth, impulses;
@@ -106,6 +107,11 @@ namespace Strings {
     extern ustring missingcolor, missingalpha;
     extern ustring end, useparam;
     extern ustring uninitialized_string;
+    extern ustring unull;
+    extern ustring raytype;
+    extern ustring color, point, vector, normal, matrix;
+    extern ustring unknown;
+    extern ustring _emptystring_;
 }; // namespace Strings
 
 
@@ -146,7 +152,7 @@ struct OpDescriptor {
         : name(n), llvmgen(ll), folder(fold), simple_assign(simple), flags(flags)
     {}
 
-    enum FlagValues { None=0, Tex=1 };
+    enum FlagValues { None=0, Tex=1, SideEffects=2 };
 };
 
 
@@ -203,8 +209,9 @@ struct AttributeNeeded {
     }
 };
 
-// Prefix for OSL shade up declarations, so LLVM can find them
-#define OSL_SHADEOP extern "C" OSL_LLVM_EXPORT
+// Prefix for OSL shade op declarations. Make them local visibility, but
+// "C" linkage (no C++ name mangling).
+#define OSL_SHADEOP extern "C" OSL_DLL_LOCAL
 
 
 // Handy re-casting macros
@@ -378,6 +385,8 @@ public:
 
     int num_params () const { return m_lastparam - m_firstparam; }
 
+    int raytype_queries () const { return m_raytype_queries; }
+
 private:
     ShadingSystemImpl &m_shadingsys;    ///< Back-ptr to the shading system
     ShaderType m_shadertype;            ///< Type of shader
@@ -395,6 +404,7 @@ private:
     std::vector<ustring> m_sconsts;     ///< string constant values
     int m_firstparam, m_lastparam;      ///< Subset of symbols that are params
     int m_maincodebegin, m_maincodeend; ///< Main shader code range
+    int m_raytype_queries;              ///< Bitmask of raytypes queried
 
     friend class OSOReaderToMaster;
     friend class ShaderInstance;
@@ -493,7 +503,32 @@ public:
                       TypeDesc type, const void *val);
 
     // Internal error, warning, info, and message reporting routines that
-    // take printf-like arguments.  Based on Tinyformat.
+    // take printf-like arguments.
+#if OIIO_VERSION >= 10803
+    template<typename T1, typename... Args>
+    inline void error (string_view fmt, const T1& v1, const Args&... args) const {
+        error (Strutil::format (fmt, v1, args...));
+    }
+    void error (const std::string &message) const;
+
+    template<typename T1, typename... Args>
+    inline void warning (string_view fmt, const T1& v1, const Args&... args) const {
+        warning (Strutil::format (fmt, v1, args...));
+    }
+    void warning (const std::string &message) const;
+
+    template<typename T1, typename... Args>
+    inline void info (string_view fmt, const T1& v1, const Args&... args) const {
+        info (Strutil::format (fmt, v1, args...));
+    }
+    void info (const std::string &message) const;
+
+    template<typename T1, typename... Args>
+    inline void message (string_view fmt, const T1& v1, const Args&... args) const {
+        message (Strutil::format (fmt, v1, args...));
+    }
+    void message (const std::string &message) const;
+#else
     TINYFORMAT_WRAP_FORMAT (void, error, const,
                             std::ostringstream msg;, msg, error(msg.str());)
     TINYFORMAT_WRAP_FORMAT (void, warning, const,
@@ -502,13 +537,11 @@ public:
                             std::ostringstream msg;, msg, info(msg.str());)
     TINYFORMAT_WRAP_FORMAT (void, message, const,
                             std::ostringstream msg;, msg, message(msg.str());)
-
-    /// Error reporting routines that take a pre-formatted string only.
-    ///
     void error (const std::string &message) const;
     void warning (const std::string &message) const;
     void info (const std::string &message) const;
     void message (const std::string &message) const;
+#endif
 
     std::string getstats (int level=1) const;
 
@@ -556,6 +589,7 @@ public:
     int llvm_optimize () const { return m_llvm_optimize; }
     int llvm_debug () const { return m_llvm_debug; }
     int llvm_debug_layers () const { return m_llvm_debug_layers; }
+    int llvm_debug_ops () const { return m_llvm_debug_ops; }
     bool fold_getattribute () const { return m_opt_fold_getattribute; }
     bool opt_texture_handle () const { return m_opt_texture_handle; }
     int opt_passes() const { return m_opt_passes; }
@@ -563,7 +597,10 @@ public:
     bool countlayerexecs() const { return m_countlayerexecs; }
     bool lazy_userdata () const { return m_lazy_userdata; }
     bool userdata_isconnected () const { return m_userdata_isconnected; }
-
+    int profile() const { return m_profile; }
+    bool no_noise() const { return m_no_noise; }
+    bool no_pointcloud() const { return m_no_pointcloud; }
+    bool force_derivs() const { return m_force_derivs; }
     ustring commonspace_synonym () const { return m_commonspace_synonym; }
 
     ustring debug_groupname() const { return m_debug_groupname; }
@@ -650,6 +687,8 @@ public:
     /// archive.
     bool archive_shadergroup (ShaderGroup *group, string_view filename);
 
+    void count_noise () { m_stat_noise_calls += 1; }
+
 private:
     void printstats () const;
 
@@ -716,7 +755,6 @@ private:
     bool m_unknown_coordsys_error;        ///< Error to use unknown xform name?
     bool m_connection_error;              ///< Error for ConnectShaders to fail?
     bool m_greedyjit;                     ///< JIT as much as we can?
-    bool m_llvm_mcjit;                    ///< Use MCJIT if available?
     bool m_countlayerexecs;               ///< Count number of layer execs?
     int m_max_warnings_per_thread;        ///< How many warnings to display per thread before giving up?
     int m_profile;                        ///< Level of profiling of shader execution
@@ -742,6 +780,7 @@ private:
     int m_debug;                          ///< Debugging output
     int m_llvm_debug;                     ///< More LLVM debugging output
     int m_llvm_debug_layers;              ///< Add layer enter/exit printfs
+    int m_llvm_debug_ops;                 ///< Add printfs to every op
     ustring m_debug_groupname;            ///< Name of sole group to debug
     ustring m_debug_layername;            ///< Name of sole layer to debug
     ustring m_opt_layername;              ///< Name of sole layer to optimize
@@ -757,6 +796,10 @@ private:
     int m_max_local_mem_KB;               ///< Local storage can a shader use
     bool m_compile_report;                ///< Print compilation report?
     bool m_buffer_printf;                 ///< Buffer/batch printf output?
+    bool m_no_noise;                      ///< Substitute trivial noise calls
+    bool m_no_pointcloud;                 ///< Substitute trivial pointcloud calls
+    bool m_force_derivs;                  ///< Force derivs on everything
+    int m_exec_repeat;                    ///< How many times to execute group
 
     // Derived/cached calculations from options:
     Color3 m_Red, m_Green, m_Blue;        ///< Color primaries (xyY)
@@ -790,6 +833,7 @@ private:
     atomic_int m_stat_regexes;            ///< Stat: how many regex's compiled
     atomic_int m_stat_preopt_syms;        ///< Stat: pre-optimization symbols
     atomic_int m_stat_postopt_syms;       ///< Stat: post-optimization symbols
+    atomic_int m_stat_syms_with_derivs;   ///< Stat: post-opt syms with derivs
     atomic_int m_stat_preopt_ops;         ///< Stat: pre-optimization ops
     atomic_int m_stat_postopt_ops;        ///< Stat: post-optimization ops
     atomic_int m_stat_middlemen_eliminated; ///< Stat: middlemen eliminated
@@ -811,6 +855,7 @@ private:
     double m_stat_getattribute_fail_time; ///< Stat: time spent in getattribute
     atomic_ll m_stat_getattribute_calls;  ///< Stat: Number of getattribute
     atomic_ll m_stat_get_userdata_calls;  ///< Stat: # of get_userdata calls
+    atomic_ll m_stat_noise_calls;         ///< Stat: # of noise calls
     long long m_stat_pointcloud_searches;
     long long m_stat_pointcloud_searches_total_results;
     int m_stat_pointcloud_max_results;
@@ -1447,6 +1492,17 @@ public:
                                   : is_last_layer(layer);
     }
 
+    int raytype_queries () const { return m_raytype_queries; }
+
+    /// Optionally set which ray types are known to be on or off (0 means
+    /// not known at optimize time).
+    void set_raytypes (int raytypes_on, int raytypes_off) {
+        m_raytypes_on  = raytypes_on;
+        m_raytypes_off = raytypes_off;
+    }
+    int raytypes_on ()  const { return m_raytypes_on; }
+    int raytypes_off () const { return m_raytypes_off; }
+
 private:
     // Put all the things that are read-only (after optimization) and
     // needed on every shade execution at the front of the struct, as much
@@ -1461,6 +1517,10 @@ private:
     std::vector<RunLLVMGroupFunc> m_llvm_compiled_layers;
     std::vector<ShaderInstanceRef> m_layers;
     ustring m_name;
+    int m_exec_repeat;               ///< How many times to execute group
+    int m_raytype_queries;           ///< Bitmask of raytypes queried
+    int m_raytypes_on;               ///< Bitmask of raytypes we assume to be on
+    int m_raytypes_off;              ///< Bitmask of raytypes we assume to be off
     mutable mutex m_mutex;           ///< Thread-safe optimization
     std::vector<ustring> m_textures_needed;
     std::vector<ustring> m_closures_needed;
@@ -1572,13 +1632,8 @@ public:
 
     /// Return a pointer to the shading group for this context.
     ///
-    ShaderGroup *group () { return m_attribs; }
-    const ShaderGroup *group () const { return m_attribs; }
-
-    /// Return a pointer to the shading attribs for this context.
-    /// (DEPRECATED name)
-    ShaderGroup *attribs () { return m_attribs; }
-    const ShaderGroup *attribs () const { return m_attribs; }
+    ShaderGroup *group () { return m_group; }
+    const ShaderGroup *group () const { return m_group; }
 
     /// Return a reference to the MessageList containing messages.
     ///
@@ -1662,6 +1717,27 @@ public:
     // Process all the recorded errors, warnings, printfs
     void process_errors () const;
 
+#if OIIO_VERSION >= 10803
+    template<typename... Args>
+    inline void error (string_view fmt, const Args&... args) const {
+        record_error(ErrorHandler::EH_ERROR, Strutil::format (fmt, args...));
+    }
+
+    template<typename... Args>
+    inline void warning (string_view fmt, const Args&... args) const {
+        record_error(ErrorHandler::EH_WARNING, Strutil::format (fmt, args...));
+    }
+
+    template<typename... Args>
+    inline void info (string_view fmt, const Args&... args) const {
+        record_error(ErrorHandler::EH_INFO, Strutil::format (fmt, args...));
+    }
+
+    template<typename... Args>
+    inline void message (string_view fmt, const Args&... args) const {
+        record_error(ErrorHandler::EH_MESSAGE, Strutil::format (fmt, args...));
+    }
+#else
     TINYFORMAT_WRAP_FORMAT (void, error, const,
                             std::ostringstream msg;, msg,
                             record_error(ErrorHandler::EH_ERROR, msg.str());)
@@ -1674,6 +1750,7 @@ public:
     TINYFORMAT_WRAP_FORMAT (void, message, const,
                             std::ostringstream msg;, msg,
                             record_error(ErrorHandler::EH_MESSAGE, msg.str());)
+#endif
 
 private:
 
@@ -1683,7 +1760,7 @@ private:
     RendererServices *m_renderer;       ///< Ptr to renderer services
     PerThreadInfo *m_threadinfo;        ///< Ptr to our thread's info
     mutable TextureSystem::Perthread *m_texture_thread_info; ///< Ptr to texture thread info
-    ShaderGroup *m_attribs;             ///< Ptr to shading attrib state
+    ShaderGroup *m_group;               ///< Ptr to shader group
     std::vector<char> m_heap;           ///< Heap memory
     typedef boost::unordered_map<ustring, boost::regex*, ustringHash> RegexMap;
     RegexMap m_regex_map;               ///< Compiled regex's
@@ -1838,6 +1915,9 @@ public:
 
     /// Is the symbol a constant whose value is 1?
     static bool is_one (const Symbol &A);
+
+    /// Is the symbol a constant whose value is nonzero in all components?
+    static bool is_nonzero (const Symbol &A);
 
     /// For debugging, express A's constant value as a string.
     static std::string const_value_as_string (const Symbol &A);

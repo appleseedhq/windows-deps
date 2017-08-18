@@ -21,7 +21,7 @@
 \usepackage{xspace}
 %\usepackage{multicol}
 %\usepackage{color}
-\usepackage{html}
+\usepackage{hyperref}
 %\usepackage{version}
 \usepackage{makeidx}
 \usepackage[chapter]{algorithm}
@@ -43,7 +43,7 @@
 
 \def\langname{Open Shading Language\xspace}
 \def\product{{\sffamily Open Shading Language}\xspace}
-\def\versionnumber{1.7}
+\def\versionnumber{1.8}
 \def\productver{\product\ {\sffamily \versionnumber}\xspace}
 
 
@@ -55,14 +55,14 @@ Language Specification
 %\\ \large (CONFIDENTIAL --- draft in progress) 
 } \bigskip }
 \author{
-\copyright\ Copyright 2009-2016 Sony Pictures Imageworks Inc., et al. All rights reserved.
+\copyright\ Copyright 2009-2017 Sony Pictures Imageworks Inc., et al. All rights reserved.
  \bigskip \\
 \vspace{1in} \\
 Editor: Larry Gritz \\
 \emph{lg@imageworks.com}
 }
-\date{{\large Date: 14 Jan, 2016 \\
- (with corrections, 5 Jul 2016)
+\date{{\large Date: 6 Feb 2017 \\
+ (with corrections, 30 Jun 2017)
 }
 \bigskip
 \bigskip
@@ -103,6 +103,7 @@ Editor: Larry Gritz \\
 \def\pnoise{{\cf pnoise()}\xspace}
 \def\psnoise{{\cf psnoise()}\xspace}
 \def\cellnoise{{\cf cellnoise()}\xspace}
+\def\hashnoise{{\cf hashnoise()}\xspace}
 \def\illuminance{{\cf illuminance}\xspace}
 \def\illuminate{{\cf illuminate}\xspace}
 
@@ -129,7 +130,7 @@ documentation are:
 
 \vspace*{0.2in}
 
-Copyright (c) 2009-2016 Sony Pictures Imageworks Inc., et al.
+Copyright (c) 2009-2017 Sony Pictures Imageworks Inc., et al.
 All Rights Reserved.
 
 \vspace{0.5in}
@@ -339,27 +340,19 @@ find are different in OSL compared to other languages:
 
 \section*{Acknowledgments}
 
-The main developers of OSL are (in order of joining the project):
+The original designer and project leader of OSL is Larry Gritz. Other early
+developers of OSL are (in order of joining the project): Cliff Stein, Chris
+Kulla, Alejandro Conty, Jay Reynolds, Solomon Boulos, Adam Martinez, Brecht
+Van Lommel.
 
-\vspace*{0.2in}
-
-    Larry Gritz
-
-    Cliff Stein
-
-    Chris Kulla
-
-    Alejandro Conty
-
-    Jay Reynolds
-
-    Solomon Boulos
-
-    Adam Martinez
-
-    Brecht Van Lommel
-
-\vspace*{0.2in}
+Additionally, many others have contributed features, bug fixes, and other
+changes: Steve Agland, Shane Ambler, Martijn Berger, Farchad Bidgolirad,
+Nicholas Bishop, Stefan Büttner, Matthaus G. Chajdas, Thomas Dinges, Henri
+Fousse, Syoyo Fujita, Derek Haase, Sven-Hendrik Haase, John Haddon, Daniel
+Heckenberg, Ronan Keryell, Elvic Liang, Max Liani, Bastien Montagne, Erich
+Ocean, Mikko Ohtamaa, Alex Schworer, Sergey Sharybin, Stephan Steinbach,
+Esteban Tovagliari, Alexander von Knorring, Roman Zulak. (Listed
+alphabetically; if we've left anybody out, please let us know.)
 
 We cannot possibly express sufficient gratitude to the managers at Sony
 Pictures Imageworks who allowed this project to proceed, supported it
@@ -373,22 +366,22 @@ feedback.  Thank you, and we hope we've been responsive to your needs.
 
 OSL was not developed in isolation.  We owe a debt to the individuals
 and studios who patiently read early drafts of the language
-specification and gave us very helpful feedback and additional ideas.
-(I hope to mention them by name after we get permission of the people
-and studios involved.)
+specification and gave us very helpful feedback and additional ideas,
+and especially to those at other companies who have taken the risk of
+incorporating OSL into their products and pipelines.
 
-\bigskip 
+\bigskip
 The open source OSL implementation incorporates or depends upon several
 other open source packages:
 
 \begin{itemize}
 \item {\cf OpenImageIO} \copyright\ 2008 Larry Gritz et al.  
-{\cf http://openimageio.org}
+\url{http://openimageio.org}
 \item Ilmbase \copyright\ 2006, Industrial Light \& Magic.
-{\cf http://www.openexr.com}
-\item Boost \copyright\ various authors.  {\cf http://www.boost.org}
+\url{http://www.openexr.com}
+\item Boost \copyright\ various authors.  \url{http://www.boost.org}
 \item LLVM \copyright\ 2003-2010 University of Illinois at
-  Urbana-Champaign. {\cf http://llvm.org}
+  Urbana-Champaign. \url{http://llvm.org}
 \end{itemize}
 
 These other packages are all distributed under licenses that allow them
@@ -880,6 +873,18 @@ directives, including:
     #pragma once
 \end{code}
 
+\noindent Additionally, the following preprocessor symbols will already be
+defined by the compiler:
+
+\smallskip
+
+\begin{tabular}{p{1.5in} p{3.5in}}
+{\cf OSL_VERSION_MAJOR}   & Major version (e.g., 1) \\[0.5ex]
+{\cf OSL_VERSION_MINOR}   & Minor version (e.g., 9) \\[0.5ex]
+{\cf OSL_VERSION_PATCH}   & Patch version (e.g., 3) \\[0.5ex]
+{\cf OSL_VERSION}   & Combined version number = 10000*major + 100*minor + patch
+(e.g., 10903 for version 1.9.3)
+\end{tabular}
 
 
 \chapter{Gross syntax, shader types, parameters, functions}
@@ -2987,6 +2992,29 @@ infinite (Inf or --Inf) value, 0 otherwise.  The {\cf isfinite()}
 function returns 1 if $x$ is an ordinary number (neither infinite nor
 NaN), 0 otherwise.  \apiend
 
+\apiitem{\emph{type} {\ce select} (\emph{type} x, \emph{type} y, \emph{type} cond) \\
+\emph{type} {\ce select} (\emph{type} x, \emph{type} y, float cond) \\
+\emph{type} {\ce select} (\emph{type} x, \emph{type} y, int cond)}
+\indexapi{mix()}
+\NEW  % 1.8
+The {\cf select} function returns {\cf x} if {\cf cond} is zero, or {\cf y}
+if {\cf cond} is nonzero. This is roughly equivalent to {\cf (cond ? y : x)},
+except that if {\cf cond} is a component-based type (such as {\cf color}),
+the selection happens on a component-by-component basis. It is presumed
+that the underlying implementation is not a true conditional and will not
+incur any branching penalty.
+\apiend
+
+\apiitem{int {\ce isnan} (float x) \\
+int {\ce isinf} (float x) \\
+int {\ce isfinite} (float x)}
+\indexapi{isnan()} \indexapi{isinf()} \indexapi{isfinite()}
+The {\cf isnan()} function returns 1 if $x$ is a not-a-number (NaN)
+value, 0 otherwise.  The {\cf isinf()} function returns 1 if $x$ is an
+infinite (Inf or --Inf) value, 0 otherwise.  The {\cf isfinite()}
+function returns 1 if $x$ is an ordinary number (neither infinite nor
+NaN), 0 otherwise.  \apiend
+
 \apiitem{float {\ce erf} (float x) \\
 float {\ce erfc} (float x)}
 \indexapi{erf()} \indexapi{erfc()}
@@ -3331,24 +3359,27 @@ performed component-by-component (separately for $x$, $y$, and $z$).
 
 \apiitem{float {\ce linearstep} (float edge0, float edge1, float x)}
 \indexapi{linearstep()}
-\NEW % 1.7
 Returns 0 if $x \le {\mathit edge0}$, and 1 if $x \ge {\mathit edge1}$,
 and performs a linear
 interpolation between 0 and 1 when ${\mathit edge0} < x < {\mathit edge1}$.
 \apiend
 
-\apiitem{float {\ce smoothstep} (float edge0, float edge1, float x)}
+\apiitem{float {\ce smoothstep} (float edge0, float edge1, float x) \\
+\emph{type} {\ce smoothstep} (\emph{type} edge0, \emph{type} edge1, \emph{type} x)}
 \indexapi{smoothstep()}
 Returns 0 if $x \le {\mathit edge0}$, and 1 if $x \ge {\mathit edge1}$,
 and performs a smooth Hermite
 interpolation between 0 and 1 when ${\mathit edge0} < x < {\mathit edge1}$.
 This is useful in cases where you would want a thresholding function
 with a smooth transition.
+
+The \emph{type} may be any of of \float, \color, \point, \vector, or
+\normal.  For \color and \point-like types, the computations are
+performed component-by-component (separately for $x$, $y$, and $z$).
 \apiend
 
 \apiitem{float {\ce smooth_linearstep} (float edge0, float edge1, float x, float eps)}
 \indexapi{smooth_linearstep()}
-\NEW % 1.7
 This function is strictly linear between ${\mathit edge0}+{\mathit eps}$ and ${\mathit edge1}-{\mathit eps}$
 but smoothly ramps to 0 between ${\mathit edge0}-{\mathit eps}$ and ${\mathit edge0}+{\mathit eps}$
 and smoothly ramps to 1 between ${\mathit edge1}-{\mathit eps}$ and ${\mathit edge1}+{\mathit eps}$.
@@ -3402,6 +3433,14 @@ one that doesn't take a name string).
 A discrete function that is constant on $[i,i+1)$ for all integers $i$
 (i.e., {\cf cellnoise(x) == cellnoise(floor(x))}), but has a different
 and uncorrelated value at every integer.  The range is $[0,1]$, its
+large-scale average is 0.5, and its values are evenly distributed over
+$[0,1]$.
+\apiend
+
+\apiitem{"hash"}
+\vspace{12pt}
+A function that returns a different, uncorrelated (but deterministic and
+repeatable) value at every real input coordinate.  The range is $[0,1]$, its
 large-scale average is 0.5, and its values are evenly distributed over
 $[0,1]$.
 \apiend
@@ -3546,29 +3585,31 @@ The old {\cf cellnoise(...coords...)} function is equivalent to
 {\cf noise("cell",...coords...)}.
 \apiend
 
-\begin{comment}   % couldn't find a use for this
-\apiitem{\emph{type} {\ce hash} (float u) \\
-\emph{type} {\ce hash} (float u, float v) \\
-\emph{type} {\ce hash} (point p) \\
-\emph{type} {\ce hash} (point p, float t) \\
-\emph{type} {\ce hash} (int i) \\
-\emph{type} {\ce hash} (string s)}
-\indexapi{hash()}
+\apiitem{\emph{type} {\ce hashnoise} (float u) \\
+\emph{type} {\ce hashnoise} (float u, float v) \\
+\emph{type} {\ce hashnoise} (point p) \\
+\emph{type} {\ce hashnoise} (point p, float t)}
+\indexapi{hashnoise()}
+\NEW % 1.9
 Returns a deterministic, repeatable \emph{hash} of the 1-, 2-, 3-, or
-4-D coordinates, integer, or string.  The return values will be evenly
+4-D coordinates.  The return values will be evenly
 distributed on $[0,1]$ and be completely repeatable when passed the same
 coordinates again, yet will be uncorrellated to hashes of any other
 positions (including nearby points).  This is like having a random value
 indexed spatially, but that will be repeatable from frame to frame of an
 animation (provided its input is \emph{precisely} identical).
-
-The return \emph{type} may be any of \float, \color, \point, \vector, or
-\normal, depending on the type of the variable the result is assigned to
-(or based on an explicit type cast).  For multi-component return types
-(e.g., \point), each component is an uncorrelated \float\ {\cf hash}
-function.
 \apiend
-\end{comment}
+
+\apiitem{int {\ce hash} (float u) \\
+int {\ce hash} (float u, float v) \\
+int {\ce hash} (point p) \\
+int {\ce hash} (point p, float t) \\
+int {\ce hash) (int i)}}
+\indexapi{hash()}
+\NEW % 1.9
+Returns a deterministic, repeatable integer \emph{hash} of the 1-, 2-, 3-,
+or 4-D coordinates.
+\apiend
 
 \apiitem{\emph{type} {\ce spline} (string basis, float x, \emph{type} $\mathtt{y}_0$, \emph{type} $\mathtt{y}_1$, ... \emph{type} $\mathtt{y}_{n-1}$)\\
 \emph{type} {\ce spline} (string basis, float x, \emph{type} y[]) \\
@@ -3825,14 +3866,12 @@ is omitted, return the rest of \emph{s}, starting with \emph{start}.  If
 
 \apiitem{int {\ce getchar} (string s, int n)}
 \indexapi{getchar()}
-\NEW % 1.7
 Returns the numeric value of the $n^{\mathrm{th}}$ character of the string,
 or {\cf 0} if {\cf n} does not index a valid character of the string.
 \apiend
 
 \apiitem{int {\ce hash} (string s)}
 \indexapi{hash()}
-\NEW % 1.7
 Returns a deterministic, repeatable \emph{hash} of the string.
 \apiend
 
@@ -3993,6 +4032,16 @@ The alpha channel (presumed to be the next channel following the
 channels returned by the {\cf texture()} call) will be stored in the
 variable specified.  This allows for RGBA lookups in a single call to
 {\cf texture()}.
+\apiend
+\vspace{-16pt}
+
+\apiitem{"errormessage", <stringvariable>}
+\vspace{12pt}
+\NEW  % 1.8
+If this option is supplied, any error messages generated by the texture
+system will be stored in the specified variable rather than issuing error
+calls to the renderer, thus leaving it up to the shader to handle any
+errors. The error message stored will be \qkw{} if no error occurred.
 \apiend
 \vspace{-16pt}
 
@@ -4767,7 +4816,22 @@ Tables giving ``standardized'' names for different kinds of attributes may
 be found below. All renderers are expected to use the same names for these
 attributes, but are free to choose any names for additional attributes they
 wish to make queryable.
+
 \apiend
+
+\begin{table}[htbp]
+\caption{Names of standard attributes that may be retrieved.}\label{tab:cameraattributes}
+\begin{tabular}{|p{1.8in}|p{0.6in}|p{2.8in}|}
+\hline
+{\bf Name} & {\bf Type} & {\bf Description} \\
+\hline
+{\cf "osl:version"}           & {\cf int}       & Major*10000 + Minor*100 + patch. \\
+{\cf "shader:shadername"}     & {\cf string}    & Name of the shader master. \\
+{\cf "shader:layername"}      & {\cf string}    & Name of the layer instance. \\
+{\cf "shader:groupname"}      & {\cf string}    & Name of the shader group. \\
+\hline
+\end{tabular}
+\end{table}
 
 \begin{table}[htbp]
 \caption{Names of standard camera attributes that may be retrieved.

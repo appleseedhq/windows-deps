@@ -26,6 +26,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <cstdarg>
+
 #include "oslexec_pvt.h"
 using namespace OSL;
 using namespace OSL::pvt;
@@ -269,14 +271,20 @@ RendererServices::pointcloud_search (ShaderGlobals *sg,
             float *d_distance_dx = out_distances + derivs_offset;
             float *d_distance_dy = out_distances + derivs_offset * 2;
             for (int i = 0; i < count; ++i) {
-                d_distance_dx[i] = 1.0f / out_distances[i] *
-                                        ((center.x - positions[i].x) * dCdx.x +
-                                         (center.y - positions[i].y) * dCdx.y +
-                                         (center.z - positions[i].z) * dCdx.z);
-                d_distance_dy[i] = 1.0f / out_distances[i] *
-                                        ((center.x - positions[i].x) * dCdy.x +
-                                         (center.y - positions[i].y) * dCdy.y +
-                                         (center.z - positions[i].z) * dCdy.z);
+                if (out_distances[i] > 0) {
+                    d_distance_dx[i] = 1.0f / out_distances[i] *
+                                            ((center.x - positions[i].x) * dCdx.x +
+                                             (center.y - positions[i].y) * dCdx.y +
+                                             (center.z - positions[i].z) * dCdx.z);
+                    d_distance_dy[i] = 1.0f / out_distances[i] *
+                                            ((center.x - positions[i].x) * dCdy.x +
+                                             (center.y - positions[i].y) * dCdy.y +
+                                             (center.z - positions[i].z) * dCdy.z);
+                } else {
+                    // distance is 0, derivs would be infinite which could cause trouble downstream
+                    d_distance_dx[i] = 0;
+                    d_distance_dy[i] = 0;
+                }
             }
         }
     }
@@ -441,6 +449,10 @@ osl_pointcloud_search (ShaderGlobals *sg, const char *filename, void *center, fl
                        int max_points, int sort, void *out_indices, void *out_distances, int derivs_offset,
                        int nattrs, ...)
 {
+    ShadingSystemImpl &shadingsys (sg->context->shadingsys());
+    if (shadingsys.no_pointcloud()) // Debug mode to skip pointcloud expense
+        return 0;
+
     // RS::pointcloud_search takes size_t index array (because of the
     // presumed use of Partio underneath), but OSL only has int, so we
     // have to allocate and copy out.  But, on architectures where int
@@ -473,7 +485,7 @@ osl_pointcloud_search (ShaderGlobals *sg, const char *filename, void *center, fl
         for(int i = 0; i < count; ++i)
             ((int *)out_indices)[i] = indices[i];
 
-    sg->context->shadingsys().pointcloud_stats (1, 0, count);
+    shadingsys.pointcloud_stats (1, 0, count);
 
     return count;
 }
@@ -484,16 +496,18 @@ OSL_SHADEOP int
 osl_pointcloud_get (ShaderGlobals *sg, const char *filename, void *in_indices, int count,
                     const char *attr_name, long long attr_type, void *out_data)
 {
-    size_t *indices = (size_t *)alloca (sizeof(size_t) * count);
+    ShadingSystemImpl &shadingsys (sg->context->shadingsys());
+    if (shadingsys.no_pointcloud()) // Debug mode to skip pointcloud expense
+        return 0;
 
-    for(int i = 0; i < count; ++i)
+    size_t *indices = (size_t *)alloca (sizeof(size_t) * count);
+    for (int i = 0; i < count; ++i)
         indices[i] = ((int *)in_indices)[i];
 
-    sg->context->shadingsys().pointcloud_stats (0, 1, 0);
+    shadingsys.pointcloud_stats (0, 1, 0);
 
     return sg->renderer->pointcloud_get (sg, USTR(filename), (size_t *)indices, count, USTR(attr_name),
                                          TYPEDESC(attr_type), out_data);
-
 }
 
 
@@ -515,7 +529,11 @@ osl_pointcloud_write (ShaderGlobals *sg, const char *filename, const Vec3 *pos,
                       int nattribs, const ustring *names,
                       const TypeDesc *types, const void **values)
 {
-    sg->context->shadingsys().pointcloud_stats (0, 0, 0, 1);
+    ShadingSystemImpl &shadingsys (sg->context->shadingsys());
+    if (shadingsys.no_pointcloud()) // Debug mode to skip pointcloud expense
+        return 0;
+
+    shadingsys.pointcloud_stats (0, 0, 0, 1);
     return sg->renderer->pointcloud_write (sg, USTR(filename), *pos,
                                            nattribs, names, types, values);
 }

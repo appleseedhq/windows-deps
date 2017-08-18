@@ -1,13 +1,13 @@
 SET ( liboslexec_srcs
           shadingsys.cpp closure.cpp
           dictionary.cpp
-          context.cpp instance.cpp 
-          loadshader.cpp master.cpp 
+          context.cpp instance.cpp
+          loadshader.cpp master.cpp
           opcolor.cpp opmatrix.cpp opmessage.cpp
-          opnoise.cpp simplexnoise.cpp gabornoise.cpp
+          opnoise.cpp
           opspline.cpp opstring.cpp optexture.cpp
-          oslexec.cpp 
-          pointcloud.cpp rendservices.cpp 
+          oslexec.cpp
+          pointcloud.cpp rendservices.cpp
           constfold.cpp runtimeoptimize.cpp typespec.cpp
           lpexp.cpp lpeparse.cpp automata.cpp accum.cpp
           opclosure.cpp
@@ -26,6 +26,12 @@ if (NOT BUILDSTATIC)
         ../liboslcomp/typecheck.cpp
         )
 endif ()
+
+# oslnoise symbols used in oslexec
+LIST(APPEND liboslexec_srcs
+   ../liboslnoise/gabornoise.cpp
+   ../liboslnoise/simplexnoise.cpp
+   )
 
 # oslquery symbols used in oslexec
 if (NOT BUILDSTATIC)
@@ -110,7 +116,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
           "-I${CMAKE_CURRENT_SOURCE_DIR}"
           "-I${CMAKE_SOURCE_DIR}/src/include"
           "-I${CMAKE_BINARY_DIR}/include/OSL"
-          "-I${OPENIMAGEIO_INCLUDES}"
+          "-I${OPENIMAGEIO_INCLUDE_DIR}"
           "-I${ILMBASE_INCLUDE_DIR}"
           "-I${Boost_INCLUDE_DIRS}"
           -DOSL_COMPILING_TO_BITCODE=1
@@ -145,20 +151,21 @@ TARGET_LINK_LIBRARIES ( oslexec
                         ${PUGIXML_LIBRARIES}
                         ${PARTIO_LIBRARIES} ${ZLIB_LIBRARIES}
                         ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
+                        ${CLANG_LIBRARIES}
                         ${LLVM_LIBRARY} ${LLVM_MCJIT_LIBRARY}
                         ${LLVM_LIBRARIES} ${LLVM_LDFLAGS}
-                        ${EXTRA_OSLEXEC_LIBRARIES})
-ADD_DEPENDENCIES (oslexec "${CMAKE_CURRENT_SOURCE_DIR}/liboslexec.map")
+                        ${LLVM_SYSTEM_LIBRARIES})
+ADD_DEPENDENCIES (oslexec "${CMAKE_SOURCE_DIR}/src/build-scripts/hidesymbols.map")
 
 INSTALL ( TARGETS oslexec RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib )
 
 # Unit tests
 if (OSL_BUILD_TESTS)
     add_executable (accum_test accum_test.cpp)
-    target_link_libraries ( accum_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${EXTRA_OSLEXEC_LIBRARIES} )
+    target_link_libraries ( accum_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
     add_test (unit_accum "${CMAKE_BINARY_DIR}/src/liboslexec/accum_test")
 
     add_executable (llvmutil_test llvmutil_test.cpp)
-    target_link_libraries ( llvmutil_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${EXTRA_OSLEXEC_LIBRARIES} )
+    target_link_libraries ( llvmutil_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
     add_test (unit_llvmutil "${CMAKE_BINARY_DIR}/src/liboslexec/llvmutil_test")
 endif ()

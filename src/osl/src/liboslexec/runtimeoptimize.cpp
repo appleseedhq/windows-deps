@@ -124,7 +124,8 @@ RuntimeOptimizer::RuntimeOptimizer (ShadingSystemImpl &shadingsys,
       m_pass(0),
       m_next_newconst(0), m_next_newtemp(0),
       m_stat_opt_locking_time(0), m_stat_specialization_time(0),
-      m_stop_optimizing(false)
+      m_stop_optimizing(false),
+      m_raytypes_on(group.raytypes_on()), m_raytypes_off(group.raytypes_off())
 {
     memset (&m_shaderglobals, 0, sizeof(ShaderGlobals));
     m_shaderglobals.context = shadingcontext();
@@ -775,6 +776,32 @@ OSOProcessorBase::is_one (const Symbol &A)
 
 
 
+bool
+OSOProcessorBase::is_nonzero (const Symbol &A)
+{
+    if (! A.is_constant())
+        return false;
+    const TypeSpec &Atype (A.typespec());
+    int ncomponents = Atype.numelements() * Atype.aggregate();
+    if (Atype.is_float_based()) {
+        const float *val = (const float *)A.data();
+        for (int i = 0; i < ncomponents; ++i)
+            if (val[0] == 0.0f)
+                return false;
+        return true;
+    }
+    if (Atype.is_int_based()) {
+        const int *val = (const int *)A.data();
+        for (int i = 0; i < ncomponents; ++i)
+            if (val[0] == 0)
+                return false;
+        return true;
+    }
+    return false;
+}
+
+
+
 std::string
 OSOProcessorBase::const_value_as_string (const Symbol &A)
 {
@@ -837,7 +864,6 @@ RuntimeOptimizer::simplify_params ()
         Symbol *s (inst()->symbol(i));
         if (s->symtype() != SymTypeParam)
             continue;  // Skip non-params
-                       // FIXME - clever things we can do for OutputParams?
         if (! s->lockgeom())
             continue;  // Don't mess with params that can change with the geom
         if (s->typespec().is_structure() || s->typespec().is_closure_based())
@@ -862,6 +888,12 @@ RuntimeOptimizer::simplify_params ()
             // if it's a simple assignment from a global whose value is
             // not reassigned later, we can just alias it, and if we're
             // lucky that may eliminate all uses of the parameter.
+
+            // First, trim init ops in case nops have accumulated
+            while (s->has_init_ops() && op(s->initbegin()).opname() == u_nop)
+                s->initbegin (s->initbegin()+1);
+            while (s->has_init_ops() && op(s->initend()-1).opname() == u_nop)
+                s->initend (s->initend()-1);
             if (s->initbegin() == s->initend()-1) {  // just one op
                 Opcode &op (inst()->ops()[s->initbegin()]);
                 if (op.opname() == u_assign) {
@@ -1163,12 +1195,13 @@ RuntimeOptimizer::use_stale_sym (int sym)
 
 
 bool
-RuntimeOptimizer::is_simple_assign (Opcode &op)
+RuntimeOptimizer::is_simple_assign (Opcode &op, const OpDescriptor *opd)
 {
     // Simple only if arg0 is the only write, and is write only.
     if (op.argwrite_bits() != 1 || op.argread(0))
         return false;
-    const OpDescriptor *opd = shadingsys().op_descriptor (op.opname());
+    if (! opd)
+        opd = shadingsys().op_descriptor (op.opname());
     if (!opd || !opd->simple_assign)
         return false;   // reject all other known non-simple assignments
     // Make sure the result isn't also read
@@ -2067,6 +2100,24 @@ RuntimeOptimizer::optimize_ops (int beginop, int endop,
             clear_stale_syms ();
             lastblock = m_bblockids[opnum];
         }
+        // Things to do at the start of main code:
+        // * Alias output params to their initial values, if known.
+        if (opnum == inst()->m_maincodebegin) {
+            for (int i = inst()->firstparam();  i < inst()->lastparam();  ++i) {
+                Symbol *s (inst()->symbol(i));
+                if (s->symtype() == SymTypeOutputParam && s->lockgeom() &&
+                      (s->valuesource() == Symbol::DefaultVal ||
+                       s->valuesource() == Symbol::InstanceVal) &&
+                      ! s->has_init_ops() &&
+                      ! s->typespec().is_closure_based() &&
+                      ! s->typespec().is_structure_based()) {
+                    make_symbol_room (1);  // Make sure add_constant is ok
+                    s = inst()->symbol(i);
+                    int cind = add_constant (s->typespec(), s->data());
+                    block_alias (i, cind); // Alias this symbol to the new const
+                }
+            }
+        }
         // Nothing below here to do for no-ops, take early out.
         if (op->opname() == u_nop)
             continue;
@@ -2081,9 +2132,11 @@ RuntimeOptimizer::optimize_ops (int beginop, int endop,
             if (op->argread(i))
                 use_stale_sym (oparg(*op,i));
         }
+
+        const OpDescriptor *opd = shadingsys().op_descriptor (op->opname());
         // If it's a simple assignment and the lvalue is "stale", go
         // back and eliminate its last assignment.
-        if (is_simple_assign(*op))
+        if (is_simple_assign(*op, opd))
             simple_sym_assign (oparg (*op, 0), opnum);
         // Make sure there's room for several more symbols, so that we
         // can add a few consts if we need to, without worrying about
@@ -2092,7 +2145,6 @@ RuntimeOptimizer::optimize_ops (int beginop, int endop,
         // For various ops that we know how to effectively
         // constant-fold, dispatch to the appropriate routine.
         if (optimize() >= 2 && m_opt_constant_fold) {
-            const OpDescriptor *opd = shadingsys().op_descriptor (op->opname());
             if (opd && opd->folder) {
                 int c = (*opd->folder) (*this, opnum);
                 if (c) {
@@ -2113,7 +2165,8 @@ RuntimeOptimizer::optimize_ops (int beginop, int endop,
         // Now we handle assignments.
         if (optimize() >= 2 && op->opname() == u_assign && m_opt_assign)
             changed += optimize_assignment (*op, opnum);
-        if (optimize() >= 2 && m_opt_elide_useless_ops)
+        if (optimize() >= 2 && m_opt_elide_useless_ops && opd
+            && !(opd->flags & OpDescriptor::SideEffects))
             changed += useless_op_elision (*op, opnum);
         if (m_stop_optimizing)
             break;
@@ -2499,6 +2552,7 @@ RuntimeOptimizer::track_variable_dependencies ()
     symdeps.clear ();
 
     std::vector<int> read, written;
+    bool forcederivs = shadingsys().force_derivs();
     // Loop over all ops...
     BOOST_FOREACH (Opcode &op, inst()->ops()) {
         // Gather the list of syms read and written by the op.  Reuse the
@@ -2519,12 +2573,16 @@ RuntimeOptimizer::track_variable_dependencies ()
                     add_dependency (symdeps, w, r);
             // If the op takes derivs, make the pseudo-symbol DerivSym
             // depend on those arguments.
-            if (op.argtakesderivs_all()) {
+            if (op.argtakesderivs_all() || forcederivs) {
                 for (int a = 0;  a < op.nargs();  ++a)
-                    if (op.argtakesderivs(a)) {
+                    if (op.argtakesderivs(a) || forcederivs) {
                         Symbol &s (*opargsym (op, a));
                         // Constants can't take derivs
                         if (s.symtype() == SymTypeConst)
+                            continue;
+                        // Non-float types can't take derivs
+                        if (s.typespec().is_closure() ||
+                            s.typespec().simpletype().basetype != TypeDesc::FLOAT)
                             continue;
                         // Careful -- not all globals can take derivs
                         if (s.symtype() == SymTypeGlobal &&
@@ -3012,7 +3070,7 @@ RuntimeOptimizer::run ()
     // Optimize each layer again, from last to first (because some
     // optimizations are only apparent when the subsequent shaders have
     // been simplified).
-    for (int layer = nlayers-2;  layer >= 0;  --layer) {
+    for (int layer = nlayers-1;  layer >= 0;  --layer) {
         set_inst (layer);
         if (! inst()->unused())
             optimize_instance ();
@@ -3051,7 +3109,7 @@ RuntimeOptimizer::run ()
     shadingsys().merge_instances (group(), true);
 
     // Get rid of nop instructions and unused symbols.
-    size_t new_nsyms = 0, new_nops = 0;
+    size_t new_nsyms = 0, new_nops = 0, new_deriv_syms = 0;
     for (int layer = 0;  layer < nlayers;  ++layer) {
         set_inst (layer);
         if (inst()->unused())
@@ -3104,6 +3162,8 @@ RuntimeOptimizer::run ()
             if (s.symtype() == SymTypeGlobal) {
                 m_globals_needed.insert (s.name());
             }
+            if (s.has_derivs())
+                ++new_deriv_syms;
         }
         BOOST_FOREACH (const Opcode &op, inst()->ops()) {
             const OpDescriptor *opd = shadingsys().op_descriptor (op.opname());
@@ -3176,6 +3236,7 @@ RuntimeOptimizer::run ()
         ss.m_stat_preopt_ops += old_nops;
         ss.m_stat_postopt_syms += new_nsyms;
         ss.m_stat_postopt_ops += new_nops;
+        ss.m_stat_syms_with_derivs += new_deriv_syms;
         if (does_nothing)
             ss.m_stat_empty_groups += 1;
     }

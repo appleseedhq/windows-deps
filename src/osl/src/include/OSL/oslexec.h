@@ -42,8 +42,6 @@ OSL_NAMESPACE_ENTER
 class RendererServices;
 class ShaderGroup;
 typedef shared_ptr<ShaderGroup> ShaderGroupRef;
-OSL_DEPRECATED("Use ShaderGroup instead") typedef ShaderGroup ShadingAttribState;
-OSL_DEPRECATED("Use ShaderGroupRef instead") typedef ShaderGroupRef ShadingAttribStateRef;
 struct ClosureParam;
 struct PerThreadInfo;
 class ShadingContext;
@@ -75,14 +73,6 @@ public:
                    ErrorHandler *err=NULL);
     ~ShadingSystem ();
 
-    OSL_DEPRECATED("Directly new or construct a ShadingSystem")
-    static ShadingSystem *create (RendererServices *renderer=NULL,
-                                  TextureSystem *texturesystem=NULL,
-                                  ErrorHandler *err=NULL);
-
-    OSL_DEPRECATED("Delete or destroy a ShadingSystem")
-    static void destroy (ShadingSystem *x);
-
     /// Set an attribute controlling the shading system.  Return true
     /// if the name and type were recognized and the attrib was set.
     /// Documented attributes are as follows:
@@ -103,6 +93,10 @@ public:
     ///    int buffer_printf      Buffer printf output from shaders and
     ///                              output atomically, to prevent threads
     ///                              from interleaving lines. (1)
+    ///    int profile            Perform some rudimentary profiling (0)
+    ///    int no_noise           Replace noise with constant value. (0)
+    ///    int no_pointcloud      Skip pointcloud lookups. (0)
+    ///    int exec_repeat        How many times to run each group (1).
     /// 2. Attributes that should be set by applications/renderers that
     /// incorporate OSL:
     ///    string commonspace     Name of "common" coord system ("world")
@@ -155,7 +149,8 @@ public:
     ///    int llvm_debug         Set LLVM extra debug level (0)
     ///    int llvm_debug_layers  Extra printfs upon entering and leaving
     ///                              layer functions.
-    ///    int llvm_mcjit         Use LLVM MCJIT if available (0).
+    ///    int llvm_debug_ops     Extra printfs for each OSL op (helpful
+    ///                              for devs to find crashes)
     ///    int max_local_mem_KB   Error if shader group needs more than this
     ///                              much local storage to execute (1024K)
     ///    string debug_groupname Name of shader group -- debug only this one
@@ -164,6 +159,8 @@ public:
     ///                              designated as the debug shaders.
     ///    string opt_layername   If set, only optimize the named layer
     ///    string only_groupname  Compile only this one group (skip all others)
+    ///    int force_derivs       Force all float-based variables to compute
+    ///                              and store derivatives. (0)
     ///
     /// Note: the attributes referred to as "string" are actually on the app
     /// side as ustring or const char* (they have the same data layout), NOT
@@ -197,6 +194,7 @@ public:
     ///                                 callable entry points. They won't
     ///                                 be elided, but nor will they be
     ///                                 called unconditionally.
+    ///    int exec_repeat            How many times to run the group (1).
     ///
     bool attribute (ShaderGroup *group, string_view name,
                     TypeDesc type, const void *val);
@@ -298,6 +296,7 @@ public:
     ///                                  until the shader actually runs.
     ///   int num_renderer_outputs   Number of named renderer outputs.
     ///   string renderer_outputs[]  List of renderer outputs.
+    ///   int raytype_queries        Bit field of all possible rayquery
     ///   int num_entry_layers       Number of named entry point layers.
     ///   string entry_layers[]      List of entry point layers.
     ///   string pickle              Retrieves a serialized representation
@@ -557,8 +556,21 @@ public:
     /// data passed in via attribute("raytypes")).
     int raytype_bit (ustring name);
 
+    /// Configure the default raytypes to assume to be on (or off) at optimization
+    /// time for the given group. The raytypes_on gives a bitfield describing which
+    /// ray flags are known to be 1, and raytypes_off describes which ray flags are
+    /// known to be 0. Bits that are not set in either set of flags are not known
+    /// to the optimizer, and will be determined strictly at execution time.
+    void set_raytypes(ShaderGroup *group, int raytypes_on, int raytypes_off);
+
+    /// Ensure that the group has been optimized and JITed.
     /// Ensure that the group has been optimized and JITed.
     void optimize_group (ShaderGroup *group);
+
+    /// Ensure that the group has been optimized and JITed. This is a
+    /// convenience function that simply calls set_raytypes followed by optimize_group.
+    void optimize_group (ShaderGroup *group, int raytypes_on,
+                         int raytypes_off);
 
     /// If option "greedyjit" was set, this call will trigger all
     /// shader groups that have not yet been compiled to do so with the

@@ -150,7 +150,7 @@ initialize_llvm_helper_function_map ()
     if (llvm_helper_function_map_initialized)
         return;  // already done
     spin_lock lock (llvm_helper_function_map_mutex);
-    if (llvm_helper_function_map_initialized())
+    if (llvm_helper_function_map_initialized)
         return;
 #define DECL(name,signature) \
     llvm_helper_function_map[#name] = HelperFuncRecord(signature,name); \
@@ -629,6 +629,18 @@ BackendLLVM::llvm_generate_debug_uninit (const Opcode &op)
 
 
 
+void
+BackendLLVM::llvm_generate_debug_op_printf (const Opcode &op)
+{
+    std::ostringstream msg;
+    msg << op.sourcefile() << ':' << op.sourceline() << ' ' << op.opname();
+    for (int i = 0;  i < op.nargs();  ++i)
+        msg << ' ' << opargsym (op, i)->mangled();
+    llvm_gen_debug_printf (msg.str());
+}
+
+
+
 bool
 BackendLLVM::build_llvm_code (int beginop, int endop, llvm::BasicBlock *bb)
 {
@@ -641,6 +653,8 @@ BackendLLVM::build_llvm_code (int beginop, int endop, llvm::BasicBlock *bb)
         if (opd && opd->llvmgen) {
             if (shadingsys().debug_uninit() /* debug uninitialized vals */)
                 llvm_generate_debug_uninit (op);
+            if (shadingsys().llvm_debug_ops())
+                llvm_generate_debug_op_printf (op);
             bool ok = (*opd->llvmgen) (*this, opnum);
             if (! ok)
                 return false;
@@ -938,7 +952,7 @@ BackendLLVM::initialize_llvm_group ()
 
     for (HelperFuncMap::iterator i = llvm_helper_function_map.begin(),
          e = llvm_helper_function_map.end(); i != e; ++i) {
-        const char *funcname = i->first.c_str();
+        const std::string &funcname (i->first);
         bool varargs = false;
         const char *types = i->second.argtypes;
         int advance;
@@ -957,7 +971,8 @@ BackendLLVM::initialize_llvm_group ()
             }
             types += advance;
         }
-        ll.make_function (funcname, false, llvm_type(rettype), params, varargs);
+        llvm::Function *f = ll.make_function (funcname, false, llvm_type(rettype), params, varargs);
+        ll.add_function_mapping (f, (void *)i->second.function);
     }
 
     // Needed for closure setup
@@ -971,9 +986,21 @@ BackendLLVM::initialize_llvm_group ()
 
 
 
+static void empty_group_func (void*, void*)
+{
+}
+
+
+
 void
 BackendLLVM::run ()
 {
+    if (group().does_nothing()) {
+        group().llvm_compiled_init ((RunLLVMGroupFunc)empty_group_func);
+        group().llvm_compiled_version ((RunLLVMGroupFunc)empty_group_func);
+        return;
+    }
+
     // At this point, we already hold the lock for this group, by virtue
     // of ShadingSystemImpl::optimize_group.
     OIIO::Timer timer;

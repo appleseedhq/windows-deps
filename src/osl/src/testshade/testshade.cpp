@@ -69,7 +69,7 @@ static bool debug = false;
 static bool debug2 = false;
 static bool verbose = false;
 static bool runstats = false;
-static bool profile = false;
+static int profile = 0;
 static bool O0 = false, O1 = false, O2 = false;
 static bool pixelcenters = false;
 static bool debugnan = false;
@@ -79,6 +79,7 @@ static bool do_oslquery = false;
 static bool inbuffer = false;
 static bool use_shade_image = false;
 static bool userdata_isconnected = false;
+static bool print_outputs = false;
 static int xres = 1, yres = 1;
 static int num_threads = 0;
 static std::string groupname;
@@ -92,6 +93,7 @@ static ErrorHandler errhandler;
 static int iters = 1;
 static std::string raytype = "camera";
 static int raytype_bit = 0;
+static bool raytype_opt = false;
 static std::string extraoptions;
 static SimpleRenderer rend;  // RendererServices
 static OSL::Matrix44 Mshad;  // "shader" space to "common" space matrix
@@ -100,8 +102,8 @@ static ShaderGroupRef shadergroup;
 static std::string archivegroup;
 static int exprcount = 0;
 static bool shadingsys_options_set = false;
-static float sscale = 1, tscale = 1;
-static float soffset = 0, toffset = 0;
+static float uscale = 1, vscale = 1;
+static float uoffset = 0, voffset = 0;
 
 
 
@@ -221,6 +223,17 @@ add_shader (int argc, const char *argv[])
         params.clear ();
     }
     return 0;
+}
+
+
+
+static void
+action_shaderdecl (int argc, const char *argv[])
+{
+    // `--shader shadername layername` is exactly equivalent to:
+    // `--layer layername` followed by naming the shader.
+    layername = argv[2];
+    add_shader (1, argv+1);
 }
 
 
@@ -418,6 +431,15 @@ action_groupspec (int argc, const char *argv[])
 
 
 static void
+set_profile (int argc, const char *argv[])
+{
+    profile = 1;
+    shadingsys->attribute ("profile", profile);
+}
+
+
+
+static void
 getargs (int argc, const char *argv[])
 {
     static bool help = false;
@@ -431,18 +453,23 @@ getargs (int argc, const char *argv[])
                 "--debug2", &debug2, "Even more debugging info",
                 "--runstats", &runstats, "Print run statistics",
                 "--stats", &runstats, "",  // DEPRECATED 1.7
-                "--profile", &profile, "Print profile information",
+                "--profile %@", &set_profile, NULL, "Print profile information",
                 "--path %s", &shaderpath, "Specify oso search path",
                 "-g %d %d", &xres, &yres, "Make an X x Y grid of shading points",
                 "-res %d %d", &xres, &yres, "", // synonym for -g
+                "--options %s", &extraoptions, "Set extra OSL options",
                 "-o %L %L", &outputvars, &outputfiles,
                         "Output (variable, filename)",
-                "-od %s", &dataformatname, "Set the output data format to one of: "
+                "-d %s", &dataformatname, "Set the output data format to one of: "
                         "uint8, half, float",
+                "-od %s", &dataformatname, "", // old name
+                "--print", &print_outputs, "Print values of all -o outputs to console instead of saving images",
                 "--groupname %s", &groupname, "Set shader group name",
                 "--layer %s", &layername, "Set next layer name",
                 "--param %@ %s %s", &action_param, NULL, NULL,
                         "Add a parameter (args: name value) (options: type=%s, lockgeom=%d)",
+                "--shader %@ %s %s", &action_shaderdecl, NULL, NULL,
+                        "Declare a shader node (args: shader layername)",
                 "--connect %L %L %L %L",
                     &connections, &connections, &connections, &connections,
                     "Connect fromlayer fromoutput tolayer toinput",
@@ -453,6 +480,7 @@ getargs (int argc, const char *argv[])
                 "--archivegroup %s", &archivegroup,
                         "Archive the group to a given filename",
                 "--raytype %s", &raytype, "Set the raytype",
+                "--raytype_opt", &raytype_opt, "Specify ray type mask for optimization",
                 "--iters %d", &iters, "Number of iterations",
                 "-O0", &O0, "Do no runtime shader optimization",
                 "-O1", &O1, "Do a little runtime shader optimization",
@@ -462,15 +490,16 @@ getargs (int argc, const char *argv[])
                 "--center", &pixelcenters, "Shade at output pixel 'centers' rather than corners",
                 "--debugnan", &debugnan, "Turn on 'debug_nan' mode",
                 "--debuguninit", &debug_uninit, "Turn on 'debug_uninit' mode",
-                "--options %s", &extraoptions, "Set extra OSL options",
                 "--groupoutputs", &use_group_outputs, "Specify group outputs, not global outputs",
                 "--oslquery", &do_oslquery, "Test OSLQuery at runtime",
                 "--inbuffer", &inbuffer, "Compile osl source from and to buffer",
                 "--shadeimage", &use_shade_image, "Use shade_image utility",
                 "--noshadeimage %!", &use_shade_image, "Don't use shade_image utility",
                 "--expr %@ %s", &specify_expr, NULL, "Specify an OSL expression to evaluate",
-                "--offsetst %f %f", &soffset, &toffset, "Offset s & t texture coordinates (default: 0 0)",
-                "--scalest %f %f", &sscale, &tscale, "Scale s & t texture lookups (default: 1, 1)",
+                "--offsetuv %f %f", &uoffset, &voffset, "Offset s & t texture coordinates (default: 0 0)",
+                "--offsetst %f %f", &uoffset, &voffset, "", // old name
+                "--scaleuv %f %f", &uscale, &vscale, "Scale s & t texture lookups (default: 1, 1)",
+                "--scalest %f %f", &uscale, &vscale, "", // old name
                 "--userdata_isconnected", &userdata_isconnected, "Consider lockgeom=0 to be isconnected()",
                 "-v", &verbose, "Verbose output",
                 NULL);
@@ -560,17 +589,17 @@ setup_shaderglobals (ShaderGlobals &sg, ShadingSystem *shadingsys,
     if (pixelcenters) {
         // Our patch is like an "image" with shading samples at the
         // centers of each pixel.
-        sg.u = sscale * (float)(x+0.5f) / xres + soffset;
-        sg.v = tscale * (float)(y+0.5f) / yres + toffset;
-        sg.dudx = sscale / xres;
-        sg.dvdy = tscale / yres;
+        sg.u = uscale * (float)(x+0.5f) / xres + uoffset;
+        sg.v = vscale * (float)(y+0.5f) / yres + voffset;
+        sg.dudx = uscale / xres;
+        sg.dvdy = vscale / yres;
     } else {
         // Our patch is like a Reyes grid of points, with the border
         // samples being exactly on u,v == 0 or 1.
-        sg.u = sscale * ((xres == 1) ? 0.5f : (float) x / (xres - 1)) + soffset;
-        sg.v = tscale * ((yres == 1) ? 0.5f : (float) y / (yres - 1)) + toffset;
-        sg.dudx = sscale / std::max (1, xres-1);
-        sg.dvdy = tscale / std::max (1, yres-1);
+        sg.u = uscale * ((xres == 1) ? 0.5f : (float) x / (xres - 1)) + uoffset;
+        sg.v = vscale * ((yres == 1) ? 0.5f : (float) y / (yres - 1)) + voffset;
+        sg.dudx = uscale / std::max (1, xres-1);
+        sg.dvdy = vscale / std::max (1, yres-1);
     }
 
     // Assume that position P is simply (u,v,1), that makes the patch lie
@@ -643,6 +672,9 @@ setup_output_images (ShadingSystem *shadingsys,
     // not to actually run the shader.
     ShaderGlobals sg;
     setup_shaderglobals (sg, shadingsys, 0, 0);
+
+    if (raytype_opt)
+        shadingsys->optimize_group (shadergroup.get(), raytype_bit, ~raytype_bit);
     shadingsys->execute (ctx, *shadergroup, sg, false);
 
     if (entryoutputs.size()) {
@@ -728,6 +760,8 @@ setup_output_images (ShadingSystem *shadingsys,
 static void
 save_outputs (ShadingSystem *shadingsys, ShadingContext *ctx, int x, int y)
 {
+    if (print_outputs)
+        printf ("Pixel (%d, %d):\n", x, y);
     // For each output requested on the command line...
     for (size_t i = 0;  i < outputfiles.size();  ++i) {
         // Skip if we couldn't open the image or didn't match a known output
@@ -741,18 +775,30 @@ save_outputs (ShadingSystem *shadingsys, ShadingContext *ctx, int x, int y)
         if (!data)
             continue;  // Skip if symbol isn't found
 
+        int nchans = outputimgs[i]->nchannels();
         if (t.basetype == TypeDesc::FLOAT) {
             // If the variable we are outputting is float-based, set it
             // directly in the output buffer.
             outputimgs[i]->setpixel (x, y, (const float *)data);
+            if (print_outputs) {
+                printf ("  %s :", outputvarnames[i].c_str());
+                for (int c = 0; c < nchans; ++c)
+                    printf (" %g", ((const float *)data)[c]);
+                printf ("\n");
+            }
         } else if (t.basetype == TypeDesc::INT) {
             // We are outputting an integer variable, so we need to
             // convert it to floating point.
-            int nchans = outputimgs[i]->nchannels();
             float *pixel = (float *) alloca (nchans * sizeof(float));
             OIIO::convert_types (TypeDesc::BASETYPE(t.basetype), data,
                                  TypeDesc::FLOAT, pixel, nchans);
             outputimgs[i]->setpixel (x, y, &pixel[0]);
+            if (print_outputs) {
+                printf ("  %s :", outputvarnames[i].c_str());
+                for (int c = 0; c < nchans; ++c)
+                    printf (" %d", ((const int *)data)[c]);
+                printf ("\n");
+            }
         }
         // N.B. Drop any outputs that aren't float- or int-based
     }
@@ -839,7 +885,9 @@ test_group_attributes (ShaderGroup *group)
         if (unk)
             std::cout << "    and unknown attributes\n";
     }
-
+    int raytype_queries = 0;
+    shadingsys->getattribute (group, "raytype_queries", raytype_queries);
+    std::cout << "raytype() query mask: " << raytype_queries << "\n";
 }
 
 
@@ -985,7 +1033,7 @@ test_shade (int argc, const char *argv[])
     // to be processed at the end.  Bear with us.
     
     // Start the shader group and grab a reference to it.
-    shadergroup = shadingsys->ShaderGroupBegin ();
+    shadergroup = shadingsys->ShaderGroupBegin (groupname);
 
     // Get the command line arguments.  That will set up all the shader
     // instances and their parameters for the group.
@@ -995,6 +1043,8 @@ test_shade (int argc, const char *argv[])
         std::cerr << "ERROR: Invalid shader group. Exiting testshade.\n";
         return EXIT_FAILURE;
     }
+
+    shadingsys->attribute (shadergroup.get(), "groupname", groupname);
 
     // Now set up the connections
     for (size_t i = 0;  i < connections.size();  i += 4) {
@@ -1061,8 +1111,6 @@ test_shade (int argc, const char *argv[])
 
     if (debug)
         test_group_attributes (shadergroup.get());
-    if (profile)
-        shadingsys->attribute ("profile", 1);
 
     if (num_threads < 1)
         num_threads = boost::thread::hardware_concurrency();
@@ -1101,6 +1149,7 @@ test_shade (int argc, const char *argv[])
             }
         }
     }
+    double runtime = timer.lap();
 
     if (outputfiles.size() == 0)
         std::cout << "\n";
@@ -1108,7 +1157,26 @@ test_shade (int argc, const char *argv[])
     // Write the output images to disk
     for (size_t i = 0;  i < outputimgs.size();  ++i) {
         if (outputimgs[i]) {
-            outputimgs[i]->write (outputimgs[i]->name());
+            if (! print_outputs) {
+                std::string filename = outputimgs[i]->name();
+                // JPEG, GIF, and PNG images should be automatically saved
+                // as sRGB because they are almost certainly supposed to
+                // be displayed on web pages.
+                using namespace OIIO;
+                if (Strutil::iends_with (filename, ".jpg") ||
+                    Strutil::iends_with (filename, ".jpeg") ||
+                    Strutil::iends_with (filename, ".gif") ||
+                    Strutil::iends_with (filename, ".png")) {
+                    ImageBuf ccbuf;
+                    ImageBufAlgo::colorconvert (ccbuf, *outputimgs[i],
+                                                "linear", "sRGB", false,
+                                                "", "");
+                    ccbuf.set_write_format (outputimgs[i]->spec().format);
+                    ccbuf.write (filename);
+                } else {
+                    outputimgs[i]->write (filename);
+                }
+            }
             delete outputimgs[i];
             outputimgs[i] = NULL;
         }
@@ -1116,10 +1184,11 @@ test_shade (int argc, const char *argv[])
 
     // Print some debugging info
     if (debug || runstats || profile) {
-        double runtime = timer.lap();
+        double writetime = timer.lap();
         std::cout << "\n";
         std::cout << "Setup: " << OIIO::Strutil::timeintervalformat (setuptime,2) << "\n";
         std::cout << "Run  : " << OIIO::Strutil::timeintervalformat (runtime,2) << "\n";
+        std::cout << "Write: " << OIIO::Strutil::timeintervalformat (writetime,2) << "\n";
         std::cout << "\n";
         std::cout << shadingsys->getstats (5) << "\n";
         OIIO::TextureSystem *texturesys = shadingsys->texturesys();

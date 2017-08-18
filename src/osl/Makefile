@@ -86,6 +86,10 @@ ifneq (${USE_LLVM_BITCODE},)
 MY_CMAKE_FLAGS += -DUSE_LLVM_BITCODE:BOOL=${USE_LLVM_BITCODE}
 endif
 
+ifneq (${USE_BOOST_WAVE},)
+MY_CMAKE_FLAGS += -DUSE_BOOST_WAVE:BOOL=${USE_BOOST_WAVE}
+endif
+
 ifneq (${NAMESPACE},)
 MY_CMAKE_FLAGS += -DOSL_NAMESPACE:STRING=${NAMESPACE}
 endif
@@ -154,15 +158,15 @@ MY_CMAKE_FLAGS += -DCMAKE_CXX_COMPILER:STRING="${MYCXX}"
 endif
 
 ifneq (${USE_CPP11},)
-MY_CMAKE_FLAGS += -DOSL_BUILD_CPP11:BOOL=${USE_CPP11}
+MY_CMAKE_FLAGS += -DUSE_CPP11:BOOL=${USE_CPP11}
 endif
 
 ifneq (${USE_CPP14},)
-MY_CMAKE_FLAGS += -DOSL_BUILD_CPP14:BOOL=${USE_CPP14}
+MY_CMAKE_FLAGS += -DUSE_CPP14:BOOL=${USE_CPP14}
 endif
 
 ifneq (${USE_LIBCPLUSPLUS},)
-MY_CMAKE_FLAGS += -DOSL_BUILD_LIBCPLUSPLUS:BOOL=${USE_LIBCPLUSPLUS}
+MY_CMAKE_FLAGS += -DUSE_LIBCPLUSPLUS:BOOL=${USE_LIBCPLUSPLUS}
 endif
 
 ifneq (${EXTRA_CPP_ARGS},)
@@ -184,6 +188,10 @@ endif
 ifeq (${USE_NINJA},1)
 MY_CMAKE_FLAGS += -G Ninja
 BUILDSENTINEL := build.ninja
+endif
+
+ifneq (${CODECOV},)
+MY_CMAKE_FLAGS += -DCMAKE_BUILD_TYPE:STRING=Debug -DCODECOV:BOOL=${CODECOV}
 endif
 
 #$(info MY_CMAKE_FLAGS = ${MY_CMAKE_FLAGS})
@@ -264,7 +272,6 @@ package_source: cmakeinstall
 
 endif
 
-
 # 'make dist' is just a synonym for 'make cmakeinstall'
 dist : cmakeinstall
 
@@ -272,16 +279,22 @@ TEST_FLAGS += --force-new-ctest-process --output-on-failure
 
 # 'make test' does a full build and then runs all tests
 test: cmake
-	${CMAKE} -E cmake_echo_color --switch=$(COLOR) --cyan "Running tests ${TEST_FLAGS}..."
-	( cd ${build_dir} ; ctest -E broken ${TEST_FLAGS} )
+	@ ${CMAKE} -E cmake_echo_color --switch=$(COLOR) --cyan "Running tests ${TEST_FLAGS}..."
+	@ # if [ "${CODECOV}" == "1" ] ; then lcov -b ${build_dir} -d ${build_dir} -z ; rm -rf ${build_dir}/cov ; fi
+	@ ( cd ${build_dir} ; PYTHONPATH=${PWD}/${build_dir}/src/python ctest -E broken ${TEST_FLAGS} )
+	@ ( if [ "${CODECOV}" == "1" ] ; then \
+	      cd ${build_dir} ; \
+	      lcov -b . -d . -c -o cov.info ; \
+	      lcov --remove cov.info "/usr*" -o cov.info ; \
+	      genhtml -o ./cov -t "OSL test coverage" --num-spaces 4 cov.info ; \
+	  fi )
 
 # 'make testall' does a full build and then runs all tests (even the ones
 # that are expected to fail on some platforms)
 testall: cmake
 	${CMAKE} -E cmake_echo_color --switch=$(COLOR) --cyan "Running all tests ${TEST_FLAGS}..."
-	( cd ${build_dir} ; ctest ${TEST_FLAGS} )
+	( cd ${build_dir} ; PYTHONPATH=${PWD}/${build_dir}/src/python ctest ${TEST_FLAGS} )
 
-#clean: testclean
 # 'make clean' clears out the build directory for this platform
 clean:
 	${CMAKE} -E remove_directory ${build_dir}
@@ -320,16 +333,17 @@ help:
 	@echo "      STOP_ON_WARNING=0        Do not stop building if compiler warns"
 	@echo "      OSL_SITE=xx              Use custom site build mods"
 	@echo "      MYCC=xx MYCXX=yy         Use custom compilers"
-	@echo "      USE_CPP11=1              Compile in C++11 mode"
+	@echo "      USE_CPP11=0              Compile in C++11 mode (=0 means use CPP03!)"
 	@echo "      USE_CPP14=1              Compile in C++14 mode"
 	@echo "      USE_LIBCPLUSPLUS=1       Use clang libc++"
 	@echo "      EXTRA_CPP_ARGS=          Additional args to the C++ command"
 	@echo "      USE_NINJA=1              Set up Ninja build (instead of make)"
 	@echo "      USE_CCACHE=0             Disable ccache (even if available)"
+	@echo "      CODECOV=1                Enable code coverage tests"
 	@echo "  Linking and libraries:"
 	@echo "      HIDE_SYMBOLS=1           Hide symbols not in the public API"
 	@echo "      BUILDSTATIC=1            Build static library instead of shared"
-	@echo "      LINKSTATIC=1             Link with static external libraries when possible"
+	@echo "      LINKSTATIC=1             Link with static external libs when possible"
 	@echo "  Finding and Using Dependencies:"
 	@echo "      BOOST_HOME=path          Custom Boost installation"
 	@echo "      OPENEXR_HOME=path        Custom OpenEXR installation"
@@ -342,11 +356,15 @@ help:
 	@echo "      LLVM_NAMESPACE=xx        Specify custom LLVM namespace"
 	@echo "      LLVM_STATIC=1            Use static LLVM libraries"
 	@echo "      USE_LLVM_BITCODE=0       Don't generate embedded LLVM bitcode"
+	@echo "      USE_BOOST_WAVE=1         Force boost wave rather than clang preprocessor"
 	@echo "  OSL build-time options:"
 	@echo "      NAMESPACE=name           Wrap OSL APIs in another namespace"
 	@echo "      USE_FAST_MATH=1          Use faster, but less accurate math (set to 0 for libm defaults)"
-	@echo "      OSL_BUILD_TESTS=0        Skip building the unit tests, testshade, testrender"
+	@echo "      OSL_BUILD_TESTS=0        Don't build unit tests, testshade, testrender"
 	@echo "      USE_SIMD=arch            Build with SIMD support (choices: 0, sse2, sse3,"
-	@echo "                                    ssse3, sse4.1, sse4.2, f16c, comma-separated ok)"
+	@echo "                                  ssse3, sse4.1, sse4.2, f16c,"
+	@echo "                                  comma-separated ok)"
+	@echo "  make test, extra options:"
+	@echo "      TEST=regex               Run only tests matching the regex"
 	@echo ""
 

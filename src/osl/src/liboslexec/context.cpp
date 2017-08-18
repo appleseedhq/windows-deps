@@ -49,7 +49,7 @@ static mutex buffered_errors_mutex;
 ShadingContext::ShadingContext (ShadingSystemImpl &shadingsys,
                                 PerThreadInfo *threadinfo)
     : m_shadingsys(shadingsys), m_renderer(m_shadingsys.renderer()),
-      m_attribs(NULL), m_max_warnings(shadingsys.max_warnings_per_thread()), m_dictionary(NULL), m_next_failed_attrib(0)
+      m_group(NULL), m_max_warnings(shadingsys.max_warnings_per_thread()), m_dictionary(NULL), m_next_failed_attrib(0)
 {
     m_shadingsys.m_stat_contexts += 1;
     m_threadinfo = threadinfo ? threadinfo : shadingsys.get_perthread_info ();
@@ -73,9 +73,9 @@ ShadingContext::~ShadingContext ()
 bool
 ShadingContext::execute_init (ShaderGroup &sgroup, ShaderGlobals &ssg, bool run)
 {
-    if (m_attribs)
+    if (m_group)
         execute_cleanup ();
-    m_attribs = &sgroup;
+    m_group = &sgroup;
     m_ticks = 0;
 
     // Optimize if we haven't already
@@ -195,13 +195,36 @@ ShadingContext::execute_cleanup ()
 bool
 ShadingContext::execute (ShaderGroup &sgroup, ShaderGlobals &ssg, bool run)
 {
-    if (! execute_init (sgroup, ssg, run))
-        return false;
+    int n = sgroup.m_exec_repeat;
+    Vec3 Psave, Nsave;   // for repeats
+    bool repeat = (n > 1);
+    if (repeat) {
+        // If we're going to repeat more than once, we need to save any
+        // globals that might get modified.
+        Psave = ssg.P;
+        Nsave = ssg.N;
+        if (! run)
+            n = 1;
+    }
 
-    if (run)
-        execute_layer (ssg, group()->nlayers()-1);
-
-    return execute_cleanup ();
+    bool result = true;
+    while (1) {
+        if (! execute_init (sgroup, ssg, run))
+            return false;
+        if (run && n)
+            execute_layer (ssg, group()->nlayers()-1);
+        result = execute_cleanup ();
+        if (--n < 1)
+            break;   // done
+        if (repeat) {
+            // Going around for another pass... restore things as best as we
+            // can.
+            ssg.P = Psave;
+            ssg.N = Nsave;
+            ssg.Ci = NULL;
+        }
+    }
+    return result;
 }
 
 
@@ -258,7 +281,7 @@ ShadingContext::process_errors () const
 const Symbol *
 ShadingContext::symbol (ustring layername, ustring symbolname) const
 {
-    return attribs()->find_symbol (layername, symbolname);
+    return group()->find_symbol (layername, symbolname);
 }
 
 
@@ -266,7 +289,7 @@ ShadingContext::symbol (ustring layername, ustring symbolname) const
 const void *
 ShadingContext::symbol_data (const Symbol &sym) const
 {
-    const ShaderGroup &sgroup (*attribs());
+    const ShaderGroup &sgroup (*group());
     if (! sgroup.optimized())
         return NULL;   // can't retrieve symbol if we didn't optimize it
 
