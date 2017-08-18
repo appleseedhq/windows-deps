@@ -97,6 +97,10 @@ if ((LLVM_LIBRARY OR LLVM_LIBRARIES OR LLVM_STATIC) AND LLVM_INCLUDES AND LLVM_D
                      OUTPUT_VARIABLE LLVM_LIBRARIES
                      OUTPUT_STRIP_TRAILING_WHITESPACE)
     string (REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES}")
+    # We are using an old version of LLVM (3.4.2) and with this version, llvm-config --libfiles
+    # outputs a list of library file paths missing .lib file extensions, so we just manually
+    # add them here.
+    string (REGEX REPLACE "([^;]+)" "\\1.lib" LLVM_LIBRARIES "${LLVM_LIBRARIES}")
     set (LLVM_LIBRARY "")
   else ()
     set (LLVM_LIBRARIES "${LLVM_LIBRARY}")
