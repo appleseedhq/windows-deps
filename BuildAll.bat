@@ -32,6 +32,21 @@ if not defined VCINSTALLDIR (
     goto end
 )
 
+REM Check that patch.exe is in the PATH.
+where /q patch.exe
+if errorlevel 0 goto patchfound
+
+REM It isn't. Check in a typical location.
+set PATH=%PATH%;C:\Program Files\Git\usr\bin\
+where /q patch.exe
+if errorlevel 0 goto patchfound
+
+REM It still isn't, abort.
+echo The patch.exe utility must exist in the PATH.
+goto end
+
+:patchfound
+
 set root=%~dp0
 set generator=%1
 set boost_root=%2
@@ -92,7 +107,7 @@ type nul > %root%build\%platform%\BUILDLOG.txt
 REM ===============================================================================
 
 :xercesc
-echo [ 1/11] Building Xerces-C...
+echo [ 1/12] Building Xerces-C...
 
     mkdir %root%build\%platform%\xerces-c-debug 2>nul
     pushd %root%build\%platform%\xerces-c-debug
@@ -113,7 +128,7 @@ echo [ 1/11] Building Xerces-C...
 REM ===============================================================================
 
 :llvm
-echo [ 2/11] Building LLVM...
+echo [ 2/12] Building LLVM...
 
     mkdir %root%build\%platform%\llvm-debug 2>nul
     pushd %root%build\%platform%\llvm-debug
@@ -135,7 +150,7 @@ echo [ 2/11] Building LLVM...
 REM ===============================================================================
 
 :zlib
-echo [ 3/11] Building zlib...
+echo [ 3/12] Building zlib...
 
     mkdir %root%build\%platform%\zlib 2>nul
     pushd %root%build\%platform%\zlib
@@ -151,7 +166,7 @@ echo [ 3/11] Building zlib...
 REM ===============================================================================
 
 :libpng
-echo [ 4/11] Building libpng...
+echo [ 4/12] Building libpng...
 
     mkdir %root%build\%platform%\libpng-debug 2>nul
     pushd %root%build\%platform%\libpng-debug
@@ -173,7 +188,7 @@ echo [ 4/11] Building libpng...
 REM ===============================================================================
 
 :libjpeg
-echo [ 5/11] Building libjpeg-turbo...
+echo [ 5/12] Building libjpeg-turbo...
 
     mkdir %root%build\%platform%\libjpeg-turbo-debug 2>nul
     pushd %root%build\%platform%\libjpeg-turbo-debug
@@ -195,7 +210,7 @@ echo [ 5/11] Building libjpeg-turbo...
 REM ===============================================================================
 
 :libtiff
-echo [ 6/11] Building libtiff...
+echo [ 6/12] Building libtiff...
 
     mkdir %root%build\%platform%\libtiff-debug 2>nul
     pushd %root%build\%platform%\libtiff-debug
@@ -227,7 +242,7 @@ echo [ 6/11] Building libtiff...
 REM ===============================================================================
 
 :ilmbase
-echo [ 7/11] Building ilmbase...
+echo [ 7/12] Building ilmbase...
 
     mkdir %root%build\%platform%\ilmbase-debug 2>nul
     pushd %root%build\%platform%\ilmbase-debug
@@ -249,7 +264,7 @@ echo [ 7/11] Building ilmbase...
 REM ===============================================================================
 
 :openexr
-echo [ 8/11] Building OpenEXR...
+echo [ 8/12] Building OpenEXR...
 
     mkdir %root%build\%platform%\openexr-debug 2>nul
     pushd %root%build\%platform%\openexr-debug
@@ -270,8 +285,30 @@ echo [ 8/11] Building OpenEXR...
 
 REM ===============================================================================
 
+:ocio
+echo [ 9/12] Building OCIO...
+
+    mkdir %root%build\%platform%\ocio-debug 2>nul
+    pushd %root%build\%platform%\ocio-debug
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DOCIO_BUILD_SHARED=OFF -DOCIO_BUILD_TRUELIGHT=OFF -DOCIO_BUILD_NUKE=OFF -DOCIO_BUILD_PYGLUE=OFF -DOCIO_USE_BOOST_PTR=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ocio-debug %src%\ocio %redirect%
+        devenv OpenColorIO.sln /build Debug /project INSTALL %redirect%
+        copy src\core\OpenColorIO_STATIC.dir\Debug\%pdb_file% %root%stage\%platform%\ocio-debug\lib %redirect%
+        type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
+    popd
+
+    mkdir %root%build\%platform%\ocio-release 2>nul
+    pushd %root%build\%platform%\ocio-release
+        type NUL > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DOCIO_BUILD_SHARED=OFF -DOCIO_BUILD_TRUELIGHT=OFF -DOCIO_BUILD_NUKE=OFF -DOCIO_BUILD_PYGLUE=OFF -DOCIO_USE_BOOST_PTR=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ocio-release %src%\ocio %redirect%
+        devenv OpenColorIO.sln /build Release /project INSTALL %redirect%
+        type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
+    popd
+
+REM ===============================================================================
+
 :oiio
-echo [ 9/11] Building OIIO...
+echo [10/12] Building OIIO...
 
     mkdir %root%build\%platform%\oiio-debug 2>nul
     pushd %root%build\%platform%\oiio-debug
@@ -293,7 +330,7 @@ echo [ 9/11] Building OIIO...
 REM ===============================================================================
 
 :osl
-echo [10/11] Building OSL...
+echo [11/12] Building OSL...
 
     set PATHSAVE=%PATH%
 
@@ -321,7 +358,7 @@ echo [10/11] Building OSL...
 REM ===============================================================================
 
 :seexpr
-echo [11/11] Building SeExpr...
+echo [12/12] Building SeExpr...
 
     mkdir %root%build\%platform%\seexpr-debug 2>nul
     pushd %root%build\%platform%\seexpr-debug
