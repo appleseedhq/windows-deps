@@ -30,6 +30,7 @@
 */
 
 
+#include <algorithm>
 #include <cstring>
 #include <cctype>
 #include <cassert>

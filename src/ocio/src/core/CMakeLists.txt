@@ -20,6 +20,7 @@ list(APPEND core_export_headers ${CMAKE_BINARY_DIR}/export/OpenColorABI.h)
 
 if(OCIO_BUILD_SHARED)
     add_library(OpenColorIO SHARED ${core_src_files})
+    set_property(TARGET OpenColorIO APPEND PROPERTY COMPILE_DEFINITIONS OCIO_BUILD_SHARED)
 
     if(USE_EXTERNAL_TINYXML)
         target_link_libraries(OpenColorIO ${TINYXML_LIBRARIES})
