@@ -300,14 +300,12 @@ Strutil::wordwrap (string_view src, int columns, int prefix)
 
 
 
-namespace {
-static std::locale loc = std::locale::classic();
-}
 
 
 bool
 Strutil::iequals (string_view a, string_view b)
 {
+    static std::locale loc = std::locale::classic();
     return boost::algorithm::iequals (a, b, loc);
 }
 
@@ -322,6 +320,7 @@ Strutil::starts_with (string_view a, string_view b)
 bool
 Strutil::istarts_with (string_view a, string_view b)
 {
+    static std::locale loc = std::locale::classic();
     return boost::algorithm::istarts_with (a, b, loc);
 }
 
@@ -336,6 +335,7 @@ Strutil::ends_with (string_view a, string_view b)
 bool
 Strutil::iends_with (string_view a, string_view b)
 {
+    static std::locale loc = std::locale::classic();
     return boost::algorithm::iends_with (a, b, loc);
 }
 
@@ -350,6 +350,7 @@ Strutil::contains (string_view a, string_view b)
 bool
 Strutil::icontains (string_view a, string_view b)
 {
+    static std::locale loc = std::locale::classic();
     return boost::algorithm::icontains (a, b, loc);
 }
 
@@ -357,6 +358,7 @@ Strutil::icontains (string_view a, string_view b)
 void
 Strutil::to_lower (std::string &a)
 {
+    static std::locale loc = std::locale::classic();
     boost::algorithm::to_lower (a, loc);
 }
 
@@ -364,6 +366,7 @@ Strutil::to_lower (std::string &a)
 void
 Strutil::to_upper (std::string &a)
 {
+    static std::locale loc = std::locale::classic();
     boost::algorithm::to_upper (a, loc);
 }
 
