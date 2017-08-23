@@ -32,21 +32,6 @@ if not defined VCINSTALLDIR (
     goto end
 )
 
-REM Check that patch.exe is in the PATH.
-where /q patch.exe
-if errorlevel 0 goto patchfound
-
-REM It isn't. Check in a typical location.
-set PATH=%PATH%;C:\Program Files\Git\usr\bin\
-where /q patch.exe
-if errorlevel 0 goto patchfound
-
-REM It still isn't, abort.
-echo The patch.exe utility must exist in the PATH.
-goto end
-
-:patchfound
-
 set root=%~dp0
 set generator=%1
 set boost_root=%2
@@ -288,6 +273,9 @@ REM ============================================================================
 :ocio
 echo [ 9/12] Building OCIO...
 
+    set OCIO_PATH_SAVE=%PATH%
+    set PATH=%root%tools\patch;%PATH%
+
     mkdir %root%build\%platform%\ocio-debug 2>nul
     pushd %root%build\%platform%\ocio-debug
         type NUL > BUILDLOG.txt
@@ -304,6 +292,8 @@ echo [ 9/12] Building OCIO...
         devenv OpenColorIO.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
+
+    set PATH=%OCIO_PATH_SAVE%
 
 REM ===============================================================================
 
