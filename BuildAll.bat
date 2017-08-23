@@ -322,12 +322,12 @@ REM ============================================================================
 :osl
 echo [11/12] Building OSL...
 
-    set PATHSAVE=%PATH%
+    set OSL_PATH_SAVE=%PATH%
 
     mkdir %root%build\%platform%\osl-debug 2>nul
     pushd %root%build\%platform%\osl-debug
         type NUL > BUILDLOG.txt
-        set PATH=%root%tools\FlexBison\bin;%root%stage\%platform%\llvm-debug\bin;%PATHSAVE%
+        set PATH=%root%tools\FlexBison\bin;%root%stage\%platform%\llvm-debug\bin;%OSL_PATH_SAVE%
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DOSL_BUILD_PLUGINS=OFF -DOSL_BUILD_TESTS=OFF -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DENABLERTTI=ON -DLLVM_STATIC=ON -DILMBASE_HOME=%root%stage\%platform%\ilmbase-debug -DOPENEXR_HOME=%root%stage\%platform%\openexr-debug -DOPENEXR_CUSTOM_LIB_SUFFIX="-2_2" -DOPENIMAGEIOHOME=%root%stage\%platform%\oiio-debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstaticd.lib -DEXTRA_CPP_ARGS="/DOIIO_STATIC_BUILD /DTINYFORMAT_ALLOW_WCHAR_STRINGS" -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\osl-debug %src%\osl %redirect%
         devenv osl.sln /build Debug /project INSTALL %redirect%
         copy src\liboslcomp\oslcomp.dir\Debug\%pdb_file% %root%stage\%platform%\osl-debug\lib %redirect%
@@ -337,13 +337,13 @@ echo [11/12] Building OSL...
     mkdir %root%build\%platform%\osl-release 2>nul
     pushd %root%build\%platform%\osl-release
         type NUL > BUILDLOG.txt
-        set PATH=%root%tools\FlexBison\bin;%root%stage\%platform%\llvm-release\bin;%PATHSAVE%
+        set PATH=%root%tools\FlexBison\bin;%root%stage\%platform%\llvm-release\bin;%OSL_PATH_SAVE%
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DOSL_BUILD_PLUGINS=OFF -DOSL_BUILD_TESTS=OFF -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DENABLERTTI=ON -DLLVM_STATIC=ON -DILMBASE_HOME=%root%stage\%platform%\ilmbase-release -DOPENEXR_HOME=%root%stage\%platform%\openexr-release -DOPENEXR_CUSTOM_LIB_SUFFIX="-2_2" -DOPENIMAGEIOHOME=%root%stage\%platform%\oiio-release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib\lib\zlibstatic.lib -DEXTRA_CPP_ARGS="/DOIIO_STATIC_BUILD /DTINYFORMAT_ALLOW_WCHAR_STRINGS" -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\osl-release %src%\osl %redirect%
         devenv osl.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
-    set PATH=%PATHSAVE%
+    set PATH=%OSL_PATH_SAVE%
 
 REM ===============================================================================
 
