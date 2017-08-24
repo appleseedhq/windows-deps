@@ -282,6 +282,9 @@ echo [ 9/12] Building OpenColorIO...
         echo === OpenColorIO (Debug) ======================================================= > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DOCIO_BUILD_SHARED=OFF -DOCIO_BUILD_TRUELIGHT=OFF -DOCIO_BUILD_NUKE=OFF -DOCIO_BUILD_PYGLUE=OFF -DOCIO_USE_BOOST_PTR=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ocio-debug %src%\ocio %redirect%
         devenv OpenColorIO.sln /build Debug /project INSTALL %redirect%
+        copy ext\dist\lib\*.lib %root%stage\%platform%\ocio-debug\lib %redirect%
+        copy ext\build\tinyxml\tinyxml.dir\Debug\*.pdb %root%stage\%platform%\ocio-debug\lib %redirect%
+        copy ext\build\yaml-cpp\yaml-cpp.dir\Debug\*.pdb %root%stage\%platform%\ocio-debug\lib %redirect%
         copy src\core\OpenColorIO_STATIC.dir\Debug\*.pdb %root%stage\%platform%\ocio-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
@@ -291,6 +294,7 @@ echo [ 9/12] Building OpenColorIO...
         echo === OpenColorIO (Release) ===================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DOCIO_BUILD_SHARED=OFF -DOCIO_BUILD_TRUELIGHT=OFF -DOCIO_BUILD_NUKE=OFF -DOCIO_BUILD_PYGLUE=OFF -DOCIO_USE_BOOST_PTR=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ocio-release %src%\ocio %redirect%
         devenv OpenColorIO.sln /build Release /project INSTALL %redirect%
+        copy ext\dist\lib\*.lib %root%stage\%platform%\ocio-release\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
