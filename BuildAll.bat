@@ -198,7 +198,7 @@ echo [ 6/12] Building libtiff...
         echo === libtiff (Debug) =========================================================== > BUILDLOG.txt
         xcopy /E /Q /Y %src%\libtiff\*.* . %redirect%
         copy /Y nmake-debug.opt nmake.opt %redirect%
-        nmake -f Makefile.vc %redirect%
+        nmake -f Makefile.vc JPEG_SUPPORT=1 JPEGDIR=%root%stage\%platform%\libjpeg-turbo-debug JPEG_INCLUDE=-I%root%stage\%platform%\libjpeg-turbo-debug\include JPEG_LIB=%root%stage\%platform%\libjpeg-turbo-debug\lib\jpeg-static.lib ZIP_SUPPORT=1 ZLIBDIR=%root%stage\%platform%\zlib ZLIB_INCLUDE=-I%root%stage\%platform%\zlib\include ZLIB_LIB=%root%stage\%platform%\zlib\lib\zlibstaticd.lib %redirect%
         mkdir %root%stage\%platform%\libtiff-debug\lib %redirect%
         mkdir %root%stage\%platform%\libtiff-debug\include %redirect%
         copy libtiff\libtiff.lib %root%stage\%platform%\libtiff-debug\lib %redirect%
@@ -212,7 +212,7 @@ echo [ 6/12] Building libtiff...
         echo === libtiff (Release) ========================================================= > BUILDLOG.txt
         xcopy /E /Q /Y %src%\libtiff\*.* . %redirect%
         copy /Y nmake-release.opt nmake.opt %redirect%
-        nmake -f Makefile.vc %redirect%
+        nmake -f Makefile.vc JPEG_SUPPORT=1 JPEGDIR=%root%stage\%platform%\libjpeg-turbo-release JPEG_INCLUDE=-I%root%stage\%platform%\libjpeg-turbo-release\include JPEG_LIB=%root%stage\%platform%\libjpeg-turbo-release\lib\jpeg-static.lib ZIP_SUPPORT=1 ZLIBDIR=%root%stage\%platform%\zlib ZLIB_INCLUDE=-I%root%stage\%platform%\zlib\include ZLIB_LIB=%root%stage\%platform%\zlib\lib\zlibstatic.lib %redirect%
         mkdir %root%stage\%platform%\libtiff-release\lib %redirect%
         mkdir %root%stage\%platform%\libtiff-release\include %redirect%
         copy libtiff\libtiff.lib %root%stage\%platform%\libtiff-release\lib %redirect%
