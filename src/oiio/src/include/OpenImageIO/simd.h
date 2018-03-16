@@ -343,11 +343,19 @@ public:
     enum { bits = elements*32 }; ///< Total number of bits
     typedef simd_bool_t<4>::type simd_t;  ///< the native SIMD type used
 
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
+    /// Default constructor (contents undefined)
+    bool4 () = default;
+
+    /// Destructor
+    ~bool4 () = default;
+#else
     /// Default constructor (contents undefined)
     bool4 () { }
 
     /// Destructor
     ~bool4 () { }
+#endif
 
     /// Construct from a single value (store it in all slots)
     bool4 (bool a) { load(a); }
@@ -472,11 +480,19 @@ public:
     enum { bits = elements*32 }; ///< Total number of bits
     typedef simd_bool_t<8>::type simd_t;  ///< the native SIMD type used
 
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
+    /// Default constructor (contents undefined)
+    bool8 () = default;
+
+    /// Destructor
+    ~bool8 () = default;
+#else
     /// Default constructor (contents undefined)
     bool8 () { }
 
     /// Destructor
     ~bool8 () { }
+#endif
 
     /// Construct from a single value (store it in all slots)
     bool8 (bool a) { load (a); }
@@ -614,11 +630,19 @@ public:
     typedef bool4 bool_t; ///< bool type of the same length
     typedef float4 float_t; ///< float type of the same length
 
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
+    /// Default constructor (contents undefined)
+    int4 () = default;
+
+    /// Destructor
+    ~int4 () = default;
+#else
     /// Default constructor (contents undefined)
     int4 () { }
 
     /// Destructor
     ~int4 () { }
+#endif
 
     /// Construct from a single value (store it in all slots)
     int4 (int a);
@@ -854,11 +878,19 @@ public:
     typedef bool8 bool_t; ///< bool type of the same length
     typedef float8 float_t; ///< float type of the same length
 
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
+    /// Default constructor (contents undefined)
+    int8 () = default;
+
+    /// Destructor
+    ~int8 () = default;
+#else
     /// Default constructor (contents undefined)
     int8 () { }
 
     /// Destructor
     ~int8 () { }
+#endif
 
     /// Construct from a single value (store it in all slots)
     int8 (int a);
@@ -1104,11 +1136,19 @@ public:
     enum { bits = elements*32 }; ///< Total number of bits
     typedef simd_raw_t<float,4>::type simd_t;  ///< the native SIMD type used
 
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
+    /// Default constructor (contents undefined)
+    float4 () = default;
+
+    /// Destructor
+    ~float4 () = default;
+#else
     /// Default constructor (contents undefined)
     float4 () { }
 
     /// Destructor
     ~float4 () { }
+#endif
 
     /// Construct from a single value (store it in all slots)
     float4 (float a) { load(a); }
@@ -1410,11 +1450,19 @@ public:
     enum { elements = 3 };    ///< Number of scalar elements
     enum { paddedelements = 4 }; ///< Number of scalar elements for full pad
 
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
+    /// Default constructor (contents undefined)
+    float3 () = default;
+
+    /// Destructor
+    ~float3 () = default;
+#else
     /// Default constructor (contents undefined)
     float3 () { }
 
     /// Destructor
     ~float3 () { }
+#endif
 
     /// Construct from a single value (store it in all slots)
     float3 (float a) { load(a); }
@@ -1540,7 +1588,11 @@ public:
 #ifndef OIIO_SIMD_SSE
         : m_mat(Imath::UNINITIALIZED)
 #endif
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
+    = default;
+#else
     { }
+#endif
 
     /// Construct from a reference to an Imath::M44f
     OIIO_FORCEINLINE matrix44 (const Imath::M44f &M) {
@@ -1661,11 +1713,19 @@ public:
     typedef int8 int_t;    ///< int type of the same length
     static const char* type_name() { return "float8"; }
 
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
+    /// Default constructor (contents undefined)
+    float8 () = default;
+
+    /// Destructor
+    ~float8 () = default;
+#else
     /// Default constructor (contents undefined)
     float8 () { }
 
     /// Destructor
     ~float8 () { }
+#endif
 
     /// Construct from a single value (store it in all slots)
     float8 (float a) { load(a); }
