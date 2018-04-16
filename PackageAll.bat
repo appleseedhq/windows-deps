@@ -2,7 +2,7 @@
 
 REM
 REM This source file is part of appleseed.
-REM Visit http://appleseedhq.net/ for additional information and resources.
+REM Visit https://appleseedhq.net/ for additional information and resources.
 REM
 REM This software is released under the MIT license.
 REM
