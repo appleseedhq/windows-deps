@@ -86,7 +86,7 @@ type nul > %root%build\%platform%\BUILDLOG.txt
 REM ===============================================================================
 
 :xercesc
-echo [ 1/12] Building Xerces-C...
+echo [ 1/13] Building Xerces-C...
 
     mkdir %root%build\%platform%\xerces-c-debug 2>nul
     pushd %root%build\%platform%\xerces-c-debug
@@ -108,7 +108,7 @@ echo [ 1/12] Building Xerces-C...
 REM ===============================================================================
 
 :llvm
-echo [ 2/12] Building LLVM...
+echo [ 2/13] Building LLVM...
 
     mkdir %root%build\%platform%\llvm-debug 2>nul
     pushd %root%build\%platform%\llvm-debug
@@ -130,7 +130,7 @@ echo [ 2/12] Building LLVM...
 REM ===============================================================================
 
 :zlib
-echo [ 3/12] Building zlib...
+echo [ 3/13] Building zlib...
 
     mkdir %root%build\%platform%\zlib 2>nul
     pushd %root%build\%platform%\zlib
@@ -146,7 +146,7 @@ echo [ 3/12] Building zlib...
 REM ===============================================================================
 
 :libpng
-echo [ 4/12] Building libpng...
+echo [ 4/13] Building libpng...
 
     mkdir %root%build\%platform%\libpng-debug 2>nul
     pushd %root%build\%platform%\libpng-debug
@@ -168,7 +168,7 @@ echo [ 4/12] Building libpng...
 REM ===============================================================================
 
 :libjpeg
-echo [ 5/12] Building libjpeg-turbo...
+echo [ 5/13] Building libjpeg-turbo...
 
     mkdir %root%build\%platform%\libjpeg-turbo-debug 2>nul
     pushd %root%build\%platform%\libjpeg-turbo-debug
@@ -191,7 +191,7 @@ echo [ 5/12] Building libjpeg-turbo...
 REM ===============================================================================
 
 :libtiff
-echo [ 6/12] Building libtiff...
+echo [ 6/13] Building libtiff...
 
     mkdir %root%build\%platform%\libtiff-debug 2>nul
     pushd %root%build\%platform%\libtiff-debug
@@ -223,7 +223,7 @@ echo [ 6/12] Building libtiff...
 REM ===============================================================================
 
 :ilmbase
-echo [ 7/12] Building ilmbase...
+echo [ 7/13] Building ilmbase...
 
     mkdir %root%build\%platform%\ilmbase-debug 2>nul
     pushd %root%build\%platform%\ilmbase-debug
@@ -249,7 +249,7 @@ echo [ 7/12] Building ilmbase...
 REM ===============================================================================
 
 :openexr
-echo [ 8/12] Building OpenEXR...
+echo [ 8/13] Building OpenEXR...
 
     mkdir %root%build\%platform%\openexr-debug 2>nul
     pushd %root%build\%platform%\openexr-debug
@@ -272,7 +272,7 @@ echo [ 8/12] Building OpenEXR...
 REM ===============================================================================
 
 :ocio
-echo [ 9/12] Building OpenColorIO...
+echo [ 9/13] Building OpenColorIO...
 
     set OCIO_PATH_SAVE=%PATH%
     set PATH=%root%tools\patch;%PATH%
@@ -303,7 +303,7 @@ echo [ 9/12] Building OpenColorIO...
 REM ===============================================================================
 
 :oiio
-echo [10/12] Building OpenImageIO...
+echo [10/13] Building OpenImageIO...
 
     mkdir %root%build\%platform%\oiio-debug 2>nul
     pushd %root%build\%platform%\oiio-debug
@@ -326,7 +326,7 @@ echo [10/12] Building OpenImageIO...
 REM ===============================================================================
 
 :osl
-echo [11/12] Building OpenShadingLanguage...
+echo [11/13] Building OpenShadingLanguage...
 
     set OSL_PATH_SAVE=%PATH%
 
@@ -357,7 +357,7 @@ echo [11/12] Building OpenShadingLanguage...
 REM ===============================================================================
 
 :seexpr
-echo [12/12] Building SeExpr...
+echo [12/13] Building SeExpr...
 
     mkdir %root%build\%platform%\seexpr-debug 2>nul
     pushd %root%build\%platform%\seexpr-debug
@@ -384,6 +384,27 @@ echo [12/12] Building SeExpr...
         devenv SeExpr.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
+
+REM ===============================================================================
+
+:embree
+echo [13/13] Building Embree...
+
+	mkdir %root%build\%platform%\embree-debug 2>nul
+	pushd %root%build\%platform%\embree-debug
+		echo === Embree (Debug) ========================================================== > BUILDLOG.txt
+        cmake -G %generator% -D EMBREE_TUTORIALS=OFF -D EMBREE_RAY_MASK=ON -D EMBREE_TASKING_SYSTEM=INTERNAL -D EMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-debug %src%\embree %redirect%
+        devenv embree3.sln /build Debug /project INSTALL %redirect%
+        type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
+	popd
+
+	mkdir %root%build\%platform%\embree-release 2>nul
+	pushd %root%build\%platform%\embree-release
+		echo === Embree (Release) ========================================================== > BUILDLOG.txt
+        cmake -G %generator% -D EMBREE_TUTORIALS=OFF -D EMBREE_RAY_MASK=ON -D EMBREE_TASKING_SYSTEM=INTERNAL -D EMBREE_IGNORE_CMAKE_CXX_FLAGS=OFF -D CMAKE_CXX_FLAGS="-d2SSAOptimizer-" -D EMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-release %src%\embree %redirect%
+        devenv embree3.sln /build Release /project INSTALL %redirect%
+        type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
+	popd
 
 REM ===============================================================================
 
