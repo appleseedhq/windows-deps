@@ -390,21 +390,21 @@ REM ============================================================================
 :embree
 echo [13/13] Building Embree...
 
-	mkdir %root%build\%platform%\embree-debug 2>nul
-	pushd %root%build\%platform%\embree-debug
-		echo === Embree (Debug) ========================================================== > BUILDLOG.txt
-        cmake -G %generator% -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-debug %src%\embree %redirect%
+    mkdir %root%build\%platform%\embree-debug 2>nul
+    pushd %root%build\%platform%\embree-debug
+        echo === Embree (Debug) ============================================================ > BUILDLOG.txt
+        cmake -G %generator% -DCMAKE_BUILD_TYPE=Debug -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-debug %src%\embree %redirect%
         devenv embree3.sln /build Debug /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
-	popd
+    popd
 
-	mkdir %root%build\%platform%\embree-release 2>nul
-	pushd %root%build\%platform%\embree-release
-		echo === Embree (Release) ========================================================== > BUILDLOG.txt
-        cmake -G %generator% -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_IGNORE_CMAKE_CXX_FLAGS=OFF -DCMAKE_CXX_FLAGS="-d2SSAOptimizer-" -DEMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-release %src%\embree %redirect%
+    mkdir %root%build\%platform%\embree-release 2>nul
+    pushd %root%build\%platform%\embree-release
+        echo === Embree (Release) ========================================================== > BUILDLOG.txt
+        cmake -G %generator% -DCMAKE_BUILD_TYPE=Release -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DEMBREE_IGNORE_CMAKE_CXX_FLAGS=OFF -DCMAKE_CXX_FLAGS="-d2SSAOptimizer-" -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-release %src%\embree %redirect%
         devenv embree3.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
-	popd
+    popd
 
 REM ===============================================================================
 
