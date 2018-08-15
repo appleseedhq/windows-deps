@@ -393,7 +393,7 @@ echo [13/13] Building Embree...
     mkdir %root%build\%platform%\embree-debug 2>nul
     pushd %root%build\%platform%\embree-debug
         echo === Embree (Debug) ============================================================ > BUILDLOG.txt
-        cmake -G %generator% -DCMAKE_BUILD_TYPE=Debug -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-debug %src%\embree %redirect%
+        cmake -G %generator% -DCMAKE_BUILD_TYPE=Debug -DEMBREE_STATIC_LIB=ON -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-debug %src%\embree %redirect%
         devenv embree3.sln /build Debug /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
@@ -401,7 +401,11 @@ echo [13/13] Building Embree...
     mkdir %root%build\%platform%\embree-release 2>nul
     pushd %root%build\%platform%\embree-release
         echo === Embree (Release) ========================================================== > BUILDLOG.txt
-        cmake -G %generator% -DCMAKE_BUILD_TYPE=Release -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DEMBREE_IGNORE_CMAKE_CXX_FLAGS=OFF -DCMAKE_CXX_FLAGS="-d2SSAOptimizer-" -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-release %src%\embree %redirect%
+        REM The CMake arguments
+        REM   -DEMBREE_IGNORE_CMAKE_CXX_FLAGS=OFF -DCMAKE_CXX_FLAGS="-d2SSAOptimizer-"
+        REM are required to work around a bug in the new SSA optimizer introduced in VS 2015:
+        REM https://github.com/embree/embree/issues/157#issuecomment-334696351
+        cmake -G %generator% -DCMAKE_BUILD_TYPE=Release -DEMBREE_STATIC_LIB=ON -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DEMBREE_IGNORE_CMAKE_CXX_FLAGS=OFF -DCMAKE_CXX_FLAGS="-d2SSAOptimizer-" -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-release %src%\embree %redirect%
         devenv embree3.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
