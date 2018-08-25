@@ -14,4 +14,4 @@
 // limitations under the License.                                           //
 // ======================================================================== //
 
-#define RTC_HASH "95d3b09224fc2e4033a6070bb36b9da8b91ccef9"
+#define RTC_HASH ""
