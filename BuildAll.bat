@@ -60,6 +60,11 @@ if [%generator%] == ["Visual Studio 14 2015 Win64"] (
     goto start
 )
 
+if [%generator%] == ["Visual Studio 15 2017 Win64"] (
+    set platform=vc141
+    goto start
+)
+
 :syntax
 
 echo Syntax:
@@ -70,6 +75,7 @@ echo.
 echo   "Visual Studio 11 2012 Win64"
 echo   "Visual Studio 12 2013 Win64"
 echo   "Visual Studio 14 2015 Win64"
+echo   "Visual Studio 15 2017 Win64"
 echo.
 echo Example:
 echo   %~n0%~x0 "Visual Studio 12 2013 Win64" C:\dev\boost_1_55_0 C:\dev\qt-everywhere-opensource-src-4.8.6\bin\qmake.exe C:\Python27\include C:\Python27\libs\python27.lib
@@ -79,16 +85,17 @@ goto end
 
 echo Build configuration:
 echo.
-echo   generator ............  %generator%
-echo   platform .............  %platform%
-echo   root .................  %root%
-echo   boost_root ...........  %boost_root%
-echo   qt_qmake_path ........  %qt_qmake_path%
-echo   python_include_dir ...  %python_include_dir%
-echo   python_library .......  %python_library%
+echo   generator ............ %generator%
+echo   platform ............. %platform%
+echo   root ................. %root%
+echo   boost_root ........... %boost_root%
+echo   qt_qmake_path ........ %qt_qmake_path%
+echo   python_include_dir ... %python_include_dir%
+echo   python_library ....... %python_library%
 echo.
 
-set src=%cd%\src
+set src=%root%src
+set devenv=call %root%Tools\devenv-wrapper.bat
 set redirect=^>^> BUILDLOG.txt 2^>^&1
 
 mkdir %root%build\%platform% 2>nul
@@ -103,7 +110,7 @@ echo %time% ^| [ 1/13] Building Xerces-C...
     pushd %root%build\%platform%\xerces-c-debug
         echo === Xerces-C (Debug) ========================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\xerces-c-debug %src%\xerces-c %redirect%
-        devenv xerces-c.sln /build Debug /project INSTALL %redirect%
+        %devenv% xerces-c.sln /build Debug /project INSTALL %redirect%
         copy src\xerces-c.dir\Debug\*.pdb %root%stage\%platform%\xerces-c-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
@@ -112,7 +119,7 @@ echo %time% ^| [ 1/13] Building Xerces-C...
     pushd %root%build\%platform%\xerces-c-release
         echo === Xerces-C (Release) ======================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\xerces-c-release %src%\xerces-c %redirect%
-        devenv xerces-c.sln /build Release /project INSTALL %redirect%
+        %devenv% xerces-c.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -125,7 +132,7 @@ echo %time% ^| [ 2/13] Building LLVM...
     pushd %root%build\%platform%\llvm-debug
         echo === LLVM (Debug) ============================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_REQUIRES_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\llvm-debug %src%\llvm %redirect%
-        devenv llvm.sln /build Debug /project INSTALL %redirect%
+        %devenv% llvm.sln /build Debug /project INSTALL %redirect%
         copy lib\Transforms\IPO\LLVMipo.dir\Debug\*.pdb %root%stage\%platform%\llvm-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
@@ -134,7 +141,7 @@ echo %time% ^| [ 2/13] Building LLVM...
     pushd %root%build\%platform%\llvm-release
         echo === LLVM (Release) ============================================================ > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_REQUIRES_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\llvm-release %src%\llvm %redirect%
-        devenv llvm.sln /build Release /project INSTALL %redirect%
+        %devenv% llvm.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -147,7 +154,7 @@ echo %time% ^| [ 3/13] Building zlib...
     pushd %root%build\%platform%\zlib-debug
         echo === zlib (Debug) ============================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\zlib-debug %src%\zlib %redirect%
-        devenv zlib.sln /build Debug /project INSTALL %redirect%
+        %devenv% zlib.sln /build Debug /project INSTALL %redirect%
         ren %src%\zlib\zconf.h.included zconf.h
         copy zlibstatic.dir\Debug\*.pdb %root%stage\%platform%\zlib-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
@@ -157,7 +164,7 @@ echo %time% ^| [ 3/13] Building zlib...
     pushd %root%build\%platform%\zlib-release
         echo === zlib (Release) ============================================================ > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\zlib-release %src%\zlib %redirect%
-        devenv zlib.sln /build Release /project INSTALL %redirect%
+        %devenv% zlib.sln /build Release /project INSTALL %redirect%
         ren %src%\zlib\zconf.h.included zconf.h
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
@@ -171,7 +178,7 @@ echo %time% ^| [ 4/13] Building libpng...
     pushd %root%build\%platform%\libpng-debug
         echo === libpng (Debug) ============================================================ > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-debug\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-debug\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libpng-debug %src%\libpng %redirect%
-        devenv libpng.sln /build Debug /project INSTALL %redirect%
+        %devenv% libpng.sln /build Debug /project INSTALL %redirect%
         copy png16_static.dir\Debug\*.pdb %root%stage\%platform%\libpng-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
@@ -180,7 +187,7 @@ echo %time% ^| [ 4/13] Building libpng...
     pushd %root%build\%platform%\libpng-release
         echo === libpng (Release) ========================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-release\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-release\lib\zlibstatic.lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libpng-release %src%\libpng %redirect%
-        devenv libpng.sln /build Release /project INSTALL %redirect%
+        %devenv% libpng.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -193,7 +200,7 @@ echo %time% ^| [ 5/13] Building libjpeg-turbo...
     pushd %root%build\%platform%\libjpeg-turbo-debug
         echo === libjpeg-turbo (Debug) ===================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DWITH_SIMD=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libjpeg-turbo-debug %src%\libjpeg-turbo %redirect%
-        devenv libjpeg-turbo.sln /build Debug /project INSTALL %redirect%
+        %devenv% libjpeg-turbo.sln /build Debug /project INSTALL %redirect%
         copy jpeg-static.dir\Debug\*.pdb %root%stage\%platform%\libjpeg-turbo-debug\lib %redirect%
         copy turbojpeg-static.dir\Debug\*.pdb %root%stage\%platform%\libjpeg-turbo-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
@@ -203,7 +210,7 @@ echo %time% ^| [ 5/13] Building libjpeg-turbo...
     pushd %root%build\%platform%\libjpeg-turbo-release
         echo === libjpeg-turbo (Release) =================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DWITH_SIMD=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\libjpeg-turbo-release %src%\libjpeg-turbo %redirect%
-        devenv libjpeg-turbo.sln /build Release /project INSTALL %redirect%
+        %devenv% libjpeg-turbo.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -248,7 +255,7 @@ echo %time% ^| [ 7/13] Building ilmbase...
     pushd %root%build\%platform%\ilmbase-debug
         echo === ilmbase (Debug) =========================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ilmbase-debug %src%\ilmbase %redirect%
-        devenv ilmbase.sln /build Debug /project INSTALL %redirect%
+        %devenv% ilmbase.sln /build Debug /project INSTALL %redirect%
         copy Half\Half.dir\Debug\*.pdb %root%stage\%platform%\ilmbase-debug\lib %redirect%
         copy Iex\Iex.dir\Debug\*.pdb %root%stage\%platform%\ilmbase-debug\lib %redirect%
         copy IexMath\IexMath.dir\Debug\*.pdb %root%stage\%platform%\ilmbase-debug\lib %redirect%
@@ -261,7 +268,7 @@ echo %time% ^| [ 7/13] Building ilmbase...
     pushd %root%build\%platform%\ilmbase-release
         echo === ilmbase (Release) ========================================================= > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ilmbase-release %src%\ilmbase %redirect%
-        devenv ilmbase.sln /build Release /project INSTALL %redirect%
+        %devenv% ilmbase.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -274,7 +281,7 @@ echo %time% ^| [ 8/13] Building OpenEXR...
     pushd %root%build\%platform%\openexr-debug
         echo === OpenEXR (Debug) =========================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF -DILMBASE_PACKAGE_PREFIX=%root%stage\%platform%\ilmbase-debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-debug\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-debug\lib\zlibstaticd.lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\openexr-debug %src%\openexr %redirect%
-        devenv openexr.sln /build Debug /project INSTALL %redirect%
+        %devenv% openexr.sln /build Debug /project INSTALL %redirect%
         copy IlmImf\IlmImf.dir\Debug\*.pdb %root%stage\%platform%\openexr-debug\lib %redirect%
         copy IlmImfUtil\IlmImfUtil.dir\Debug\*.pdb %root%stage\%platform%\openexr-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
@@ -284,7 +291,7 @@ echo %time% ^| [ 8/13] Building OpenEXR...
     pushd %root%build\%platform%\openexr-release
         echo === OpenEXR (Release) ========================================================= > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DILMBASE_PACKAGE_PREFIX=%root%stage\%platform%\ilmbase-release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-release\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-release\lib\zlibstatic.lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\openexr-release %src%\openexr %redirect%
-        devenv openexr.sln /build Release /project INSTALL %redirect%
+        %devenv% openexr.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -300,7 +307,7 @@ echo %time% ^| [ 9/13] Building OpenColorIO...
     pushd %root%build\%platform%\ocio-debug
         echo === OpenColorIO (Debug) ======================================================= > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DOCIO_BUILD_SHARED=OFF -DOCIO_BUILD_TRUELIGHT=OFF -DOCIO_BUILD_NUKE=OFF -DOCIO_BUILD_PYGLUE=OFF -DOCIO_USE_BOOST_PTR=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ocio-debug %src%\ocio %redirect%
-        devenv OpenColorIO.sln /build Debug /project INSTALL %redirect%
+        %devenv% OpenColorIO.sln /build Debug /project INSTALL %redirect%
         copy ext\dist\lib\*.lib %root%stage\%platform%\ocio-debug\lib %redirect%
         copy ext\build\tinyxml\tinyxml.dir\Debug\*.pdb %root%stage\%platform%\ocio-debug\lib %redirect%
         copy ext\build\yaml-cpp\yaml-cpp.dir\Debug\*.pdb %root%stage\%platform%\ocio-debug\lib %redirect%
@@ -312,7 +319,7 @@ echo %time% ^| [ 9/13] Building OpenColorIO...
     pushd %root%build\%platform%\ocio-release
         echo === OpenColorIO (Release) ===================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DOCIO_BUILD_SHARED=OFF -DOCIO_BUILD_TRUELIGHT=OFF -DOCIO_BUILD_NUKE=OFF -DOCIO_BUILD_PYGLUE=OFF -DOCIO_USE_BOOST_PTR=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\ocio-release %src%\ocio %redirect%
-        devenv OpenColorIO.sln /build Release /project INSTALL %redirect%
+        %devenv% OpenColorIO.sln /build Release /project INSTALL %redirect%
         copy ext\dist\lib\*.lib %root%stage\%platform%\ocio-release\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
@@ -328,7 +335,7 @@ echo %time% ^| [10/13] Building OpenImageIO...
     pushd %root%build\%platform%\oiio-debug
         echo === OpenImageIO (Debug) ======================================================= > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DUSE_SIMD=sse2 -DUSE_PYTHON=OFF -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\%platform%\ilmbase-debug -DOPENEXR_HOME=%root%stage\%platform%\openexr-debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-debug\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-debug\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-debug\lib\libpng16_staticd.lib -DJPEG_INCLUDE_DIR=%root%stage\%platform%\libjpeg-turbo-debug\include -DJPEG_LIBRARY=%root%stage\%platform%\libjpeg-turbo-debug\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\%platform%\libtiff-debug\include -DTIFF_LIBRARY=%root%stage\%platform%\libtiff-debug\lib\libtiff.lib -DOCIO_INCLUDE_PATH=%root%stage\%platform%\ocio-debug\include -DOCIO_LIBRARY_PATH=%root%stage\%platform%\ocio-debug\lib -DCMAKE_LIBRARY_PATH=%root%build\%platform%\ocio-debug\ext\dist\lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\oiio-debug %src%\oiio %redirect%
-        devenv OpenImageIO.sln /build Debug /project INSTALL %redirect%
+        %devenv% OpenImageIO.sln /build Debug /project INSTALL %redirect%
         copy src\libOpenImageIO\OpenImageIO.dir\Debug\*.pdb %root%stage\%platform%\oiio-debug\lib %redirect%
         copy src\libutil\OpenImageIO_Util.dir\Debug\*.pdb %root%stage\%platform%\oiio-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
@@ -338,7 +345,7 @@ echo %time% ^| [10/13] Building OpenImageIO...
     pushd %root%build\%platform%\oiio-release
         echo === OpenImageIO (Release) ===================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DUSE_SIMD=sse2 -DUSE_PYTHON=OFF -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\%platform%\ilmbase-release -DOPENEXR_HOME=%root%stage\%platform%\openexr-release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-release\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-release\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-release\lib\libpng16_static.lib -DJPEG_INCLUDE_DIR=%root%stage\%platform%\libjpeg-turbo-release\include -DJPEG_LIBRARY=%root%stage\%platform%\libjpeg-turbo-release\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\%platform%\libtiff-release\include -DTIFF_LIBRARY=%root%stage\%platform%\libtiff-release\lib\libtiff.lib -DOCIO_INCLUDE_PATH=%root%stage\%platform%\ocio-release\include -DOCIO_LIBRARY_PATH=%root%stage\%platform%\ocio-release\lib -DCMAKE_LIBRARY_PATH=%root%build\%platform%\ocio-release\ext\dist\lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\oiio-release %src%\oiio %redirect%
-        devenv OpenImageIO.sln /build Release /project INSTALL %redirect%
+        %devenv% OpenImageIO.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -354,7 +361,7 @@ echo %time% ^| [11/13] Building OpenShadingLanguage...
         echo === OpenShadingLanguage (Debug) =============================================== > BUILDLOG.txt
         set PATH=%root%tools\FlexBison\bin;%root%stage\%platform%\llvm-debug\bin;%OSL_PATH_SAVE%
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DOSL_BUILD_PLUGINS=OFF -DOSL_BUILD_TESTS=OFF -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DENABLERTTI=ON -DLLVM_STATIC=ON -DUSE_SIMD=sse2 -DILMBASE_HOME=%root%stage\%platform%\ilmbase-debug -DOPENEXR_HOME=%root%stage\%platform%\openexr-debug -DOPENEXR_CUSTOM_LIB_SUFFIX="-2_2" -DOPENIMAGEIOHOME=%root%stage\%platform%\oiio-debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-debug\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-debug\lib\zlibstaticd.lib -DEXTRA_CPP_ARGS="/DOIIO_STATIC_BUILD /DTINYFORMAT_ALLOW_WCHAR_STRINGS" -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\osl-debug %src%\osl %redirect%
-        devenv osl.sln /build Debug /project INSTALL %redirect%
+        %devenv% osl.sln /build Debug /project INSTALL %redirect%
         copy src\liboslcomp\oslcomp.dir\Debug\*.pdb %root%stage\%platform%\osl-debug\lib %redirect%
         copy src\liboslexec\oslexec.dir\Debug\*.pdb %root%stage\%platform%\osl-debug\lib %redirect%
         copy src\liboslnoise\oslnoise.dir\Debug\*.pdb %root%stage\%platform%\osl-debug\lib %redirect%
@@ -367,7 +374,7 @@ echo %time% ^| [11/13] Building OpenShadingLanguage...
         echo === OpenShadingLanguage (Release) ============================================= > BUILDLOG.txt
         set PATH=%root%tools\FlexBison\bin;%root%stage\%platform%\llvm-release\bin;%OSL_PATH_SAVE%
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DOSL_BUILD_PLUGINS=OFF -DOSL_BUILD_TESTS=OFF -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DENABLERTTI=ON -DLLVM_STATIC=ON -DUSE_SIMD=sse2 -DILMBASE_HOME=%root%stage\%platform%\ilmbase-release -DOPENEXR_HOME=%root%stage\%platform%\openexr-release -DOPENEXR_CUSTOM_LIB_SUFFIX="-2_2" -DOPENIMAGEIOHOME=%root%stage\%platform%\oiio-release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-release\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-release\lib\zlibstatic.lib -DEXTRA_CPP_ARGS="/DOIIO_STATIC_BUILD /DTINYFORMAT_ALLOW_WCHAR_STRINGS" -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\osl-release %src%\osl %redirect%
-        devenv osl.sln /build Release /project INSTALL %redirect%
+        %devenv% osl.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -386,7 +393,7 @@ echo %time% ^| [12/13] Building SeExpr...
         copy %src%\seexpr\windows7\SeExpr\generated\*.* src\SeExpr\generated %redirect%
         copy %src%\seexpr\windows7\SeExprEditor\generated\*.* src\SeExprEditor\generated %redirect%
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-debug\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-debug\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-debug\lib\libpng16_staticd.lib -DQT_QMAKE_EXECUTABLE=%qt_qmake_path% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\seexpr-debug %src%\seexpr %redirect%
-        devenv SeExpr.sln /build Debug /project INSTALL %redirect%
+        %devenv% SeExpr.sln /build Debug /project INSTALL %redirect%
         copy src\SeExpr\SeExpr-static.dir\Debug\*.pdb %root%stage\%platform%\seexpr-debug\lib %redirect%
         copy src\SeExprEditor\SeExprEditor.dir\Debug\*.pdb %root%stage\%platform%\seexpr-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
@@ -400,7 +407,7 @@ echo %time% ^| [12/13] Building SeExpr...
         copy %src%\seexpr\windows7\SeExpr\generated\*.* src\SeExpr\generated %redirect%
         copy %src%\seexpr\windows7\SeExprEditor\generated\*.* src\SeExprEditor\generated %redirect%
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-release\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-release\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-release\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-release\lib\libpng16_static.lib -DQT_QMAKE_EXECUTABLE=%qt_qmake_path% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\seexpr-release %src%\seexpr %redirect%
-        devenv SeExpr.sln /build Release /project INSTALL %redirect%
+        %devenv% SeExpr.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -419,7 +426,7 @@ echo %time% ^| [13/13] Building Embree...
     pushd %root%build\%platform%\embree-debug
         echo === Embree (Debug) ============================================================ > BUILDLOG.txt
         cmake -G %generator% -DCMAKE_BUILD_TYPE=Debug -DEMBREE_STATIC_LIB=ON -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-debug %src%\embree %redirect%
-        devenv embree3.sln /build Debug /project INSTALL %redirect%
+        %devenv% embree3.sln /build Debug /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -435,7 +442,7 @@ echo %time% ^| [13/13] Building Embree...
         ) else (
             cmake -G %generator% -DCMAKE_BUILD_TYPE=Release -DEMBREE_STATIC_LIB=ON -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-release %src%\embree %redirect%
         )
-        devenv embree3.sln /build Release /project INSTALL %redirect%
+        %devenv% embree3.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
@@ -445,7 +452,6 @@ REM ============================================================================
 
 :done
 
-echo.
 echo %time% ^| Build complete.
 echo.
 
