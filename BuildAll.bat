@@ -427,6 +427,16 @@ echo %time% ^| [13/13] Building Embree...
         echo === Embree (Debug) ============================================================ > BUILDLOG.txt
         cmake -G %generator% -DCMAKE_BUILD_TYPE=Debug -DEMBREE_STATIC_LIB=ON -DEMBREE_TUTORIALS=OFF -DEMBREE_RAY_MASK=ON -DEMBREE_TASKING_SYSTEM=INTERNAL -DEMBREE_ISPC_SUPPORT=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\embree-debug %src%\embree %redirect%
         %devenv% embree3.sln /build Debug /project INSTALL %redirect%
+        copy common\algorithms\algorithms.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
+        copy common\lexers\lexers.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
+        copy common\math\math.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
+        copy common\simd\simd.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
+        copy common\sys\sys.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
+        copy common\tasking\tasking.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
+        copy kernels\embree.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
+        copy kernels\embree_avx.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
+        copy kernels\embree_avx2.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
+        copy kernels\embree_sse42.dir\Debug\*.pdb %root%stage\%platform%\embree-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
