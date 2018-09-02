@@ -13,4 +13,4 @@ The appleseed wiki contains [detailed instructions](https://github.com/appleseed
 1. Clone this repository on your machine.
 2. Open a VS x64 Native Tools Command Prompt.
 3. Navigate to the `appleseed-deps` directory.
-4. Type `BuildAll.bat` to obtain detailed instructions on how to use the build script and follow them.
+4. Type `BuildAll.bat` and follow the instructions.
