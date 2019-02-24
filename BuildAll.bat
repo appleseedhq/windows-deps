@@ -104,7 +104,7 @@ type nul > %root%build\%platform%\BUILDLOG.txt
 REM ===============================================================================
 
 :xercesc
-echo %time% ^| [ 1/13] Building Xerces-C...
+echo %time% ^| [ 1/14] Building Xerces-C...
 
     mkdir %root%build\%platform%\xerces-c-debug 2>nul
     pushd %root%build\%platform%\xerces-c-debug
@@ -126,7 +126,7 @@ echo %time% ^| [ 1/13] Building Xerces-C...
 REM ===============================================================================
 
 :llvm
-echo %time% ^| [ 2/13] Building LLVM...
+echo %time% ^| [ 2/14] Building LLVM...
 
     mkdir %root%build\%platform%\llvm-debug 2>nul
     pushd %root%build\%platform%\llvm-debug
@@ -148,7 +148,7 @@ echo %time% ^| [ 2/13] Building LLVM...
 REM ===============================================================================
 
 :zlib
-echo %time% ^| [ 3/13] Building zlib...
+echo %time% ^| [ 3/14] Building zlib...
 
     mkdir %root%build\%platform%\zlib-debug 2>nul
     pushd %root%build\%platform%\zlib-debug
@@ -172,7 +172,7 @@ echo %time% ^| [ 3/13] Building zlib...
 REM ===============================================================================
 
 :libpng
-echo %time% ^| [ 4/13] Building libpng...
+echo %time% ^| [ 4/14] Building libpng...
 
     mkdir %root%build\%platform%\libpng-debug 2>nul
     pushd %root%build\%platform%\libpng-debug
@@ -194,7 +194,7 @@ echo %time% ^| [ 4/13] Building libpng...
 REM ===============================================================================
 
 :libjpeg
-echo %time% ^| [ 5/13] Building libjpeg-turbo...
+echo %time% ^| [ 5/14] Building libjpeg-turbo...
 
     mkdir %root%build\%platform%\libjpeg-turbo-debug 2>nul
     pushd %root%build\%platform%\libjpeg-turbo-debug
@@ -217,7 +217,7 @@ echo %time% ^| [ 5/13] Building libjpeg-turbo...
 REM ===============================================================================
 
 :libtiff
-echo %time% ^| [ 6/13] Building libtiff...
+echo %time% ^| [ 6/14] Building libtiff...
 
     mkdir %root%build\%platform%\libtiff-debug 2>nul
     pushd %root%build\%platform%\libtiff-debug
@@ -249,7 +249,7 @@ echo %time% ^| [ 6/13] Building libtiff...
 REM ===============================================================================
 
 :ilmbase
-echo %time% ^| [ 7/13] Building ilmbase...
+echo %time% ^| [ 7/14] Building ilmbase...
 
     mkdir %root%build\%platform%\ilmbase-debug 2>nul
     pushd %root%build\%platform%\ilmbase-debug
@@ -275,7 +275,7 @@ echo %time% ^| [ 7/13] Building ilmbase...
 REM ===============================================================================
 
 :openexr
-echo %time% ^| [ 8/13] Building OpenEXR...
+echo %time% ^| [ 8/14] Building OpenEXR...
 
     mkdir %root%build\%platform%\openexr-debug 2>nul
     pushd %root%build\%platform%\openexr-debug
@@ -298,7 +298,7 @@ echo %time% ^| [ 8/13] Building OpenEXR...
 REM ===============================================================================
 
 :ocio
-echo %time% ^| [ 9/13] Building OpenColorIO...
+echo %time% ^| [ 9/14] Building OpenColorIO...
 
     set OCIO_PATH_SAVE=%PATH%
     set PATH=%root%tools\patch;%PATH%
@@ -329,7 +329,7 @@ echo %time% ^| [ 9/13] Building OpenColorIO...
 REM ===============================================================================
 
 :oiio
-echo %time% ^| [10/13] Building OpenImageIO...
+echo %time% ^| [10/14] Building OpenImageIO...
 
     mkdir %root%build\%platform%\oiio-debug 2>nul
     pushd %root%build\%platform%\oiio-debug
@@ -352,7 +352,7 @@ echo %time% ^| [10/13] Building OpenImageIO...
 REM ===============================================================================
 
 :osl
-echo %time% ^| [11/13] Building OpenShadingLanguage...
+echo %time% ^| [11/14] Building OpenShadingLanguage...
 
     set OSL_PATH_SAVE=%PATH%
 
@@ -383,7 +383,7 @@ echo %time% ^| [11/13] Building OpenShadingLanguage...
 REM ===============================================================================
 
 :seexpr
-echo %time% ^| [12/13] Building SeExpr...
+echo %time% ^| [12/14] Building SeExpr...
 
     mkdir %root%build\%platform%\seexpr-debug 2>nul
     pushd %root%build\%platform%\seexpr-debug
@@ -416,11 +416,11 @@ REM ============================================================================
 :embree
 
 if [%platform%] == [vc11] (
-    echo %time% ^| [13/13] Skipping Embree ^(not supported with Visual Studio 2012^)...
+    echo %time% ^| [13/14] Skipping Embree ^(not supported with Visual Studio 2012^)...
     goto end_embree
 )
 
-echo %time% ^| [13/13] Building Embree...
+echo %time% ^| [13/14] Building Embree...
 
     mkdir %root%build\%platform%\embree-debug 2>nul
     pushd %root%build\%platform%\embree-debug
@@ -457,6 +457,28 @@ echo %time% ^| [13/13] Building Embree...
     popd
 
 :end_embree
+
+REM ===============================================================================
+
+:lz4
+echo %time% ^| [14/14] Building lz4...
+
+    mkdir %root%build\%platform%\lz4-debug 2>nul
+    pushd %root%build\%platform%\lz4-debug
+        echo === lz4 (Debug) =============================================================== > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DLZ4_BUILD_LEGACY_LZ4C=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\lz4-debug %src%\lz4\contrib\cmake_unofficial %redirect%
+        %devenv% lz4.sln /build Debug /project INSTALL %redirect%
+        copy lz4_static.dir\Debug\*.pdb %root%stage\%platform%\lz4-debug\lib %redirect%
+        type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
+    popd
+
+    mkdir %root%build\%platform%\lz4-release 2>nul
+    pushd %root%build\%platform%\lz4-release
+        echo === lz4 (Release) ============================================================= > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DLZ4_BUILD_LEGACY_LZ4C=OFF -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\lz4-release %src%\lz4\contrib\cmake_unofficial %redirect%
+        %devenv% lz4.sln /build Release /project INSTALL %redirect%
+        type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
+    popd
 
 REM ===============================================================================
 
