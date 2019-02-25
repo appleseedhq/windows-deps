@@ -50,11 +50,6 @@ if [%generator%] == ["Visual Studio 11 2012 Win64"] (
     goto start
 )
 
-if [%generator%] == ["Visual Studio 12 2013 Win64"] (
-    set platform=vc12
-    goto start
-)
-
 if [%generator%] == ["Visual Studio 14 2015 Win64"] (
     set platform=vc14
     goto start
@@ -73,12 +68,11 @@ echo.
 echo Supported values for ^<cmake-generator^>:
 echo.
 echo   "Visual Studio 11 2012 Win64"
-echo   "Visual Studio 12 2013 Win64"
 echo   "Visual Studio 14 2015 Win64"
 echo   "Visual Studio 15 2017 Win64"
 echo.
 echo Example:
-echo   %~n0%~x0 "Visual Studio 12 2013 Win64" C:\dev\boost_1_55_0 C:\dev\qt-everywhere-opensource-src-4.8.6\bin\qmake.exe C:\Python27\include C:\Python27\libs\python27.lib
+echo   %~n0%~x0 "Visual Studio 15 2017 Win64" C:\dev\boost_1_55_0 C:\dev\qt-everywhere-opensource-src-4.8.6\bin\qmake.exe C:\Python27\include C:\Python27\libs\python27.lib
 goto end
 
 :start
