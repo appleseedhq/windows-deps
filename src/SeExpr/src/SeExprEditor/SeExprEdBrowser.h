@@ -22,8 +22,8 @@
 #define SeExprEdBrowser_h
 
 
-#include <QtGui/QWidget>
-#include <QtCore/QAbstractItemModel>
+#include <QWidget>
+#include <QAbstractItemModel>
 
 #include <iostream>
 #include <fstream>

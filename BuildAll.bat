@@ -35,13 +35,13 @@ if not defined VCINSTALLDIR (
 set root=%~dp0
 set generator=%1
 set boost_root=%2
-set qt_qmake_path=%3
+set qt_root_path=%3
 set python_include_dir=%4
 set python_library=%5
 
 if [%generator%] == [] goto syntax
 if [%boost_root%] == [] goto syntax
-if [%qt_qmake_path%] == [] goto syntax
+if [%qt_root_path%] == [] goto syntax
 if [%python_include_dir%] == [] goto syntax
 if [%python_library%] == [] goto syntax
 
@@ -63,7 +63,7 @@ if [%generator%] == ["Visual Studio 15 2017 Win64"] (
 :syntax
 
 echo Syntax:
-echo   %~n0%~x0 ^<cmake-generator^> ^<boost-root^> ^<qmake-executable-path^> ^<python-include-dir^> ^<python-library^>
+echo   %~n0%~x0 ^<cmake-generator^> ^<boost-root^> ^<qt-root-path^> ^<python-include-dir^> ^<python-library^>
 echo.
 echo Supported values for ^<cmake-generator^>:
 echo.
@@ -72,7 +72,7 @@ echo   "Visual Studio 14 2015 Win64"
 echo   "Visual Studio 15 2017 Win64"
 echo.
 echo Example:
-echo   %~n0%~x0 "Visual Studio 15 2017 Win64" C:\dev\boost_1_55_0 C:\dev\qt-everywhere-opensource-src-4.8.6\bin\qmake.exe C:\Python27\include C:\Python27\libs\python27.lib
+echo   %~n0%~x0 "Visual Studio 15 2017 Win64" C:\dev\boost_1_55_0 C:\dev\qt-5.12.2 C:\Python27\include C:\Python27\libs\python27.lib
 goto end
 
 :start
@@ -83,7 +83,7 @@ echo   generator ............ %generator%
 echo   platform ............. %platform%
 echo   root ................. %root%
 echo   boost_root ........... %boost_root%
-echo   qt_qmake_path ........ %qt_qmake_path%
+echo   qt_root_path ........ %qt_root_path%
 echo   python_include_dir ... %python_include_dir%
 echo   python_library ....... %python_library%
 echo.
@@ -386,7 +386,7 @@ echo %time% ^| [12/14] Building SeExpr...
         mkdir src\SeExprEditor\generated %redirect%
         copy %src%\seexpr\windows7\SeExpr\generated\*.* src\SeExpr\generated %redirect%
         copy %src%\seexpr\windows7\SeExprEditor\generated\*.* src\SeExprEditor\generated %redirect%
-        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-debug\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-debug\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-debug\lib\libpng16_staticd.lib -DQT_QMAKE_EXECUTABLE=%qt_qmake_path% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\seexpr-debug %src%\seexpr %redirect%
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-debug\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-debug\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-debug\lib\libpng16_staticd.lib -DCMAKE_PREFIX_PATH=%qt_root_path% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\seexpr-debug %src%\seexpr %redirect%
         %devenv% SeExpr.sln /build Debug /project INSTALL %redirect%
         copy src\SeExpr\SeExpr-static.dir\Debug\*.pdb %root%stage\%platform%\seexpr-debug\lib %redirect%
         copy src\SeExprEditor\SeExprEditor.dir\Debug\*.pdb %root%stage\%platform%\seexpr-debug\lib %redirect%
@@ -400,7 +400,7 @@ echo %time% ^| [12/14] Building SeExpr...
         mkdir src\SeExprEditor\generated %redirect%
         copy %src%\seexpr\windows7\SeExpr\generated\*.* src\SeExpr\generated %redirect%
         copy %src%\seexpr\windows7\SeExprEditor\generated\*.* src\SeExprEditor\generated %redirect%
-        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-release\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-release\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-release\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-release\lib\libpng16_static.lib -DQT_QMAKE_EXECUTABLE=%qt_qmake_path% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\seexpr-release %src%\seexpr %redirect%
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-release\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-release\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-release\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-release\lib\libpng16_static.lib -DCMAKE_PREFIX_PATH=%qt_root_path% -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\seexpr-release %src%\seexpr %redirect%
         %devenv% SeExpr.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd

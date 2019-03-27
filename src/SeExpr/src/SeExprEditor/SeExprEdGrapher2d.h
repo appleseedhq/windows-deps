@@ -21,10 +21,10 @@
 #ifndef SeExprEdGrapher2d_h
 #define SeExprEdGrapher2d_h
 
-#include <QtCore/QObject>
-#include <QtGui/QPalette>
+#include <QObject>
+#include <QPalette>
 #include <QtOpenGL/QGLWidget>
-#include <QtGui/QMouseEvent>
+#include <QMouseEvent>
 
 #include "SeExprEdExpression.h"
 

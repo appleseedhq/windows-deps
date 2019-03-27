@@ -25,11 +25,11 @@
 
 #include <vector>
 
-#include <QtCore/QObject>
-#include <QtGui/QComboBox>
-#include <QtGui/QGraphicsPolygonItem>
-#include <QtGui/QGraphicsView>
-#include <QtGui/QLineEdit>
+#include <QObject>
+#include <QComboBox>
+#include <QGraphicsPolygonItem>
+#include <QGraphicsView>
+#include <QLineEdit>
 
 #include <SeCurve.h>
 

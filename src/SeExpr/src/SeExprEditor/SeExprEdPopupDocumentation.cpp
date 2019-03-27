@@ -15,8 +15,8 @@
 * http://www.apache.org/licenses/LICENSE-2.0
 */
 #include "SeExprEdPopupDocumentation.h"
-#include <QtGui/QLabel>
-#include <QtGui/QHBoxLayout>
+#include <QLabel>
+#include <QHBoxLayout>
 
 SeExprEdPopupDocumentation::SeExprEdPopupDocumentation(QWidget* parent,const QPoint& placecr,const QString& msg)
 {

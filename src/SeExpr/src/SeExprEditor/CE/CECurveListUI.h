@@ -22,7 +22,7 @@
 #define CECurveListUI_h
 
 //qt3 #include <qwidget.h>
-#include <QtGui/QWidget>
+#include <QWidget>
 
 class CETool;
 class QListWidget;

@@ -27,7 +27,7 @@
 //#include <iTool.h>
 //#include <iSgExpr.h>
 //qt3 #include <qobject.h>
-#include <QtCore/QObject>
+#include <QObject>
 
 #include <animlib/AnimCurve.h>
 class QWidget;

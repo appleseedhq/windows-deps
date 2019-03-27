@@ -15,19 +15,18 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 
 find_package(OpenGL)
-find_package(Qt4 COMPONENTS QtCore QtGui QtOpenGL) # find and setup Qt4 for this project
-if(QT4_FOUND)
+find_package(Qt5 COMPONENTS Core Gui OpenGL REQUIRED) # find and setup Qt5 for this project
 
-    BuildParserScanner(SeExprSpecParserLex SeExprSpecParser SeExprSpec editor_parser_cpp)
-    set(SeExprEd_MOC_HDRS SeExprEdBrowser.h SeExprEdColorCurve.h SeExprEdControlCollection.h
-      SeExprEdControl.h SeExprEdCurve.h SeExprEdDialog.h SeExprEditor.h SeExprEdFileDialog.h SeExprEdGrapher2d.h
-      SeExprEdPopupDocumentation.h SeExprEdShortEdit.h)
-    set(SeExprEd_CPPS SeExprEdFileDialog.cpp SeExprEdControl.cpp SeExprEditor.cpp SeExpressionEditor.cpp
-      SeExprEdShortEdit.cpp SeExprEdCurve.cpp  SeExprEdColorCurve.cpp SeExprEdEditableExpression.cpp 
-      SeExprEdPopupDocumentation.cpp SeExprEdCompletionModel.cpp SeExprEdDialog.cpp SeExprEdControlCollection.cpp
-      SeExprEdGrapher2d.cpp SeExprEdBrowser.cpp SeExprEdExpression.cpp)
+BuildParserScanner(SeExprSpecParserLex SeExprSpecParser SeExprSpec editor_parser_cpp)
+set(SeExprEd_MOC_HDRS SeExprEdBrowser.h SeExprEdColorCurve.h SeExprEdControlCollection.h
+    SeExprEdControl.h SeExprEdCurve.h SeExprEdDialog.h SeExprEditor.h SeExprEdFileDialog.h SeExprEdGrapher2d.h
+    SeExprEdPopupDocumentation.h SeExprEdShortEdit.h)
+set(SeExprEd_CPPS SeExprEdFileDialog.cpp SeExprEdControl.cpp SeExprEditor.cpp SeExpressionEditor.cpp
+    SeExprEdShortEdit.cpp SeExprEdCurve.cpp  SeExprEdColorCurve.cpp SeExprEdEditableExpression.cpp 
+    SeExprEdPopupDocumentation.cpp SeExprEdCompletionModel.cpp SeExprEdDialog.cpp SeExprEdControlCollection.cpp
+    SeExprEdGrapher2d.cpp SeExprEdBrowser.cpp SeExprEdExpression.cpp)
 
-    qt4_wrap_cpp(SeExprEd_MOC_SRCS ${SeExprEd_MOC_HDRS})
+qt5_wrap_cpp(SeExprEd_MOC_SRCS ${SeExprEd_MOC_HDRS})
     
 IF(WIN32)
     add_library(SeExprEditor ${SeExprEd_CPPS} ${SeExprEd_MOC_SRCS} ${editor_parser_cpp})
@@ -42,17 +41,19 @@ ELSE()
 ENDIF(WIN32)
 
     
-    install(TARGETS SeExprEditor DESTINATION ${CMAKE_INSTALL_LIBDIR})
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/${SeExprEd_MOC_HDRS} DESTINATION include/SeExprEditor)
-    include_directories(${QT_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(SeExprEditor ${QT_QTCORE_LIBRARY})
-    target_link_libraries(SeExprEditor ${QT_QTGUI_LIBRARY})
-    target_link_libraries(SeExprEditor ${QT_QTOPENGL_LIBRARY})
-    target_link_libraries(SeExprEditor ${QT_QTOPENGL_LIBRARY})
-    target_link_libraries(SeExprEditor ${GLUT_LIBRARY} ${OPENGL_LIBRARY})
+install(TARGETS SeExprEditor DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/${SeExprEd_MOC_HDRS} DESTINATION include/SeExprEditor)
+include_directories(${Qt5Core_INCLUDE_DIRS})
+include_directories(${Qt5Gui_INCLUDE_DIRS})
+include_directories(${Qt5OpenGL_INCLUDE_DIRS})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(SeExprEditor Qt5::Core)
+target_link_libraries(SeExprEditor Qt5::Gui)
+target_link_libraries(SeExprEditor Qt5::OpenGL)
+target_link_libraries(SeExprEditor ${GLUT_LIBRARY} ${OPENGL_LIBRARY})
 
 IF(WIN32)
     target_link_libraries(SeExprEditor opengl32)
 ENDIF(WIN32)
-    target_link_libraries(SeExprEditor ${SEEXPR_LIBRARIES})
-endif(QT4_FOUND)
+
+target_link_libraries(SeExprEditor ${SEEXPR_LIBRARIES})

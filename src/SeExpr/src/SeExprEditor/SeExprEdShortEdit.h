@@ -26,9 +26,9 @@
 #include <vector>
 #include <string>
 
-#include <QtGui/QWidget>
-#include <QtGui/QTextEdit>
-#include <QtGui/QWheelEvent>
+#include <QWidget>
+#include <QTextEdit>
+#include <QWheelEvent>
 
 class SeExprEdControlCollection;
 class QToolButton;

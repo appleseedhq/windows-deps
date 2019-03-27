@@ -32,8 +32,9 @@ SET( ${PROJECT_NAME}_PATCH_LEVEL 0 )
 
 ## policies     
 if(COMMAND cmake_policy)
-      cmake_policy(SET CMP0003 NEW)
-    endif(COMMAND cmake_policy)
+  cmake_policy(SET CMP0003 NEW)
+  cmake_policy(SET CMP0020 NEW)
+endif(COMMAND cmake_policy)
 
 # macros
 include(src/build/macros.cmake)
@@ -97,6 +98,3 @@ ADD_SUBDIRECTORY (src/SeExprEditor)
 ADD_SUBDIRECTORY (src/doc)
 ADD_SUBDIRECTORY (src/demos)
 ADD_SUBDIRECTORY (src/tests)
-
-
-
