@@ -20,11 +20,11 @@
 */
 
 #include "SeExprEdGrapher2d.h"
-#include <QtGui/QGridLayout>
-#include <QtGui/QLineEdit>
-#include <QtGui/QDoubleValidator>
-#include <QtGui/QHBoxLayout>
-#include <QtGui/QLabel>
+#include <QGridLayout>
+#include <QLineEdit>
+#include <QDoubleValidator>
+#include <QHBoxLayout>
+#include <QLabel>
 
 
 SeExprEdGrapherWidget::SeExprEdGrapherWidget(QWidget* parent,int width,int height)

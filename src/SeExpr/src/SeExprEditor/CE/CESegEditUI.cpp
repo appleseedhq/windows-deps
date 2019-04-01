@@ -27,14 +27,14 @@
 #include <qvalidator.h>
 */
 
-#include <QtGui/QComboBox>
-#include <QtGui/QGroupBox>
-#include <QtGui/QLabel>
-#include <QtGui/QHBoxLayout>
-#include <QtGui/QLineEdit>
-#include <QtGui/QValidator>
-#include <QtGui/QKeyEvent>
-#include <QtGui/QCheckBox>
+#include <QComboBox>
+#include <QGroupBox>
+#include <QLabel>
+#include <QHBoxLayout>
+#include <QLineEdit>
+#include <QValidator>
+#include <QKeyEvent>
+#include <QCheckBox>
 
 #include "CETool.h"
 #include "CESegEditUI.h"

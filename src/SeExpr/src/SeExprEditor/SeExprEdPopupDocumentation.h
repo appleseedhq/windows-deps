@@ -17,7 +17,7 @@
 #ifndef _SeExprEdPopupDocumentation_h_
 #define _SeExprEdPopupDocumentation_h_
 
-#include <QtGui/QWidget>
+#include <QWidget>
 
 class QLabel;
 class SeExprEdPopupDocumentation:public QWidget

@@ -20,11 +20,11 @@
 #include "SeExprEdFileDialog.h"
 
 
-#include <QtGui/QToolButton>
-#include <QtGui/QPalette>
-#include <QtGui/QMenu>
-#include <QtCore/QTimer>
-#include <QtCore/QUrl>
+#include <QToolButton>
+#include <QPalette>
+#include <QMenu>
+#include <QTimer>
+#include <QUrl>
 #include <iostream>
 
 using std::max;

@@ -18,21 +18,21 @@
 * @brief A basic expression context for the expression previewer
 * @author  aselle
 */
-#include <QtGui/QTreeWidget>
-#include <QtGui/QTreeWidgetItem>
-#include <QtGui/QVBoxLayout>
-#include <QtGui/QTabWidget>
-#include <QtGui/QHeaderView>
-#include <QtGui/QLabel>
-#include <QtGui/QTextBrowser>
-#include <QtGui/QPushButton>
-#include <QtGui/QSpacerItem>
-#include <QtGui/QSizePolicy>
-#include <QtGui/QSortFilterProxyModel>
-#include <QtCore/QDir>
-#include <QtCore/QFileInfo>
-#include <QtGui/QFileDialog>
-#include <QtGui/QMessageBox>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QVBoxLayout>
+#include <QTabWidget>
+#include <QHeaderView>
+#include <QLabel>
+#include <QTextBrowser>
+#include <QPushButton>
+#include <QSpacerItem>
+#include <QSizePolicy>
+#include <QSortFilterProxyModel>
+#include <QDir>
+#include <QFileInfo>
+#include <QFileDialog>
+#include <QMessageBox>
 #include <cassert>
 #include "SeExprEditor.h"
 #include "SeExprEdBrowser.h"
@@ -152,13 +152,15 @@ public:
 
     void update()
     {
-        reset();
+		beginResetModel();
+		endResetModel();
     }
 
     void clear()
     {
+		beginResetModel();
         root->clear();
-        update();
+		endResetModel();
     }
 
     void addPath(const char* label,const char* path)
@@ -212,8 +214,9 @@ public:
     {
         SeExprEdTreeItem* item=root->find(path);
         if(!item) {
+			beginResetModel();
             root->regen();
-            reset();
+            endResetModel();
             item=root->find(path);
         }
         if(item){
@@ -235,7 +238,8 @@ public:
 
     void update()
     {
-        reset();
+        beginResetModel();
+		endResetModel();
     }
 
     bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const

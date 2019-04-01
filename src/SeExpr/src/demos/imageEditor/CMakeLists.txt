@@ -18,19 +18,21 @@
 cmake_policy(SET CMP0005 NEW)
 add_definitions(-DIMAGE_EDITOR_ROOT="${CMAKE_INSTALL_PREFIX}")
 
-find_package(Qt4 COMPONENTS QtCore QtGui) # find and setup Qt4 for this project
+find_package(Qt5 COMPONENTS Core Gui) # find and setup Qt5 for this project
 find_package(PNG)
 
-if(QT4_FOUND AND PNG_FOUND)
+if(QT5_FOUND AND PNG_FOUND)
     set(imageEditor_MOC_HDRS ImageEditorDialog.h)
     set(imageEditor_CPPS imageEditor.cpp)
-    qt4_wrap_cpp(imageEditor_MOC_SRCS ${imageEditor_MOC_HDRS})
+    qt5_wrap_cpp(imageEditor_MOC_SRCS ${imageEditor_MOC_HDRS})
 
     add_executable(imageEditor ${imageEditor_CPPS} ${imageEditor_MOC_SRCS})
-    include_directories(${QT_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+    include_directories(${Qt5Core_INCLUDE_DIRS})
+    include_directories(${Qt5Gui_INCLUDE_DIRS})
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR})
     include_directories(${SEEXPR_EDITOR_INCLUDES})
-    target_link_libraries(imageEditor ${QT_QTCORE_LIBRARY})
-    target_link_libraries(imageEditor ${QT_QTGUI_LIBRARY})
+    target_link_libraries(imageEditor Qt5::Core)
+    target_link_libraries(imageEditor Qt5::Gui)
     target_link_libraries(imageEditor ${SEEXPR_LIBRARIES})
     target_link_libraries(imageEditor ${SEEXPR_EDITOR_LIBRARIES})
 
@@ -39,7 +41,7 @@ if(QT4_FOUND AND PNG_FOUND)
     install(TARGETS imageEditor DESTINATION bin)
 
 
-endif(QT4_FOUND)
+endif(QT5_FOUND AND PNG_FOUND)
 
 
 INSTALL( FILES fbm.se noisecolor1.se noisecolor2.se noise.se raytrace.se sinc.se DESTINATION ${CMAKE_INSTALL_PREFIX}/expressions/ )

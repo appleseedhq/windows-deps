@@ -14,18 +14,19 @@
 # You may obtain a copy of the License at
 # http://www.apache.org/licenses/LICENSE-2.0
 
-find_package(Qt4 COMPONENTS QtCore QtGui) # find and setup Qt4 for this project
-if(QT4_FOUND)
+find_package(Qt5 COMPONENTS Core Gui) # find and setup Qt5 for this project
+if(QT5_FOUND)
     set(segraph_MOC_HDRS Graph.h GraphWindow.h)
     set(segraph_CPPS segraph.cpp Graph.cpp GraphWindow.cpp)
-    qt4_wrap_cpp(segraph_MOC_SRCS ${segraph_MOC_HDRS})
+    qt5_wrap_cpp(segraph_MOC_SRCS ${segraph_MOC_HDRS})
     
     add_executable(segraph ${segraph_CPPS} ${segraph_MOC_SRCS})
     install(TARGETS segraph DESTINATION share/SeExpr/demo)
-    include_directories(${QT_INCLUDE_DIR})
+    include_directories(${Qt5Core_INCLUDE_DIRS})
+    include_directories(${Qt5Gui_INCLUDE_DIRS})
     include_directories(${SEEXPR_EDITOR_INCLUDES})
-    target_link_libraries(segraph ${QT_QTCORE_LIBRARY})
-    target_link_libraries(segraph ${QT_QTGUI_LIBRARY})
+    target_link_libraries(segraph Qt5::Core)
+    target_link_libraries(segraph Qt5::Gui)
     target_link_libraries(segraph ${SEEXPR_LIBRARIES})
     target_link_libraries(segraph ${SEEXPR_EDITOR_LIBRARIES})
-endif(QT4_FOUND)
+endif(QT5_FOUND)

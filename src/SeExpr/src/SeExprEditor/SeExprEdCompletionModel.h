@@ -22,9 +22,9 @@
 #ifndef SeExprEdCompletionModel_h
 #define SeExprEdCompletionModel_h
 
-#include <QtCore/QAbstractItemModel>
-#include <QtCore/QString>
-#include <QtCore/QSize>
+#include <QAbstractItemModel>
+#include <QString>
+#include <QSize>
 #include <vector>
 
 class SeExprEdCompletionModel:public QAbstractItemModel // ItemModel
@@ -44,7 +44,7 @@ public:
     SeExprEdCompletionModel(QObject* parent=0);
 
     QModelIndex index(int row,int column,const QModelIndex&) const
-    {return createIndex(row,column,0);}
+    {return createIndex(row,column,(void*)0);}
 
     QModelIndex parent(const QModelIndex&) const
     {return QModelIndex();}

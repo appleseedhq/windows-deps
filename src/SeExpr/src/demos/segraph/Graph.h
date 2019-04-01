@@ -17,10 +17,10 @@
 #ifndef _Graph_h_
 #define _Graph_h_
 
-#include <QtGui/QKeyEvent>
-#include <QtGui/QPainter>
-#include <QtGui/QWidget>
-#include <QtGui/QStatusBar>
+#include <QKeyEvent>
+#include <QPainter>
+#include <QWidget>
+#include <QStatusBar>
 #include <iostream>
 #include <vector>
 #include "GrapherExpr.h"

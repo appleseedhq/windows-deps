@@ -18,14 +18,14 @@
 * @brief This provides an expression editor for SeExpr syntax with auto ui features
 * @author  aselle
 */
-#include <QtGui/QVBoxLayout>
-#include <QtGui/QHBoxLayout>
-#include <QtGui/QToolButton>
-#include <QtGui/QPushButton>
-#include <QtGui/QFormLayout>
-#include <QtGui/QDialogButtonBox>
-#include <QtGui/QColorDialog>
-#include <QtGui/QLabel>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QToolButton>
+#include <QPushButton>
+#include <QFormLayout>
+#include <QDialogButtonBox>
+#include <QColorDialog>
+#include <QLabel>
 #include "SeExprEditor.h"
 #include "SeExprEdHighlighter.h"
 #include "SeExprEdCompletionModel.h"

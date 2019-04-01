@@ -22,14 +22,14 @@
 #define _SeExprEdControlCollection_
 #include <vector>
 
-#include <QtGui/QTextBrowser>
-#include <QtGui/QPlainTextEdit>
-#include <QtGui/QDialog>
-#include <QtCore/QTimer>
-#include <QtCore/QRegExp>
-#include <QtGui/QLineEdit>
-#include <QtGui/QCheckBox>
-#include <QtGui/QSlider>
+#include <QTextBrowser>
+#include <QPlainTextEdit>
+#include <QDialog>
+#include <QTimer>
+#include <QRegExp>
+#include <QLineEdit>
+#include <QCheckBox>
+#include <QSlider>
 #include "SeExprEdControl.h"
 
 class QVBoxLayout;

@@ -58,7 +58,7 @@ The components of the interface will include:
 We will first create a new ImageEditorDialog class based on the <a href="http://doc.qt.digia.com/4.7/qdialog.html">QDialog</a> class:
 
 <pre style="padding-left: 5em;">
-#include &lt;QtGui/QDialog&gt;
+#include &lt;QDialog&gt;
 
 class ImageEditorDialog: public QDialog
 {
@@ -76,7 +76,7 @@ ImageEditorDialog::ImageEditorDialog(QWidget *parent)
 A simple main application will show the dialog:
 
 <pre style="padding-left: 5em;">
-#include &lt;QtGui/QApplication&gt;
+#include &lt;QApplication&gt;
 #include "ImageEditorDialog.h"
 
 int main(int argc, char *argv[]){
@@ -95,8 +95,8 @@ Now let's add some controls and an expression editor.  The <a href="./classSeExp
 We will include two new header files, in addition to the needed Qt header files:
 
 <pre style="padding-left: 5em;">
-#include &lt;QtGui/QVBoxLayout&gt;
-#include &lt;QtGui/QScrollArea&gt;
+#include &lt;QVBoxLayout&gt;
+#include &lt;QScrollArea&gt;
 #include &lt;SeExprEdControlCollection.h&gt;
 #include &lt;SeExprEditor.h&gt;
 </pre>
@@ -213,9 +213,9 @@ First some additional headers:
 
 <pre style="padding-left: 5em;">
 #include &lt;string&gt;
-#include &lt;QtGui/QLabel&gt;
-#include &lt;QtGui/QImage&gt;
-#include &lt;QtGui/QMessageBox&gt;
+#include &lt;QLabel&gt;
+#include &lt;QImage&gt;
+#include &lt;QMessageBox&gt;
 </pre>
 
 and another new data member in the ImageEditorDialog class for the image label:
@@ -346,8 +346,8 @@ unsigned char *ImageSynthesizer::evaluateExpression(const std::string &exprStr)
 Now we're ready to create an apply button and add it to the bottom of the layout:
 
 <pre style="padding-left: 5em;">
-#include &lt;QtGui/QPushButton&gt;
-#include &lt;QtGui/QMessageBox&gt;
+#include &lt;QPushButton&gt;
+#include &lt;QMessageBox&gt;
 
     // Create apply button and connect to image preview.
     QPushButton *applyButton=new QPushButton("Apply");
@@ -419,7 +419,7 @@ void ImageEditorDialog::applyExpression()
 Finally, we'll have to pull out the ImageEditorDialog class definition into its own header, ImageEditorDialog.h, so the Qt MOC files will build correctly:
 
 <pre style="padding-left: 5em;">
-#include &lt;QtGui/QDialog&gt;
+#include &lt;QDialog&gt;
 
 class QLabel;
 class SeExprEditor;

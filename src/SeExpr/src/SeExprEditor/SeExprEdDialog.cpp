@@ -24,9 +24,9 @@
 #include "SeExprEdDialog.h"
 #include "SeExprEdControlCollection.h"
 
-#include <QtCore/QDir>
-#include <QtGui/QApplication>
-#include <QtGui/QLabel>
+#include <QDir>
+#include <QApplication>
+#include <QLabel>
 #include <iostream>
 #include <fstream>
 

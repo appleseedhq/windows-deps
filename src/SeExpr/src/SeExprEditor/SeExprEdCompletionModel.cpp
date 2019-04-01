@@ -18,7 +18,7 @@
 * @brief This provides an exression editor for SeExpr syntax with auto ui features
 * @author  aselle
 */
-#include <QtGui/QLineEdit>
+#include <QLineEdit>
 #include <SeExpression.h>
 #include <SeExprFunc.h>
 #include "SeExprEdCompletionModel.h"
