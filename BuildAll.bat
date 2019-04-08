@@ -45,11 +45,6 @@ if [%qt_root_path%] == [] goto syntax
 if [%python_include_dir%] == [] goto syntax
 if [%python_library%] == [] goto syntax
 
-if [%generator%] == ["Visual Studio 11 2012 Win64"] (
-    set platform=vc11
-    goto start
-)
-
 if [%generator%] == ["Visual Studio 14 2015 Win64"] (
     set platform=vc14
     goto start
@@ -66,13 +61,11 @@ echo Syntax:
 echo   %~n0%~x0 ^<cmake-generator^> ^<boost-root^> ^<qt-root-path^> ^<python-include-dir^> ^<python-library^>
 echo.
 echo Supported values for ^<cmake-generator^>:
-echo.
-echo   "Visual Studio 11 2012 Win64"
 echo   "Visual Studio 14 2015 Win64"
 echo   "Visual Studio 15 2017 Win64"
 echo.
 echo Example:
-echo   %~n0%~x0 "Visual Studio 15 2017 Win64" C:\dev\boost_1_55_0 C:\dev\qt-5.12.2 C:\Python27\include C:\Python27\libs\python27.lib
+echo   %~n0%~x0 "Visual Studio 15 2017 Win64" C:\dev\boost_1_69_0 C:\dev\qt\5.12.2\msvc2017_64 C:\Python27\include C:\Python27\libs\python27.lib
 goto end
 
 :start
@@ -408,11 +401,6 @@ echo %time% ^| [12/14] Building SeExpr...
 REM ===============================================================================
 
 :embree
-
-if [%platform%] == [vc11] (
-    echo %time% ^| [13/14] Skipping Embree ^(not supported with Visual Studio 2012^)...
-    goto end_embree
-)
 
 echo %time% ^| [13/14] Building Embree...
 
