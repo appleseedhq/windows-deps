@@ -83,7 +83,7 @@ echo   generator ............ %generator%
 echo   platform ............. %platform%
 echo   root ................. %root%
 echo   boost_root ........... %boost_root%
-echo   qt_root_path ........ %qt_root_path%
+echo   qt_root_path ......... %qt_root_path%
 echo   python_include_dir ... %python_include_dir%
 echo   python_library ....... %python_library%
 echo.
