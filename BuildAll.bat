@@ -127,7 +127,7 @@ echo %time% ^| [ 2/14] Building LLVM...
         echo === LLVM (Debug) ============================================================== > BUILDLOG.txt
         cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_REQUIRES_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\llvm-debug %src%\llvm %redirect%
         %devenv% llvm.sln /build Debug /project INSTALL %redirect%
-        copy lib\Transforms\IPO\LLVMipo.dir\Debug\*.pdb %root%stage\%platform%\llvm-debug\lib %redirect%
+        for /R lib\ %%f in (*.pdb) do @copy /Y "%%f" %root%stage\%platform%\llvm-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
