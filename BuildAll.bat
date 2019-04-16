@@ -6,7 +6,7 @@ REM Visit https://appleseedhq.net/ for additional information and resources.
 REM
 REM This software is released under the MIT license.
 REM
-REM Copyright (c) 2014-2018 Francois Beaune, The appleseedhq Organization
+REM Copyright (c) 2014-2019 Francois Beaune, The appleseedhq Organization
 REM
 REM Permission is hereby granted, free of charge, to any person obtaining a copy
 REM of this software and associated documentation files (the "Software"), to deal
@@ -46,7 +46,7 @@ if [%python_include_dir%] == [] goto syntax
 if [%python_library%] == [] goto syntax
 
 if [%generator%] == ["Visual Studio 14 2015 Win64"] (
-    set platform=vc14
+    set platform=vc140
     goto start
 )
 
@@ -425,7 +425,7 @@ echo %time% ^| [13/14] Building Embree...
     mkdir %root%build\%platform%\embree-release 2>nul
     pushd %root%build\%platform%\embree-release
         echo === Embree (Release) ========================================================== > BUILDLOG.txt
-        if [%platform%] == [vc14] (
+        if [%platform%] == [vc140] (
             REM The CMake argument
             REM   -DCMAKE_CXX_FLAGS="-d2SSAOptimizer-"
             REM is required to work around a bug in the new SSA optimizer introduced in VS 2015:
