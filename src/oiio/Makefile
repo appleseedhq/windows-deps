@@ -12,7 +12,6 @@
 .PHONY: all debug profile clean realclean nuke doxygen
 
 working_dir	:= ${shell pwd}
-INSTALLDIR	=${working_dir}
 
 # Figure out which architecture we're on
 include ${working_dir}/src/make/detectplatform.mk
@@ -37,7 +36,7 @@ CMAKE ?= cmake
 ifndef OPENIMAGEIO_SITE
     OPENIMAGEIO_SITE := ${shell uname -n}
 endif
-ifneq (${shell echo ${OPENIMAGEIO_SITE} | grep imageworks},)
+ifneq (${shell echo ${OPENIMAGEIO_SITE} | grep imageworks.com},)
 include ${working_dir}/site/spi/Makefile-bits
 endif
 
@@ -47,6 +46,13 @@ top_build_dir := build
 build_dir     := ${top_build_dir}/${platform}${variant}
 top_dist_dir  := dist
 dist_dir      := ${top_dist_dir}/${platform}${variant}
+
+ifndef INSTALL_PREFIX
+INSTALL_PREFIX := ${working_dir}/${dist_dir}
+INSTALL_PREFIX_BRIEF := ${dist_dir}
+else
+INSTALL_PREFIX_BRIEF := ${INSTALL_PREFIX}
+endif
 
 VERBOSE ?= ${SHOWCOMMANDS}
 ifneq (${VERBOSE},)
@@ -58,7 +64,7 @@ ifneq (${VERBOSE},0)
 endif
 $(info OPENIMAGEIO_SITE = ${OPENIMAGEIO_SITE})
 $(info dist_dir = ${dist_dir})
-$(info INSTALLDIR = ${INSTALLDIR})
+$(info INSTALL_PREFIX = ${INSTALL_PREFIX})
 endif
 
 ifneq (${EMBEDPLUGINS},)
@@ -71,14 +77,6 @@ endif
 
 ifneq (${USE_QT},)
 MY_CMAKE_FLAGS += -DUSE_QT:BOOL=${USE_QT}
-endif
-
-ifneq (${FORCE_OPENGL_1},)
-MY_CMAKE_FLAGS += -DFORCE_OPENGL_1:BOOL=${FORCE_OPENGL_1}
-endif
-
-ifneq (${NOTHREADS},)
-MY_CMAKE_FLAGS += -DNOTHREADS:BOOL=${NOTHREADS}
 endif
 
 ifneq (${OIIO_THREAD_ALLOW_DCLP},)
@@ -95,10 +93,6 @@ endif
 
 ifneq (${USE_PYTHON},)
 MY_CMAKE_FLAGS += -DUSE_PYTHON:BOOL=${USE_PYTHON}
-endif
-
-ifneq (${USE_PYTHON3},)
-MY_CMAKE_FLAGS += -DUSE_PYTHON3:BOOL=${USE_PYTHON3}
 endif
 
 ifneq (${PYTHON_VERSION},)
@@ -123,6 +117,22 @@ endif
 
 ifneq (${FIELD3D_HOME},)
 MY_CMAKE_FLAGS += -DFIELD3D_HOME:STRING=${FIELD3D_HOME}
+endif
+
+ifneq (${USE_TBB},)
+MY_CMAKE_FLAGS += -DUSE_TBB:BOOL=${USE_TBB}
+endif
+
+ifneq (${TBB_ROOT_DIR},)
+MY_CMAKE_FLAGS += -DTBB_ROOT_DIR:STRING=${TBB_ROOT_DIR}
+endif
+
+ifneq (${USE_OPENVDB},)
+MY_CMAKE_FLAGS += -DUSE_OPENVDB:BOOL=${USE_OPENVDB}
+endif
+
+ifneq (${OPENVDB_LOCATION},)
+MY_CMAKE_FLAGS += -DOPENVDB_LOCATION:STRING=${OPENVDB_LOCATION}
 endif
 
 ifneq (${USE_OPENJPEG},)
@@ -157,10 +167,6 @@ ifneq (${USE_NUKE},)
 MY_CMAKE_FLAGS += -DUSE_NUKE:BOOL=${USE_NUKE}
 endif
 
-ifneq (${USE_OPENSSL},)
-MY_CMAKE_FLAGS += -DUSE_OPENSSL:BOOL=${USE_OPENSSL}
-endif
-
 ifneq (${USE_OPENCV},)
 MY_CMAKE_FLAGS += -DUSE_OPENCV:BOOL=${USE_OPENCV}
 endif
@@ -177,16 +183,28 @@ ifneq (${USE_PTEX},)
 MY_CMAKE_FLAGS += -DUSE_PTEX:BOOL=${USE_PTEX}
 endif
 
+ifneq (${USE_WEBP},)
+MY_CMAKE_FLAGS += -DUSE_WEBP:BOOL=${USE_WEBP}
+endif
+
 ifneq (${USE_EXTERNAL_PUGIXML},)
 MY_CMAKE_FLAGS += -DUSE_EXTERNAL_PUGIXML:BOOL=${USE_EXTERNAL_PUGIXML} -DPUGIXML_HOME=${PUGIXML_HOME}
 endif
 
+# Old names -- DEPRECATED (1.9)
 ifneq (${OPENEXR_HOME},)
-MY_CMAKE_FLAGS += -DOPENEXR_HOME:STRING=${OPENEXR_HOME}
+MY_CMAKE_FLAGS += -DOPENEXR_ROOT_DIR:STRING=${OPENEXR_HOME}
+endif
+ifneq (${ILMBASE_HOME},)
+MY_CMAKE_FLAGS += -DILMBASE_ROOT_DIR:STRING=${ILMBASE_HOME}
 endif
 
-ifneq (${ILMBASE_HOME},)
-MY_CMAKE_FLAGS += -DILMBASE_HOME:STRING=${ILMBASE_HOME}
+ifneq (${OPENEXR_ROOT_DIR},)
+MY_CMAKE_FLAGS += -DOPENEXR_ROOT_DIR:STRING=${OPENEXR_ROOT_DIR}
+endif
+
+ifneq (${ILMBASE_ROOT_DIR},)
+MY_CMAKE_FLAGS += -DILMBASE_ROOT_DIR:STRING=${ILMBASE_ROOT_DIR}
 endif
 
 ifneq (${OCIO_HOME},)
@@ -248,16 +266,16 @@ ifneq (${MYCXX},)
 MY_CMAKE_FLAGS += -DCMAKE_CXX_COMPILER:STRING="${MYCXX}"
 endif
 
-ifneq (${USE_CPP11},)
-MY_CMAKE_FLAGS += -DUSE_CPP11:BOOL=${USE_CPP11}
-endif
-
-ifneq (${USE_CPP14},)
-MY_CMAKE_FLAGS += -DUSE_CPP14:BOOL=${USE_CPP14}
+ifneq (${USE_CPP},)
+MY_CMAKE_FLAGS += -DUSE_CPP=${USE_CPP}
 endif
 
 ifneq (${USE_LIBCPLUSPLUS},)
 MY_CMAKE_FLAGS += -DUSE_LIBCPLUSPLUS:BOOL=${USE_LIBCPLUSPLUS}
+endif
+
+ifneq (${GLIBCXX_USE_CXX11_ABI},)
+MY_CMAKE_FLAGS += -DGLIBCXX_USE_CXX11_ABI=${GLIBCXX_USE_CXX11_ABI}
 endif
 
 ifneq (${EXTRA_CPP_ARGS},)
@@ -266,6 +284,10 @@ endif
 
 ifneq (${USE_SIMD},)
 MY_CMAKE_FLAGS += -DUSE_SIMD:STRING="${USE_SIMD}"
+endif
+
+ifneq (${TEX_BATCH_SIZE},)
+MY_CMAKE_FLAGS += -DTEX_BATCH_SIZE:STRING="${TEX_BATCH_SIZE}"
 endif
 
 ifneq (${TEST},)
@@ -281,12 +303,42 @@ MY_CMAKE_FLAGS += -G Ninja
 BUILDSENTINEL := build.ninja
 endif
 
-ifneq (${CODECOV},)
+ifeq (${CODECOV},1)
 MY_CMAKE_FLAGS += -DCMAKE_BUILD_TYPE:STRING=Debug -DCODECOV:BOOL=${CODECOV}
+endif
+
+ifneq (${SANITIZE},)
+MY_CMAKE_FLAGS += -DSANITIZE=${SANITIZE}
+endif
+
+ifneq (${CLANG_TIDY},)
+  MY_CMAKE_FLAGS += -DCLANG_TIDY:BOOL=1
+endif
+ifneq (${CLANG_TIDY_CHECKS},)
+  MY_CMAKE_FLAGS += -DCLANG_TIDY_CHECKS:STRING=${CLANG_TIDY_CHECKS}
+endif
+ifneq (${CLANG_TIDY_ARGS},)
+  MY_CMAKE_FLAGS += -DCLANG_TIDY_ARGS:STRING=${CLANG_TIDY_ARGS}
+endif
+ifneq (${CLANG_TIDY_FIX},)
+  MY_CMAKE_FLAGS += -DCLANG_TIDY_FIX:BOOL=${CLANG_TIDY_FIX}
+  MY_NINJA_FLAGS += -j 1
+  # N.B. when fixing, you don't want parallel jobs!
+endif
+
+ifneq (${CLANG_FORMAT_INCLUDES},)
+  MY_CMAKE_FLAGS += -DCLANG_FORMAT_INCLUDES:STRING=${CLANG_FORMAT_INCLUDES}
+endif
+ifneq (${CLANG_FORMAT_EXCLUDES},)
+  MY_CMAKE_FLAGS += -DCLANG_FORMAT_EXCLUDES:STRING=${CLANG_FORMAT_EXCLUDES}
 endif
 
 ifneq (${USE_FREETYPE},)
 MY_CMAKE_FLAGS += -DUSE_FREETYPE:BOOL=${USE_FREETYPE}
+endif
+
+ifneq (${BUILD_MISSING_DEPS},)
+MY_CMAKE_FLAGS += -DBUILD_MISSING_DEPS:BOOL=${BUILD_MISSING_DEPS}
 endif
 
 
@@ -319,7 +371,7 @@ cmakesetup:
 	@ (if [ ! -e ${build_dir}/${BUILDSENTINEL} ] ; then \
 		${CMAKE} -E make_directory ${build_dir} ; \
 		cd ${build_dir} ; \
-		${CMAKE} -DCMAKE_INSTALL_PREFIX=${INSTALLDIR}/${dist_dir} \
+		${CMAKE} -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} \
 			${MY_CMAKE_FLAGS} -DBOOST_ROOT=${BOOST_HOME} \
 			../.. ; \
 	 fi)
@@ -345,6 +397,10 @@ package: cmakeinstall
 package_source: cmakeinstall
 	@ ( cd ${build_dir} ; ${NINJA} ${MY_NINJA_FLAGS} package_source )
 
+# 'make clang-format' runs clang-format on all source files (if it's installed)
+clang-format: cmakesetup
+	@ ( cd ${build_dir} ; ${NINJA} ${MY_NINJA_FLAGS} clang-format )
+
 else
 
 # 'make cmake' does a basic build (after first setting it up)
@@ -366,6 +422,10 @@ package: cmakeinstall
 package_source: cmakeinstall
 	@ ( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} package_source )
 
+# 'make clang-format' runs clang-format on all source files (if it's installed)
+clang-format: cmakesetup
+	@ ( cd ${build_dir} ; ${MAKE} ${MY_MAKE_FLAGS} clang-format )
+
 endif
 
 # 'make dist' is just a synonym for 'make cmakeinstall'
@@ -376,7 +436,6 @@ TEST_FLAGS += --force-new-ctest-process --output-on-failure
 # 'make test' does a full build and then runs all tests
 test: cmake
 	@ ${CMAKE} -E cmake_echo_color --switch=$(COLOR) --cyan "Running tests ${TEST_FLAGS}..."
-	@ # if [ "${CODECOV}" == "1" ] ; then lcov -b ${build_dir} -d ${build_dir} -z ; rm -rf ${build_dir}/cov ; fi
 	@ ( cd ${build_dir} ; PYTHONPATH=${PWD}/${build_dir}/src/python ctest -E broken ${TEST_FLAGS} )
 	@ ( if [ "${CODECOV}" == "1" ] ; then \
 	      cd ${build_dir} ; \
@@ -414,17 +473,15 @@ doxygen:
 # 'make help' prints important make targets
 help:
 	@echo "Targets:"
-	@echo "  make              Build optimized binaries and libraries in ${dist_dir},"
-	@echo "                        temporary build files in ${build_dir}"
-	@echo "  make debug        Build unoptimized with symbols in ${dist_dir}.debug,"
-	@echo "                        temporary build files in ${build_dir}.debug"
-	@echo "  make profile      Build for profiling in ${dist_dir}.profile,"
-	@echo "                        temporary build files in ${build_dir}.profile"
+	@echo "  make              Build optimized binaries and libraries"
+	@echo "  make debug        Build unoptimized with symbols"
+	@echo "  make profile      Build for profiling"
 	@echo "  make clean        Remove the temporary files in ${build_dir}"
 	@echo "  make realclean    Remove both ${build_dir} AND ${dist_dir}"
 	@echo "  make nuke         Remove ALL of build and dist (not just ${platform})"
 	@echo "  make test         Run tests"
 	@echo "  make testall      Run all tests, even broken ones"
+	@echo "  make clang-format Run clang-format on all the source files"
 	@echo "  make doxygen      Build the Doxygen docs in ${top_build_dir}/doxygen"
 	@echo ""
 	@echo "Helpful modifiers:"
@@ -433,13 +490,18 @@ help:
 	@echo "      STOP_ON_WARNING=0        Do not stop building if compiler warns"
 	@echo "      OPENIMAGEIO_SITE=xx      Use custom site build mods"
 	@echo "      MYCC=xx MYCXX=yy         Use custom compilers"
-	@echo "      USE_CPP11=0              Compile in C++11 mode (=0 means use CPP03!)"
-	@echo "      USE_CPP14=1              Compile in C++14 mode"
-	@echo "      USE_LIBCPLUSPLUS=1       Use clang libc++"
+	@echo "      USE_CPP=14               Compile in C++14 mode (default is C++11)"
+	@echo "      USE_LIBCPLUSPLUS=1       For clang, use libc++"
+	@echo "      GLIBCXX_USE_CXX11_ABI=1  For gcc, use the new string ABI"
 	@echo "      EXTRA_CPP_ARGS=          Additional args to the C++ command"
 	@echo "      USE_NINJA=1              Set up Ninja build (instead of make)"
 	@echo "      USE_CCACHE=0             Disable ccache (even if available)"
 	@echo "      CODECOV=1                Enable code coverage tests"
+	@echo "      SANITIZE=name1,...       Enable sanitizers (address, leak, thread)"
+	@echo "      CLANG_TIDY=1             Run clang-tidy on all source (can be modified"
+	@echo "                                  by CLANG_TIDY_ARGS=... and CLANG_TIDY_FIX=1"
+	@echo "      CLANG_FORMAT_INCLUDES=... CLANG_FORMAT_EXCLUDES=..."
+	@echo "                               Customize files for 'make clang-format'"
 	@echo "  Linking and libraries:"
 	@echo "      HIDE_SYMBOLS=1           Hide symbols not in the public API"
 	@echo "      SOVERSION=nn             Include the specifed major version number "
@@ -448,17 +510,20 @@ help:
 	@echo "      LINKSTATIC=1             Link with static external libs when possible"
 	@echo "  Finding and Using Dependencies:"
 	@echo "      BOOST_HOME=path          Custom Boost installation"
-	@echo "      OPENEXR_HOME=path        Custom OpenEXR installation"
-	@echo "      ILMBASE_HOME=path        Custom IlmBase installation"
+	@echo "      OPENEXR_ROOT_DIR=path    Custom OpenEXR installation"
+	@echo "      ILMBASE_ROOT_DIR=path    Custom IlmBase installation"
 	@echo "      USE_EXTERNAL_PUGIXML=1   Use the system PugiXML, not the one in OIIO"
 	@echo "      USE_QT=0                 Skip anything that needs Qt"
 	@echo "      USE_OPENGL=0             Skip anything that needs OpenGL"
-	@echo "      FORCE_OPENGL_1=1         Force iv to use OpenGL's fixed pipeline"
 	@echo "      USE_PYTHON=0             Don't build the Python binding"
-	@echo "      USE_PYTHON3=1            If 1, try to build against Python3, not 2.x"
 	@echo "      PYTHON_VERSION=2.6       Specify the Python version"
 	@echo "      USE_FIELD3D=0            Don't build the Field3D plugin"
 	@echo "      FIELD3D_HOME=path        Custom Field3D installation"
+	@echo "      USE_OPENVDB=0            Don't build the OpenVDB plugin"
+	@echo "      OPENVDB_LOCATION=path    Custom OpenVDB installation"
+	@echo "      USE_TBB=0                Don't use Intel TBB, though known"
+	@echo "                                  dependencies (USE_OPENVDB=1) will override this"
+	@echo "      TBB_ROOT_DIR=path        Custom Intel TBB installation"
 	@echo "      USE_FFMPEG=0             Don't build the FFmpeg plugin"
 	@echo "      USE_JPEGTURBO=0          Don't build the JPEG-Turbo even if found"
 	@echo "      JPEGTURBO_PATH=path      Custom path for JPEG-Turbo"
@@ -470,23 +535,25 @@ help:
 	@echo "      USE_NUKE=0               Don't build Nuke plugins"
 	@echo "      NUKE_HOME=path           Custom Nuke installation"
 	@echo "      NUKE_VERSION=ver         Custom Nuke version"
-#	@echo "      USE_OPENSSL=1            Use OpenSSL's SHA-1 implementation"
 	@echo "      USE_LIBRAW=0             Don't use LibRaw, even if found"
 	@echo "      LIBRAW_PATH=path         Custom LibRaw installation"
 	@echo "      USE_OPENCV=0             Skip anything that needs OpenCV"
 	@echo "      USE_PTEX=0               Skip anything that needs PTex"
+	@echo "      USE_WEBP=0               Skip anything that needs WebP"
 	@echo "      USE_FREETYPE=0           Skip anything that needs Freetype"
 	@echo "  OIIO build-time options:"
-	@echo "      NAMESPACE=name           Wrap everything in another namespace"
+	@echo "      INSTALL_PREFIX=path      Set installation prefix (default: ./${INSTALL_PREFIX_BRIEF})"
+	@echo "      NAMESPACE=name           Override namespace base name (default: OpenImageIO)"
 	@echo "      EMBEDPLUGINS=0           Don't compile the plugins into libOpenImageIO"
-	@echo "      NOTHREADS=1              Build with threading support turned off"
 	@echo "      OIIO_THREAD_ALLOW_DCLP=0 Don't allow threads.h to use DCLP"
 	@echo "      OIIO_BUILD_TOOLS=0       Skip building the command-line tools"
 	@echo "      OIIO_BUILD_TESTS=0       Skip building the unit tests"
 	@echo "      BUILD_OIIOUTIL_ONLY=1    Build *only* libOpenImageIO_Util"
-	@echo "      USE_SIMD=arch            Build with SIMD support (choices: 0, sse2, sse3,"
-	@echo "                                  ssse3, sse4.1, sse4.2, f16c, avx, avx2"
-	@echo "                                  comma-separated ok)"
+	@echo "      USE_SIMD=arch            Build with SIMD support (comma-separated choices:"
+	@echo "                                  0, sse2, sse3, ssse3, sse4.1, sse4.2, f16c,"
+	@echo "                                  avx, avx2, avx512f)"
+	@echo "      TEX_BATCH_SIZE=16        Override TextureSystem SIMD batch size"
+	@echo "      BUILD_MISSING_DEPS=1     Try to download/build missing dependencies"
 	@echo "  make test, extra options:"
 	@echo "      TEST=regex               Run only tests matching the regex"
 	@echo ""

@@ -1,3 +1,4 @@
+// clang-format off
 /*
 xxHash - Fast Hash algorithm
 Copyright (C) 2012-2014, Yann Collet.
@@ -27,10 +28,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 You can contact the author at :
-- xxHash source repository : http://code.google.com/p/xxhash/
+- xxHash source repository : https://github.com/Cyan4973/xxHash
 - public discussion board : https://groups.google.com/forum/#!forum/lz4c
 */
-
 
 //**************************************
 // Tuning parameters
@@ -80,10 +80,10 @@ You can contact the author at :
 //**************************************
 // Includes & Memory related functions
 //**************************************
-#include "OpenImageIO/hash.h"
+#include <OpenImageIO/hash.h>
 
 
-#include <stddef.h>   /* size_t */
+#include <cstddef>   /* size_t */
 typedef enum { XXH_OK=0, XXH_ERROR } XXH_errorcode;
 typedef struct { long long ll[ 6]; } XXH32_state_t;
 typedef struct { long long ll[11]; } XXH64_state_t;
@@ -94,11 +94,11 @@ typedef struct { long long ll[11]; } XXH64_state_t;
 //#include "xxhash.h"
 // Modify the local functions below should you wish to use some other memory routines
 // for malloc(), free()
-#include <stdlib.h>
+#include <cstdlib>
 static void* XXH_malloc(size_t s) { return malloc(s); }
 static void  XXH_free  (void* p)  { free(p); }
 // for memcpy()
-#include <string.h>
+#include <cstring>
 static void* XXH_memcpy(void* dest, const void* src, size_t size)
 {
     return memcpy(dest,src,size);

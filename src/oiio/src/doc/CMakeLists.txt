@@ -2,25 +2,30 @@ project(documentation)
 
 set (public_docs
      openimageio.pdf
-     "${OpenImageIO_SOURCE_DIR}/LICENSE"
+     "${OpenImageIO_SOURCE_DIR}/LICENSE.md"
+     "${OpenImageIO_SOURCE_DIR}/LICENSE-THIRD-PARTY.md"
      "${OpenImageIO_SOURCE_DIR}/CHANGES.md"
+     CHANGES-0.x.md
+     CHANGES-1.x.md
 )
 
 if (INSTALL_DOCS)
-    install (FILES ${public_docs} DESTINATION ${DOC_INSTALL_DIR}
+    install (FILES ${public_docs}
+             DESTINATION ${CMAKE_INSTALL_DOCDIR}
              COMPONENT documentation)
-endif ()
+endif()
 
 # generate man pages using txt2man and a tiny python script to munge the
 # result of "$tool --help"
 find_program(TXT2MAN txt2man)
+if (NOT PYTHONINTERP_FOUND)
 find_package(PythonInterp)
+endif ()
 if (UNIX AND TXT2MAN AND PYTHONINTERP_FOUND)
     message (STATUS "Unix man page documentation will be generated")
     set (cli_tools oiiotool iinfo maketx idiff igrep iconvert)
 
-    find_program (IV_FOUND iv)
-    if (IV_FOUND)
+    if (TARGET iv)
         list (APPEND cli_tools iv)
     endif()
 
@@ -39,6 +44,7 @@ if (UNIX AND TXT2MAN AND PYTHONINTERP_FOUND)
 
     if (INSTALL_DOCS)
         install (FILES ${manpage_files}
-                 DESTINATION ${MAN_INSTALL_DIR} COMPONENT documentation)
-    endif ()
+                 DESTINATION ${CMAKE_INSTALL_MANDIR}
+                 COMPONENT documentation)
+    endif()
 endif()

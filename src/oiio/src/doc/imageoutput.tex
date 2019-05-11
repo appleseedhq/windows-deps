@@ -12,7 +12,7 @@ to a file:
 
 \begin{code}
         #include <OpenImageIO/imageio.h>
-        OIIO_NAMESPACE_USING
+        using namespace OIIO;
         ...
 
         const char *filename = "foo.jpg";
@@ -20,14 +20,13 @@ to a file:
         const int channels = 3;  // RGB
         unsigned char pixels[xres*yres*channels];
 
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
         if (! out)
             return;
         ImageSpec spec (xres, yres, channels, TypeDesc::UINT8);
         out->open (filename, spec);
         out->write_image (TypeDesc::UINT8, pixels);
         out->close ();
-        ImageOutput::destroy (out);
 \end{code}
 
 \noindent This little bit of code does a surprising amount of useful work:  
@@ -38,7 +37,7 @@ to a file:
   finds such a plugin, it creates a subclass instance of \ImageOutput
   that writes the right kind of file format.
   \begin{code}
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
   \end{code}
 \item Open the file, write the correct headers, and in all other
   important ways prepare a file with the given dimensions ($640 \times
@@ -57,18 +56,15 @@ to a file:
   \begin{code}
         out->write_image (TypeDesc::UINT8, &pixels);
   \end{code}
-\item Close the file, destroy and free the \ImageOutput we had created,
-  and perform all other cleanup and release of any resources needed by
-  the plugin.
+\item Close the file.
   \begin{code}
         out->close ();
-        ImageOutput::destroy (out);
   \end{code}
 \end{itemize}
 
 \subsection*{What happens when the file format doesn't support the spec?}
 
-The {\cf open()} call will fail (return {\cf false} and set an appropriate
+The {\cf open()} call will fail (returning an empty pointer and set an appropriate
 error message) if the output format cannot accommodate what is requested by
 the \ImageSpec. This includes:
 \begin{itemize}
@@ -167,7 +163,7 @@ of writing a tiled image by using the {\kw supports("tiles")} query:
 
 \begin{code}
         ...
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
         if (! out->supports ("tiles")) {
             // Tiles are not supported
         }
@@ -240,7 +236,7 @@ supports("rectangles")} query:
 
 \begin{code}
         ...
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
         if (! out->supports ("rectangles")) {
             // Rectangles are not supported
         }
@@ -275,18 +271,18 @@ data (use of strides is explained in
 Section~\ref{sec:imageoutput:strides}).
 
 
-\subsection{Converting data formats}
-\label{sec:imageoutput:convertingformats}
+\subsection{Converting pixel data types}
+\label{sec:imageoutput:convertingtypes}
 
 The code examples of the previous sections all assumed that your
 internal pixel data is stored as unsigned 8-bit integers (i.e., 0-255
 range).  But \product is significantly more flexible.  
 
-You may request that the output image be stored in any of several
-formats.  This is done by setting the {\kw format} field of the
+You may request that the output image pixels be stored in any of several
+data types.  This is done by setting the {\kw format} field of the
 \ImageSpec prior to calling {\kw open}.  You can do this upon
 construction of the \ImageSpec, as in the following example
-that requests a spec that stores data as 16-bit unsigned integers:
+that requests a spec that stores pixel values as 16-bit unsigned integers:
 \begin{code}
         ImageSpec spec (xres, yres, channels, TypeDesc::UINT16);
 \end{code}
@@ -300,21 +296,57 @@ method.
         spec.set_format (TypeDesc::UINT16);
 \end{code}
 
-Note that resetting the format must be done \emph{before} passing the
-spec to {\kw open()}, or it will have no effect on the file.
+Note that resetting the pixel data type must be done \emph{before} passing
+the spec to {\kw open()}, or it will have no effect on the file.
 
 Individual file formats, and therefore \ImageOutput implementations, may
-only support a subset of the formats understood by the \product library.
+only support a subset of the pixel data types understood by the \product library.
 Each \ImageOutput plugin implementation should document which data
-formats it supports.  An individual \ImageOutput implementation may
-choose to simply fail to {\kw open()}, though the recommended behavior
-is for {\kw open()} to succeed but in fact choose a data format
-supported by the file format that best preserves the precision and range
-of the originally-requested data format.
+formats it supports.  An individual \ImageOutput implementation is expected
+to always succeed, but if the file format does not support the requested
+pixel data type, it is expected to choose a data type that is supported,
+usually the data type that best preserves the precision and range
+of the originally-requested data type.
+
+
+The conversion from floating-point formats to integer formats (or from
+higher to lower integer, which is done by first converting to float) is
+always done by rescaling the value so that $0.0$ maps to integer $0$ and
+$1.0$ to the maximum value representable by the integer type, then rounded
+to an integer value for final output.  Here is the code that implements this
+transformation ({\cf T} is the final output integer type):
+
+\begin{code}
+        float value = quant_max * input;
+        T output = (T) clamp ((int)(value + 0.5), quant_min, quant_max);
+\end{code}
+
+\noindent Quantization limits for each integer type is as follows:\\
+
+\smallskip
+\begin{tabular}{|l|r|r|}
+\hline
+{\bf Data Format} & {\bf min} & {\bf max} \\
+\hline
+{\cf UINT8}  &           0 &        255 \\
+{\cf INT8}   &        -128 &        127 \\
+{\cf UINT16} &           0 &      65535 \\
+{\cf INT16}  &      -32768 &      32767 \\
+{\cf UINT}   &           0 & 4294967295 \\
+{\cf INT}    & -2147483648 & 2147483647 \\
+\hline
+\end{tabular} \\
+\smallskip
+
+\noindent Note that the default is to use the entire positive range
+of each integer type to represent the floating-point ($0.0 - 1.0$) range.
+Floating-point types do not attempt to remap values,
+and do not clamp (except to their full floating-point range).
+
 
 It is not required that the pixel data passed to \writeimage,
 \writescanline, \writetile, or {\kw write_rectangle()} actually be in
-the same data format as that requested as the native format of the file.
+the same data type as that requested as the native pixel data type of the file.
 You can fully mix and match data you pass to the various {\kw write}
 routines and \product will automatically convert from the internal
 format to the native file format.  For example, the following code will
@@ -324,7 +356,7 @@ floating-point values, with \writeimage performing the conversion
 automatically:
 
 \begin{code}
-        ImageOutput *out = ImageOutput::create ("myfile.tif");
+        std::unique_ptr<ImageOutput> out = ImageOutput::create ("myfile.tif");
         ImageSpec spec (xres, yres, channels, TypeDesc::UINT16);
         out->open (filename, spec);
         ...
@@ -409,7 +441,7 @@ flexible functionality.  A few representative examples follow:
     unsigned char pixels[xres*yres*channels];
 
     // File representation is 1 channel
-    ImageOutput *out = ImageOutput::create (filename);
+    std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
     ImageSpec spec (xres, yres, 1, TypeDesc::UINT8);
     out->open (filename, spec);
 
@@ -481,7 +513,7 @@ the full data, if it was all present).
         int xorigin = 32, yorigin = 128;      // Crop window position
         unsigned char pixels [cropwidth * croplength * channels]; // Crop size!
         ...
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
         ImageSpec spec (cropwidth, croplength, channels, TypeDesc::UINT8);
         spec.full_x = 0;
         spec.full_y = 0;
@@ -636,7 +668,7 @@ complex arrangements, you can use the more general form of {\cf
 
         // Attach a 4x4 matrix to describe the camera coordinates
         float mymatrix[16] = { ... };
-        spec.attribute ("worldtocamera", TypeDesc::TypeMatrix, &mymatrix);
+        spec.attribute ("worldtocamera", TypeMatrix, &mymatrix);
 
         // Attach an array of two floats giving the CIE neutral color
         float neutral[2] = { ... };
@@ -671,26 +703,9 @@ in.  Each individual \ImageOutput should document how it uses this (or
 not).
 
 The {\cf ImageSpec::extra_attribs} field should store metadata that
-reveals the color space of the pixels you are sending the ImageOutput.
-The \qkw{oiio:ColorSpace} attribute may take on any of the following
-values:
-
-\begin{description}
-\item[\halfspc \rm \qkw{Linear}] indicates that the
-  color pixel values are known to be linear.
-\item[\halfspc \rm \qkw{GammaCorrected}] indicates
-  that the color pixel values (but not alpha or $z$) have
-  already been gamma corrected (raised to the power $1/\gamma$), and
-  that the gamma exponent may be found in the \qkw{oiio:Gamma} metadata.
-\item[\halfspc \rm \qkw{sRGB}] indicates that the
-  color pixel values are in sRGB color space.
-\item[\halfspc \rm \qkw{AdobeRGB}] indicates that the
-  color pixel values are in Adobe RGB color space.
-\item[\halfspc \rm \qkw{Rec709}] indicates that the
-  color pixel values are in Rec709 color space.
-\item[\halfspc \rm \qkw{KodakLog}] indicates that the
-  color pixel values are in Kodak logarithmic color space.
-\end{description}
+reveals the color space of the pixels you are sending the ImageOutput
+(see Section~\ref{metadata:colorspace} for explanations of
+particular values).
 
 \noindent The color space hints only describe color channels.  You should always
 pass alpha, depth, or other non-color channels with linear values.
@@ -717,74 +732,6 @@ space to begin with.
 
 
 
-\subsection{Controlling quantization}
-\label{sec:imageoutput:quantization}
-
-It is possible that your internal data format (that in which you compute
-pixel values that you pass to the {\cf write} functions) is of greater
-precision or range than the native data format of the output file.  This
-can occur either because you specified a lower-precision data format in
-the \ImageSpec that you passed to {\cf open()}, or else that the
-image file format dictates a particular data format that does not match
-your internal format.  For example, you may compute {\cf float} pixels
-and pass those to {\cf write_image()}, but if you are writing a
-JPEG/JFIF file, the values must be stored in the file as 8-bit unsigned
-integers.
-
-The conversion from floating-point formats to integer formats (or from
-higher to lower integer, which is done by first converting to float) is
-always done by rescaling the value so that $0.0$ maps to integer $0$ and $1.0$ to
-the maximum value representable by the integer type, then rounded to
-an integer value for final output.  Here is
-the code that implements this transformation ({\cf T} is the final
-output integer type):
-
-\begin{code}
-        float value = quant_max * input;
-        T output = (T) clamp ((int)(value + 0.5), quant_min, quant_max);
-\end{code}
-
-The values of the quantization parameters are set in one of three ways:
-(1) upon construction of the \ImageSpec, they are set to the
-default quantization values for the given data format; (2) upon call to
-{\cf ImageSpec::set_format()}, the quantization values are set
-to the defaults for the given data format; (3) or, after being first set
-up in this manner, you may manually change the quantization parameters
-in the \ImageSpec, if you want something other than the default
-quantization.
-
-\noindent Default quantization for each integer type is as follows:\\
-
-\smallskip
-\begin{tabular}{|l|r|r|}
-\hline
-{\bf Data Format} & {\bf min} & {\bf max} \\
-\hline
-{\cf UINT8}  &           0 &        255 \\
-{\cf INT8}   &        -128 &        127 \\
-{\cf UINT16} &           0 &      65535 \\
-{\cf INT16}  &      -32768 &      32767 \\
-{\cf UINT}   &           0 & 4294967295 \\
-{\cf INT}    & -2147483648 & 2147483647 \\
-\hline
-\end{tabular} \\
-\smallskip
-
-\noindent Note that the default is to use the entire positive range
-of each integer type to represent the floating-point (0..1) range.
-Floating-point types do not attempt to remap values,
-and do not clamp (except to their full floating-point range).
-
-The \qkw{oiio:dither} attribute in the \ImageSpec is used to signal  the
-desire for dithering when writing {\cf float} data to a {\cf uint8} file.
-Dithering can reduce visible banding when converting continuous float data
-to low bit depth integer images. The attribute is an integer, and if 0 (the
-default), it means not to dither. If nonzero, it requests that the results
-are dithered prior to quantization, and the specific nonzero value acts as a
-``seed'' to the hash function that determines the per-pixel dither values
-(two images using the same seed will have the same dither pattern, different
-seeds will yield different dither patterns).
-
 \subsection{Random access and repeated transmission of pixels}
 \label{sec:imageoutput:randomrewrite}
 
@@ -796,7 +743,7 @@ the plugin specifically advertises that it supports random access or
 rewrites, which may be queried using:
 
 \begin{code}
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
         if (out->supports ("random_access"))
             ...
 \end{code}
@@ -820,7 +767,7 @@ file.  Given a created \ImageOutput, you can query whether multiple
 images may be stored in the file:
 
 \begin{code}
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
         if (out->supports ("multiimage"))
             ...
 \end{code}
@@ -848,13 +795,12 @@ completed.  Here is an example:
         unsigned char *pixels[]; // assume a buffer for each subimage
 
         // Create the ImageOutput
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
 
         // Be sure we can support subimages
         if (subimages > 1 &&  (! out->supports("multiimage") ||
                                ! out->supports("appendsubimage"))) {
             std::cerr << "Does not support appending of subimages\n";
-            ImageOutput::destroy (out);
             return;
         }
 
@@ -869,7 +815,6 @@ completed.  Here is an example:
             appendmode = ImageOutput::AppendSubimage;
         }
         out->close ();
-        ImageOutput::destroy (out);
 \end{code}
 
 
@@ -892,12 +837,11 @@ specification of the subimages at the time you first open the file.
         unsigned char *pixels[]; // assume a buffer for each subimage
 
         // Create the ImageOutput
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
 
         // Be sure we can support subimages
         if (subimages > 1 && ! out->supports ("multiimage")) {
             std::cerr << "Cannot write multiple subimages\n";
-            ImageOutput::destroy (out);
             return;
         }
 
@@ -911,7 +855,6 @@ specification of the subimages at the time you first open the file.
             out->write_image (TypeDesc::UINT8, pixels[s]);
         }
         out->close ();
-        ImageOutput::destroy (out);
 \end{code}
 
 In both of these examples, we have used \writeimage, but of course
@@ -928,7 +871,7 @@ created \ImageOutput, you can query whether MIP-maps may be
 stored in the file:
 
 \begin{code}
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
         if (out->supports ("mipmap"))
             ...
 \end{code}
@@ -954,12 +897,11 @@ used for texture mapping):
         unsigned char *pixels = new unsigned char [xres*yres*channels];
 
         // Create the ImageOutput
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
 
         // Be sure we can support either mipmaps or subimages
         if (! out->supports ("mipmap") && ! out->supports ("multiimage")) {
             std::cerr << "Cannot write a MIP-map\n";
-            ImageOutput::destroy (out);
             return;
         }
         // Set up spec for the highest resolution
@@ -988,7 +930,6 @@ used for texture mapping):
                 appendmode = ImageOutput::AppendSubimage;
         }
         out->close ();
-        ImageOutput::destroy (out);
 \end{code}
 
 In this example, we have used \writeimage, but of course \writescanline,
@@ -1024,11 +965,10 @@ a Z channel in {\cf float}:
         struct Pixel { half r,g,b,a; float z; };
         Pixel pixels[xres*yres];
 
-        ImageOutput *out = ImageOutput::create ("foo.exr");
+        std::unique_ptr<ImageOutput> out = ImageOutput::create ("foo.exr");
 
         // Double check that this format accepts per-channel formats
         if (! out->supports("channelformats")) {
-            ImageOutput::destroy (out);
             return;
         }
 
@@ -1114,7 +1054,7 @@ detail in Section~\ref{sec:deepdata}.
 
 
     // Create the output
-    ImageOutput *out = ImageOutput::create (filename);
+    std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
     if (! out)
         return;
     // Make sure the format can handle deep data and per-channel formats
@@ -1125,7 +1065,6 @@ detail in Section~\ref{sec:deepdata}.
     out->open (filename, spec);
     out->write_deep_image (deepdata);
     out->close ();
-    ImageOutput::destroy (out);
 \end{code}
 
 
@@ -1162,26 +1101,73 @@ without alteration while modifying the image description metadata:
 \begin{code}
     // Open the input file
     const char *input = "input.jpg";
-    ImageInput *in = ImageInput::create (input);
-    ImageSpec in_spec;
-    in->open (input, in_spec);
+    std::unique_ptr<ImageInput> in = ImageInput::open (input);
 
     // Make an output spec, identical to the input except for metadata
-    ImageSpec out_spec = in_spec;
+    ImageSpec out_spec = in->spec();
     out_spec.attribute ("ImageDescription", "My Title");
 
     // Create the output file and copy the image
     const char *output = "output.jpg";
-    ImageOutput *out = ImageOutput::create (output);
+    std::unique_ptr<ImageOutput> out = ImageOutput::create (output);
     out->open (output, out_spec);
     out->copy_image (in);
 
     // Clean up
     out->close ();
-    ImageOutput::destroy (out);
     in->close ();
-    ImageInput::destroy (in);
 \end{code}
+
+
+\subsection{Custom I/O proxies (and writing the file to a memory buffer)}
+\label{sec:imageoutput:ioproxy}
+\index{writing an image file to memory buffer}
+\NEW   % 1.9
+
+Some file format writers allow you to supply a custom I/O proxy object that
+can allow bypassing the usual file I/O with custom behavior, including the
+ability to fill an in-memory buffer with a byte-for-byte representation of
+the correctly formatted file that would have been written to disk.
+
+Only some output format writers support this feature. To find out if a
+particular file format supports this feature, you can create an \ImageOutput
+of the right type, and check if it supports the feature name \qkw{ioproxy}:
+
+\begin{code}
+    ImageOutput *out = ImageOutput::create (filename);
+    if (! out  ||  ! out->supports ("ioproxy")) {
+        ImageOutput::destroy (out);
+        out = nullptr;
+        return;
+    }
+\end{code}
+
+\ImageOutput writers that support \qkw{ioproxy} will respond to a special
+attribute, \qkw{oiio:ioproxy}, which passes a pointer to a {\cf
+Filesystem::IOProxy*} (see \product's {\cf filesystem.h} for this type and
+its subclasses). {\cf IOProxy} is an abstract type, and concrete subclasses
+include {\cf IOFile} (which wraps I/O to an open {\cf FILE*}) and {\cf
+IOVecOutput} (which sends output to a {\cf std::vector<unsigned char>}).
+
+Here is an example of using a proxy that writes the ``file'' to a
+{\cf std::vector<unsigned char>}:
+
+\begin{code}
+    // ImageSpec describing the image we want to write.
+    ImageSpec spec (xres, yres, channels, TypeDesc::UINT8);
+
+    std::vector<unsigned char> file_buffer;  // bytes will go here
+    Filesystem::IOVecOutput vecout (file_buffer);  // I/O proxy object
+    void *ptr = &file_buffer;
+    spec.attribute ("oiio:ioproxy", TypeDesc::PTR, &ptr);
+
+    ImageOutput *out = ImageOutput::open ("out.exr", spec);
+    out->write_image (...);
+    ImageOutput::destroy (out);
+
+    // At this point, file_buffer will contain the "file"
+\end{code}
+
 
 
 \subsection{Custom search paths for plugins}
@@ -1215,7 +1201,7 @@ the order that the directories are listed.  Here is an example:
 
 \begin{code} 
         char *mysearch = "/usr/myapp/lib:${HOME}/plugins";
-        ImageOutput *out = ImageOutput::create (filename, mysearch);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename, mysearch);
         ...
 \end{code} % $
 
@@ -1244,7 +1230,7 @@ elaborated with error checking and reporting:
 
 \begin{code}
         #include <OpenImageIO/imageio.h>
-        OIIO_NAMESPACE_USING
+        using namespace OIIO;
         ...
 
         const char *filename = "foo.jpg";
@@ -1252,7 +1238,7 @@ elaborated with error checking and reporting:
         const int channels = 3;  // RGB
         unsigned char pixels[xres*yres*channels];
 
-        ImageOutput *out = ImageOutput::create (filename);
+        std::unique_ptr<ImageOutput> out = ImageOutput::create (filename);
         if (! out) {
             std::cerr << "Could not create an ImageOutput for " 
                       << filename << ", error = " 
@@ -1264,25 +1250,20 @@ elaborated with error checking and reporting:
         if (! out->open (filename, spec)) {
             std::cerr << "Could not open " << filename 
                       << ", error = " << out->geterror() << "\n";
-            ImageOutput::destroy (out);
             return;
         }
 
         if (! out->write_image (TypeDesc::UINT8, pixels)) {
             std::cerr << "Could not write pixels to " << filename 
                       << ", error = " << out->geterror() << "\n";
-            ImageOutput::destroy (out);
             return;
         }
 
         if (! out->close ()) {
             std::cerr << "Error closing " << filename 
                       << ", error = " << out->geterror() << "\n";
-            ImageOutput::destroy (out);
             return;
         }
-
-        ImageOutput::destroy (out);
 \end{code}
 
 
@@ -1290,7 +1271,7 @@ elaborated with error checking and reporting:
 \section{\ImageOutput Class Reference}
 \label{sec:imageoutput:reference}
 
-\apiitem{static ImageOutput * {\ce create} (const std::string \&filename, \\
+\apiitem{static std::unique_ptr<ImageOutput> {\ce create} (const std::string \&filename, \\
 \bigspc\bigspc\spc const std::string \&plugin_searchpath="")}
 
 Create an \ImageOutput that can be used to write an image file.  The
@@ -1299,15 +1280,6 @@ returned, and the plugin that contains its methods) is inferred from the
 extension of the file name.  The {\kw plugin_searchpath} parameter is a
 colon-separated list of directories to search for \product plugin
 DSO/DLL's.
-\apiend
-
-\apiitem{void {\ce destroy} (ImageOutput *Output)}
-Destroy an \ImageOutput that was created by {\cf create()}.
-The {\cf destroy()} method is just a wrapper around operator {\cf delete},
-but by being implemented within the \product DLL, it can ensure that the
-memory deallocation is done in the same DLL arena as where it was originally
-allocated. This is considered safer than a bare {\cf delete} when
-used inside ``plug-ins,'' especially on Windows systems.
 \apiend
 
 \apiitem{const char * {\ce format_name} ()}
@@ -1380,6 +1352,8 @@ as such). The following features are recognized by this query:
   (either specifically, or via arbitrary named metadata)?
 \item[\rm \qkw{iptc}] Does the image file format support IPTC data
   (either specifically, or via arbitrary named metadata)?
+\item[\rm \qkw{ioproxy}] Does the image file format support writing
+  to an {\cf IOProxy}?
 \end{description}
 
 \noindent This list of queries may be extended in future releases.

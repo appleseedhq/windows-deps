@@ -33,6 +33,8 @@ if not defined VCINSTALLDIR (
 )
 
 set root=%~dp0
+set root_fwd_slashes=%root:\=/%
+
 set generator=%1
 set boost_root=%2
 set qt_root_path=%3
@@ -74,7 +76,7 @@ echo Build configuration:
 echo.
 echo   generator ............ %generator%
 echo   platform ............. %platform%
-echo   root ................. %root%
+echo   root ................. %root% (%root_fwd_slashes%)
 echo   boost_root ........... %boost_root%
 echo   qt_root_path ......... %qt_root_path%
 echo   python_include_dir ... %python_include_dir%
@@ -321,7 +323,7 @@ echo %time% ^| [10/14] Building OpenImageIO...
     mkdir %root%build\%platform%\oiio-debug 2>nul
     pushd %root%build\%platform%\oiio-debug
         echo === OpenImageIO (Debug) ======================================================= > BUILDLOG.txt
-        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DUSE_SIMD=sse2 -DUSE_PYTHON=OFF -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\%platform%\ilmbase-debug -DOPENEXR_HOME=%root%stage\%platform%\openexr-debug -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-debug\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-debug\lib\zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-debug\lib\libpng16_staticd.lib -DJPEG_INCLUDE_DIR=%root%stage\%platform%\libjpeg-turbo-debug\include -DJPEG_LIBRARY=%root%stage\%platform%\libjpeg-turbo-debug\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\%platform%\libtiff-debug\include -DTIFF_LIBRARY=%root%stage\%platform%\libtiff-debug\lib\libtiff.lib -DOCIO_INCLUDE_PATH=%root%stage\%platform%\ocio-debug\include -DOCIO_LIBRARY_PATH=%root%stage\%platform%\ocio-debug\lib -DCMAKE_LIBRARY_PATH=%root%build\%platform%\ocio-debug\ext\dist\lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\oiio-debug %src%\oiio %redirect%
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Debug -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=N:\appleseed\Qt\5.12.2\msvc2015_64 -DBUILDSTATIC=ON -DLINKSTATIC=ON -DUSE_SIMD=sse2 -DOIIO_BUILD_TESTS=OFF -DUSE_PYTHON=OFF -DUSE_FIELD3D=OFF -DUSE_OPENVDB=OFF -DUSE_TBB=OFF -DUSE_FFMPEG=OFF -DUSE_OPENJPEG=OFF -DUSE_OPENCV=OFF -DUSE_FREETYPE=OFF -DUSE_GIF=OFF -DUSE_PTEX=OFF -DUSE_WEBP=OFF -DUSE_LIBRAW=OFF -DUSE_NUKE=OFF -DUSE_DICOM=OFF -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_ROOT_DIR=%root_fwd_slashes%stage/%platform%/ilmbase-debug -DOPENEXR_ROOT_DIR=%root_fwd_slashes%stage/%platform%/openexr-debug -DZLIB_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/zlib-debug/include -DZLIB_LIBRARY=%root_fwd_slashes%stage/%platform%/zlib-debug/lib/zlibstaticd.lib -DPNG_PNG_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/libpng-debug/include -DPNG_LIBRARY=%root_fwd_slashes%stage/%platform%/libpng-debug/lib/libpng16_staticd.lib -DJPEG_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/libjpeg-turbo-debug/include -DJPEG_LIBRARY=%root_fwd_slashes%stage/%platform%/libjpeg-turbo-debug/lib/jpeg-static.lib -DTIFF_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/libtiff-debug/include -DTIFF_LIBRARY=%root_fwd_slashes%stage/%platform%/libtiff-debug/lib/libtiff.lib -DOCIO_INCLUDE_PATH=%root_fwd_slashes%stage/%platform%/ocio-debug/include -DOCIO_LIBRARY_PATH=%root_fwd_slashes%stage/%platform%/ocio-debug/lib -DCMAKE_LIBRARY_PATH=%root%build\%platform%\ocio-debug\ext\dist\lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\oiio-debug %src%\oiio %redirect%
         %devenv% OpenImageIO.sln /build Debug /project INSTALL %redirect%
         copy src\libOpenImageIO\OpenImageIO.dir\Debug\*.pdb %root%stage\%platform%\oiio-debug\lib %redirect%
         copy src\libutil\OpenImageIO_Util.dir\Debug\*.pdb %root%stage\%platform%\oiio-debug\lib %redirect%
@@ -331,7 +333,7 @@ echo %time% ^| [10/14] Building OpenImageIO...
     mkdir %root%build\%platform%\oiio-release 2>nul
     pushd %root%build\%platform%\oiio-release
         echo === OpenImageIO (Release) ===================================================== > BUILDLOG.txt
-        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DBUILDSTATIC=ON -DLINKSTATIC=ON -DUSE_SIMD=sse2 -DUSE_PYTHON=OFF -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_HOME=%root%stage\%platform%\ilmbase-release -DOPENEXR_HOME=%root%stage\%platform%\openexr-release -DZLIB_INCLUDE_DIR=%root%stage\%platform%\zlib-release\include -DZLIB_LIBRARY=%root%stage\%platform%\zlib-release\lib\zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root%stage\%platform%\libpng-debug\include -DPNG_LIBRARY=%root%stage\%platform%\libpng-release\lib\libpng16_static.lib -DJPEG_INCLUDE_DIR=%root%stage\%platform%\libjpeg-turbo-release\include -DJPEG_LIBRARY=%root%stage\%platform%\libjpeg-turbo-release\lib\jpeg-static.lib -DTIFF_INCLUDE_DIR=%root%stage\%platform%\libtiff-release\include -DTIFF_LIBRARY=%root%stage\%platform%\libtiff-release\lib\libtiff.lib -DOCIO_INCLUDE_PATH=%root%stage\%platform%\ocio-release\include -DOCIO_LIBRARY_PATH=%root%stage\%platform%\ocio-release\lib -DCMAKE_LIBRARY_PATH=%root%build\%platform%\ocio-release\ext\dist\lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\oiio-release %src%\oiio %redirect%
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=N:\appleseed\Qt\5.12.2\msvc2015_64 -DBUILDSTATIC=ON -DLINKSTATIC=ON -DUSE_SIMD=sse2 -DOIIO_BUILD_TESTS=OFF -DUSE_PYTHON=OFF -DUSE_FIELD3D=OFF -DUSE_OPENVDB=OFF -DUSE_TBB=OFF -DUSE_FFMPEG=OFF -DUSE_OPENJPEG=OFF -DUSE_OPENCV=OFF -DUSE_FREETYPE=OFF -DUSE_GIF=OFF -DUSE_PTEX=OFF -DUSE_WEBP=OFF -DUSE_LIBRAW=OFF -DUSE_NUKE=OFF -DUSE_DICOM=OFF -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB" -DILMBASE_ROOT_DIR=%root_fwd_slashes%stage/%platform%/ilmbase-release -DOPENEXR_ROOT_DIR=%root_fwd_slashes%stage/%platform%/openexr-release -DZLIB_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/zlib-release/include -DZLIB_LIBRARY=%root_fwd_slashes%stage/%platform%/zlib-release/lib/zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/libpng-debug/include -DPNG_LIBRARY=%root_fwd_slashes%stage/%platform%/libpng-release/lib/libpng16_static.lib -DJPEG_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/libjpeg-turbo-release/include -DJPEG_LIBRARY=%root_fwd_slashes%stage/%platform%/libjpeg-turbo-release/lib/jpeg-static.lib -DTIFF_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/libtiff-release/include -DTIFF_LIBRARY=%root_fwd_slashes%stage/%platform%/libtiff-release/lib/libtiff.lib -DOCIO_INCLUDE_PATH=%root_fwd_slashes%stage/%platform%/ocio-release/include -DOCIO_LIBRARY_PATH=%root_fwd_slashes%stage/%platform%/ocio-release/lib -DCMAKE_LIBRARY_PATH=%root%build\%platform%\ocio-release\ext\dist\lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\oiio-release %src%\oiio %redirect%
         %devenv% OpenImageIO.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd

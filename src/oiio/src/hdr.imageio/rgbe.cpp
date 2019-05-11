@@ -2,11 +2,13 @@
  * WHILE THE AUTHORS HAVE TRIED TO ENSURE THE PROGRAM WORKS CORRECTLY,
  * IT IS STRICTLY USE AT YOUR OWN RISK.  */
 
+// clang-format off
+
 #include "rgbe.h"
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <cctype>
 
 /* This file contains code to read and write four byte rgbe file format
  developed by Greg Ward.  It handles the conversions between rgbe and
@@ -30,6 +32,11 @@
  3. Change the default programtype string from "RGBE" to "RADIANCE" since
     I noticed that some hdr/rgbe readers (including OS X's preivew util)
     will only accept "RADIANCE" as the programtype.
+
+Further changes by LG, 2018:
+* Replace unsafe string ops and fixed size buffers for error messages with
+  std::string and Strutil::sprintf.
+
 */
 
 #if defined(_CPLUSPLUS) || defined(__cplusplus)
@@ -56,33 +63,21 @@ enum rgbe_error_codes {
 };
 
 /* default error routine.  change this to change error handling */
-static int rgbe_error(int rgbe_error_code, const char *msg, char *errbuf)
+static int rgbe_error(int rgbe_error_code, const char *msg, std::string &errbuf)
 {
   switch (rgbe_error_code) {
   case rgbe_read_error:
-      if (errbuf)
-          strcpy (errbuf, "RGBE read error");
-      else
-          perror("RGBE read error");
+    errbuf = "RGBE read error";
     break;
   case rgbe_write_error:
-      if (errbuf)
-          strcpy (errbuf, "RGBE write error");
-      else
-          perror("RGBE write error");
+    errbuf = "RGBE write error";
     break;
   case rgbe_format_error:
-      if (errbuf)
-          sprintf(errbuf,"RGBE bad file format: %s\n", msg);
-      else
-          fprintf(stderr,"RGBE bad file format: %s\n",msg);
+    errbuf = Strutil::sprintf ("RGBE bad file format: %s\n", msg);
     break;
   default:
   case rgbe_memory_error:
-      if (errbuf)
-          sprintf(errbuf,"RGBE error: %s\n",msg);
-      else
-          fprintf(stderr,"RGBE error: %s\n",msg);
+    errbuf = Strutil::sprintf ("RGBE error: %s\n",msg);
     break;
   }
   return RGBE_RETURN_FAILURE;
@@ -131,7 +126,7 @@ rgbe2float(float *red, float *green, float *blue, unsigned char rgbe[4])
 
 /* default minimal header. modify if you want more information in header */
 int RGBE_WriteHeader(FILE *fp, int width, int height, rgbe_header_info *info,
-                     char *errbuf)
+                     std::string &errbuf)
 {
   const char *programtype = "RADIANCE";
   /* N.B. from Larry Gritz:
@@ -163,7 +158,7 @@ int RGBE_WriteHeader(FILE *fp, int width, int height, rgbe_header_info *info,
 
 /* minimal header reading.  modify if you want to parse more information */
 int RGBE_ReadHeader(FILE *fp, int *width, int *height, rgbe_header_info *info,
-                    char *errbuf)
+                    std::string &errbuf)
 {
   char buf[128];
   float tempf;
@@ -271,7 +266,7 @@ int RGBE_ReadHeader(FILE *fp, int *width, int *height, rgbe_header_info *info,
 /* These routines can be made faster by allocating a larger buffer and
    fread-ing and fwrite-ing the data in larger chunks */
 int RGBE_WritePixels(FILE *fp, float *data, int numpixels,
-                     char *errbuf)
+                     std::string &errbuf)
 {
   unsigned char rgbe[4];
 
@@ -287,7 +282,7 @@ int RGBE_WritePixels(FILE *fp, float *data, int numpixels,
 
 /* simple read routine.  will not correctly handle run length encoding */
 int RGBE_ReadPixels(FILE *fp, float *data, int numpixels,
-                    char *errbuf)
+                    std::string &errbuf)
 {
   unsigned char rgbe[4];
 
@@ -307,7 +302,7 @@ int RGBE_ReadPixels(FILE *fp, float *data, int numpixels,
 /* encoded separately for better compression. */
 
 static int RGBE_WriteBytes_RLE(FILE *fp, unsigned char *data, int numbytes,
-                               char *errbuf)
+                               std::string &errbuf)
 {
 #define MINRUNLENGTH 4
   int cur, beg_run, run_count, old_run_count, nonrun_count;
@@ -322,10 +317,10 @@ static int RGBE_WriteBytes_RLE(FILE *fp, unsigned char *data, int numbytes,
       beg_run += run_count;
       old_run_count = run_count;
       run_count = 1;
-      while((data[beg_run] == data[beg_run + run_count]) 
-	    && (beg_run + run_count < numbytes) && (run_count < 127))
-	run_count++;
-    }
+      while((beg_run + run_count < numbytes) && (run_count < 127)
+            && (data[beg_run] == data[beg_run + run_count]))
+          run_count++;
+      }
     /* if data before next big run is a short run then write it as such */
     if ((old_run_count > 1)&&(old_run_count == beg_run - cur)) {
       buf[0] = 128 + old_run_count;   /*write short run*/
@@ -360,7 +355,7 @@ static int RGBE_WriteBytes_RLE(FILE *fp, unsigned char *data, int numbytes,
 }
 
 int RGBE_WritePixels_RLE(FILE *fp, float *data, int scanline_width,
-			 int num_scanlines, char *errbuf)
+			 int num_scanlines, std::string &errbuf)
 {
   unsigned char rgbe[4];
   unsigned char *buffer;
@@ -368,11 +363,11 @@ int RGBE_WritePixels_RLE(FILE *fp, float *data, int scanline_width,
 
   if ((scanline_width < 8)||(scanline_width > 0x7fff))
     /* run length encoding is not allowed so write flat*/
-    return RGBE_WritePixels(fp,data,scanline_width*num_scanlines);
+    return RGBE_WritePixels(fp, data, scanline_width*num_scanlines, errbuf);
   buffer = (unsigned char *)malloc(sizeof(unsigned char)*4*scanline_width);
   if (buffer == NULL) 
     /* no buffer space so write flat */
-    return RGBE_WritePixels(fp,data,scanline_width*num_scanlines);
+    return RGBE_WritePixels(fp, data, scanline_width*num_scanlines, errbuf);
   while(num_scanlines-- > 0) {
     rgbe[0] = 2;
     rgbe[1] = 2;
@@ -406,7 +401,7 @@ int RGBE_WritePixels_RLE(FILE *fp, float *data, int scanline_width,
 }
       
 int RGBE_ReadPixels_RLE(FILE *fp, float *data, int scanline_width,
-			int num_scanlines, char *errbuf)
+			int num_scanlines, std::string &errbuf)
 {
   unsigned char rgbe[4], *scanline_buffer, *ptr, *ptr_end;
   int i, count;
@@ -414,7 +409,7 @@ int RGBE_ReadPixels_RLE(FILE *fp, float *data, int scanline_width,
 
   if ((scanline_width < 8)||(scanline_width > 0x7fff))
     /* run length encoding is not allowed so read flat*/
-    return RGBE_ReadPixels(fp,data,scanline_width*num_scanlines);
+    return RGBE_ReadPixels(fp, data, scanline_width*num_scanlines, errbuf);
   scanline_buffer = NULL;
   /* read in each successive scanline */
   while(num_scanlines > 0) {
@@ -427,7 +422,7 @@ int RGBE_ReadPixels_RLE(FILE *fp, float *data, int scanline_width,
       rgbe2float(&data[0],&data[1],&data[2],rgbe);
       data += RGBE_DATA_SIZE;
       free(scanline_buffer);
-      return RGBE_ReadPixels(fp,data,scanline_width*num_scanlines-1);
+      return RGBE_ReadPixels(fp, data, scanline_width*num_scanlines-1, errbuf);
     }
     if ((((int)rgbe[2])<<8 | rgbe[3]) != scanline_width) {
       free(scanline_buffer);
@@ -494,3 +489,4 @@ int RGBE_ReadPixels_RLE(FILE *fp, float *data, int scanline_width,
 
 OIIO_PLUGIN_NAMESPACE_END
 
+// clang-format on

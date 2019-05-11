@@ -1,4 +1,4 @@
-\chapter{Image I/O: Reading Images}
+\chapter{ImageInput: Reading Images}
 \label{chap:imageinput}
 \index{Image I/O API|(}
 
@@ -12,10 +12,10 @@ out its resolution, and read the pixels (converting them into
 
 \begin{code}
         #include <OpenImageIO/imageio.h>
-        OIIO_NAMESPACE_USING
+        using namespace OIIO;
         ...
 
-        ImageInput *in = ImageInput::open (filename);
+        auto in = ImageInput::open (filename);
         if (! in)
             return;
         const ImageSpec &spec = in->spec();
@@ -25,7 +25,6 @@ out its resolution, and read the pixels (converting them into
         std::vector<unsigned char> pixels (xres*yres*channels);
         in->read_image (TypeDesc::UINT8, &pixels[0]);
         in->close ();
-        ImageInput::destroy (in);
 \end{code}
 
 \noindent Here is a breakdown of what work this code is doing:
@@ -37,8 +36,10 @@ out its resolution, and read the pixels (converting them into
   can find until one will open the file without error.  When it finds
   the right plugin, it creates a subclass instance of \ImageInput that
   reads the right kind of file format, and tries to fully open the file.
+  The {\cf open()} method returns a {\cf std::unique_ptr<ImageInput>} that will
+  be automatically freed when it exits scope.
   \begin{code}
-        ImageInput *in = ImageInput::open (filename);
+        auto in = ImageInput::open (filename);
   \end{code}
 \item The specification, accessible as {\cf in->spec()}, contains 
   vital information such as the
@@ -64,13 +65,12 @@ out its resolution, and read the pixels (converting them into
   \begin{code}
         in->read_image (TypeDesc::UINT8, &pixels[0]);
   \end{code}
-\item Close the file, destroy and free the \ImageInput we had created,
-  and perform all other cleanup and release of any resources used by
-  the plugin.
+\item Close the file.
   \begin{code}
         in->close ();
-        ImageInput::destroy (in);
   \end{code}
+\item When {\cf in} exits its scope, the \ImageInput will automatically be
+  destroyed and any resources used by the plugin will be released.
 \end{itemize}
 
 
@@ -105,7 +105,7 @@ call:
 
 \begin{code}
         ...
-        in = ImageInput::open (filename);
+        auto in = ImageInput::open (filename);
         const ImageSpec &spec = in->spec();
         if (spec.tile_width == 0) {
             std::vector<unsigned char> scanline (spec.width*spec.channels);
@@ -156,7 +156,7 @@ using \readscanline, not \readtile.
 
 \begin{code}
         ...
-        in = ImageInput::open (filename);
+        auto in = ImageInput::open (filename);
         const ImageSpec &spec = in->spec();
         if (spec.tile_width == 0) {
             ... read by scanline ...
@@ -226,7 +226,7 @@ regardless of whether the TIFF file itself is using 8-bit, 16-bit, or
 float values.
 
 \begin{code}
-        ImageInput *in = ImageInput::open ("myfile.tif");
+        std::unique_ptr<ImageInput> in = ImageInput::open ("myfile.tif");
         const ImageSpec &spec = in->spec();
         ...
         int numpixels = spec.width * spec.height;
@@ -391,7 +391,7 @@ of a single integer:
         ImageInput *in = ImageInput::open (filename);
         const ImageSpec &spec = in->spec();
         ...
-        ParamValue *p = spec.find_attribute ("Orientation", TypeDesc::TypeInt);
+        ParamValue *p = spec.find_attribute ("Orientation", TypeInt);
         if (p) {
             int orientation = * (int *) p->data();
         } else {
@@ -431,15 +431,15 @@ This can be accomplished using the technique of the following example:
         for (size_t i = 0;  i < spec.extra_attribs.size();  ++i) {
             const ParamValue &p (spec.extra_attribs[i]);
             printf ("    \%s: ", p.name.c_str());
-            if (p.type() == TypeDesc::TypeString)
+            if (p.type() == TypeString)
                 printf ("\"\%s\"", *(const char **)p.data());
-            else if (p.type() == TypeDesc::TypeFloat)
+            else if (p.type() == TypeFloat)
                 printf ("\%g", *(const float *)p.data());
-            else if (p.type() == TypeDesc::TypeInt)
+            else if (p.type() == TypeInt)
                 printf ("\%d", *(const int *)p.data());
             else if (p.type() == TypeDesc::UINT)
                 printf ("\%u", *(const unsigned int *)p.data());
-            else if (p.type() == TypeDesc::TypeMatrix) {
+            else if (p.type() == TypeMatrix) {
                 const float *f = (const float *)p.data();
                 printf ("\%f \%f \%f \%f \%f \%f \%f \%f "
                         "\%f \%f \%f \%f \%f \%f \%f \%f",
@@ -467,24 +467,8 @@ banding artifacts in the dim values.
 
 The {\cf ImageSpec::extra_attribs} field may store metadata that reveals
 the color space the image file in the \qkw{oiio:ColorSpace}
-attribute, which may take on any of the following values:
-
-\begin{description}
-\item[\halfspc \rm \qkw{Linear}] indicates that the
-  color pixel values are known to be linear.
-\item[\halfspc \rm \qkw{GammaCorrected}] indicates
-  that the color pixel values (but not alpha or $z$) have
-  already been gamma corrected (raised to the power $1/\gamma$), and
-  that the gamma exponent may be found in the \qkw{oiio:Gamma} metadata.
-\item[\halfspc \rm \qkw{sRGB}] indicates that the
-  color pixel values are in sRGB color space.
-\item[\halfspc \rm \qkw{AdobeRGB}] indicates that the
-  color pixel values are in Adobe RGB color space.
-\item[\halfspc \rm \qkw{Rec709}] indicates that the
-  color pixel values are in Rec709 color space.
-\item[\halfspc \rm \qkw{KodakLog}] indicates that the
-  color pixel values are in Kodak logarithmic color space.
-\end{description}
+attribute (see Section~\ref{metadata:colorspace} for explanations of
+particular values).
 
 The \ImageInput sets the \qkw{oiio:ColorSpace} metadata in a
 purely advisory capacity --- the {\cf read} will not convert pixel
@@ -553,7 +537,7 @@ multi-resolution image used for texture mapping) that shows how to read
 multi-image files:
 
 \begin{code}
-        ImageInput *in = ImageInput::open (filename);
+        auto in = ImageInput::open (filename);
         const ImageSpec &spec = in->spec();
 
         int num_miplevels = 0;
@@ -573,7 +557,6 @@ multi-image files:
         // to find a next MIP level.
 
         in->close ();
-        ImageInput::destroy (in);
 \end{code}
 
 In this example, we have used \readimage, but of course \readscanline
@@ -637,15 +620,18 @@ pixel.  Instead, \ImageInput has three special member functions used
 only for reading deep data:
 
 \begin{code}
-    bool read_native_deep_scanlines (int ybegin, int yend, int z,
+    bool read_native_deep_scanlines (int subimage, int miplevel,
+                                     int ybegin, int yend, int z,
                                      int chbegin, int chend,
                                      DeepData &deepdata);
 
-    bool read_native_deep_tiles (int xbegin, int xend, int ybegin, int yend,
+    bool read_native_deep_tiles (int subimage, int miplevel,
+                                 int xbegin, int xend, int ybegin int yend,
                                  int zbegin, int zend,
                                  int chbegin, int chend, DeepData &deepdata);
 
-    bool read_native_deep_image (DeepData &deepdata);
+    bool read_native_deep_image (int subimage, int miplevel,
+                                 DeepData &deepdata);
 \end{code}
 
 It is only possible to read ``native'' data types from deep files; that
@@ -658,13 +644,13 @@ Here is an example of using these methods to read a deep image from
 a file and print all its values:
 
 \begin{code}
-    ImageInput *in = ImageInput::open (filename);
+    auto in = ImageInput::open (filename);
     if (! in)
         return;
     const ImageSpec &spec = in->spec();
     if (spec.deep) {
         DeepData deepdata;
-        in->read_native_deep_image (deepdata);
+        in->read_native_deep_image (0, 0, deepdata);
         int p = 0;  // absolute pixel number
         for (int y = 0; y < spec.height;  ++y) {
             for (int x = 0;  x < spec.width;  ++x, ++p) {
@@ -689,8 +675,59 @@ a file and print all its values:
         }
     }
     in->close ();
-    ImageInput::destroy (in);
 \end{code}
+
+
+\subsection{Custom I/O proxies (and reading the file from a memory buffer)}
+\label{sec:imageinput:ioproxy}
+\index{reading an image file from memory buffer}
+\NEW   % 1.9
+
+Some file format readers allow you to supply a custom I/O proxy object that
+can allow bypassing the usual file I/O with custom behavior, including the
+ability to read the file form an in-memory buffer rather than reading from
+disk.
+
+Only some input format readers support this feature. To find out if a
+particular file format supports this feature, you can create an \ImageInput
+of the right type, and check if it supports the feature name \qkw{ioproxy}:
+
+\begin{code}
+    ImageInput *in = ImageInput::create (filename);
+    if (! in  ||  ! in->supports ("ioproxy")) {
+        ImageInput::destroy (in);
+        in = nullptr;
+        return;
+    }
+\end{code}
+
+\ImageInput readers that support \qkw{ioproxy} will respond to a special
+attribute, \qkw{oiio:ioproxy}, which passes a pointer to a {\cf
+Filesystem::IOProxy*} (see \product's {\cf filesystem.h} for this type and
+its subclasses). {\cf IOProxy} is an abstract type, and concrete subclasses
+include {\cf IOFile} (which wraps I/O to an open {\cf FILE*}) and {\cf
+IOMemReader} (which reads input from a block of memory).
+
+Here is an example of using a proxy that reads the ``file'' from a memory
+buffer:
+
+\begin{code}
+    const void *buf = ...;   // pointer to memory block
+    size_t size = ...;       // length of memory block
+
+    ImageSpec config; // ImageSpec describing input configuration options
+    Filesystem::IOMemReader memreader (buf, size);  // I/O proxy object
+    void *ptr = &memreader;
+    config.attribute ("oiio:ioproxy", TypeDesc::PTR, &ptr);
+
+    ImageSpec spec;
+    ImageInput *in = ImageInput::open ("in.exr", spec, &config);
+    in->read_image (...);
+    ImageInput::destroy (in);
+
+    // That will have read the "file" from the memory buffer
+\end{code}
+
 
 
 \subsection{Custom search paths for plugins}
@@ -721,7 +758,7 @@ error message is accessible using the \ImageInput method
 
 The exceptions to this rule are static methods such as the static
 {\cf ImageInput::open} and {\cf ImageInput::create}, which return
-{\cf NULL} if it could not create an appropriate \ImageInput (and open
+an empty pointer if it could not create an appropriate \ImageInput (and open
 it, in the case of {\cf open()}.  In such a case,
 since no \ImageInput is returned for which you can call its {\cf
   geterror()} function, there exists a global {\cf geterror()}
@@ -734,14 +771,14 @@ elaborated with error checking and reporting:
 
 \begin{code}
         #include <OpenImageIO/imageio.h>
-        OIIO_NAMESPACE_USING
+        using namespace OIIO;
         ...
 
         const char *filename = "foo.jpg";
         int xres, yres, channels;
         std::vector<unsigned char> pixels;
 
-        ImageInput *in = ImageInput::open (filename);
+        auto in = ImageInput::open (filename);
         if (! in) {
             std::cerr << "Could not open " << filename 
                       << ", error = " << OpenImageIO::geterror() << "\n";
@@ -756,17 +793,14 @@ elaborated with error checking and reporting:
         if (! in->read_image (TypeDesc::UINT8, &pixels[0])) {
             std::cerr << "Could not read pixels from " << filename 
                       << ", error = " << in->geterror() << "\n";
-            ImageInput::destroy (in);
             return;
         }
 
         if (! in->close ()) {
             std::cerr << "Error closing " << filename 
                       << ", error = " << in->geterror() << "\n";
-            ImageInput::destroy (in);
             return;
         }
-        ImageInput::destroy (in);
 \end{code}
 
 
@@ -774,18 +808,20 @@ elaborated with error checking and reporting:
 \section{\ImageInput Class Reference}
 \label{sec:imageinput:reference}
 
-\apiitem{ImageInput * {\ce open} (const std::string \&filename, \\
-\bigspc\bigspc const ImageSpec *config=NULL)}
+\apiitem{std::unique_ptr<ImageInput> {\ce open} (const std::string \&filename, \\
+\bigspc\bigspc\spc const ImageSpec *config=nullptr)}
 Create an \ImageInput subclass instance that is able to read
-the given file and open it, returning the opened \ImageInput if
-successful.  If it fails, return {\cf NULL} and set an error that can
+the given file and open it. The return value is a managed unique pointer,
+with an included deleter that will properly dispose the \ImageInput when
+it exists its scope.  If the open fails, return an empty pointer and
+set an error that can
 be retrieved by {\cf OpenImageIO::geterror()}.
-    
-The {\cf config}, if not {\cf NULL}, points to an \ImageSpec giving
+
+The {\cf config}, if not {\cf nullptr}, points to an \ImageSpec giving
 requests or special instructions.  \ImageInput implementations
 are free to not respond to any such requests, so the default
 implementation is just to ignore config.
-    
+
 The {\cf open()} function will first try to make an \ImageInput
 corresponding to the format implied by the file extension (for example,
 \qkw{foo.tif} will try the TIFF plugin), but if one is not found or if
@@ -793,11 +829,14 @@ the inferred one does not open the file, every known \ImageInput type
 will be tried until one is found that will open the file.
 \apiend
 
-\apiitem{ImageInput * {\ce create} (const std::string \&filename, \\
-\bigspc\bigspc   const std::string \&plugin_searchpath="")}
-
+\apiitem{std::unique_ptr<ImageInput> {\ce create} (const std::string \&filename, \\
+\bigspc\bigspc   bool do_open=false, const ImageSpec *config=nullptr,\\
+\bigspc\bigspc   string_view plugin_searchpath="")}
 Create and return an \ImageInput implementation that is able
-to read the given file.  The {\kw plugin_searchpath} parameter is a
+to read the given file.  If {\cf do_open} is {\cf true}, fully open it if
+possible (using the optional configuration spec, if supplied),
+otherwise just create the \ImageInput but don't open it.
+The {\kw plugin_searchpath} parameter is an override of the searchpath,
 colon-separated list of directories to search for \product plugin
 DSO/DLL's (not a searchpath for the image itself!).  This will
 actually just try every ImageIO plugin it can locate, until it
@@ -805,15 +844,14 @@ finds one that's able to open the file without error.  This just
 creates the \ImageInput, it does not open the file.
 \apiend
 
-\apiitem{void {\ce destroy} (ImageInput *input)}
-
-Destroy an \ImageInput that was created by {\cf create()} or {\cf open()}.
-The {\cf destroy()} method is just a wrapper around operator {\cf delete},
-but by being implemented within the \product DLL, it can ensure that the
-memory deallocation is done in the same DLL arena as where it was originally
-allocated. This is considered safer than a bare {\cf delete} when
-used inside ``plug-ins,'' especially on Windows systems.
-\apiend
+% \apiitem{void {\ce destroy} (ImageInput *input)}
+% Destroy an \ImageInput that was created by {\cf create()} or {\cf open()}.
+% The {\cf destroy()} method is just a wrapper around operator {\cf delete},
+% but by being implemented within the \product DLL, it can ensure that the
+% memory deallocation is done in the same DLL arena as where it was originally
+% allocated. This is considered safer than a bare {\cf delete} when
+% used inside ``plug-ins,'' especially on Windows systems.
+% \apiend
 
 \apiitem{const char * {\ce format_name} (void) const}
 Return the name of the format implemented by this class.
@@ -840,6 +878,8 @@ as such). The following features are recognized by this query:
 \item[\rm \qkw{procedural}] Might the image ``file format'' generate pixels
   procedurally, without the need for any disk file to be present?
   \end{description}
+\item[\rm \qkw{ioproxy}] Does the image file format support reading
+  from an {\cf IOProxy}?
 \apiend
 
 \apiitem{bool {\ce valid_file} (const std::string \&filename) const}
@@ -884,20 +924,30 @@ current subimage.  Note that the contents of the spec are
 invalid before {\kw open()} or after {\kw close()}.
 \apiend
 
+\apiitem {ImageSpec {\ce spec} (int subimage, int miplevel=0) \\
+ImageSpec {\ce spec_dimensions} (int subimage, int miplevel=0)}
+\NEW % 1.9
+Both of these thread-safe methods return a copy of the \ImageSpec of the
+designated subimage/miplevel.
+
+The {\cf spec()} method returns a full copy of the \ImageSpec, including all
+metadata (which may be expensive).  The {\cf spec_dimensions()} method only
+copies the dimension fields but none of the arbitrary named metadata (just
+as with a call to {\cf ImageSpec::copy_dimensions()}), and thus is
+relatively inexpensive.
+\apiend
+
 \apiitem{bool {\ce close} ()}
 Closes an open image.
 \apiend
 
-
-\apiitem{int {\ce current_subimage} (void) const}
-Returns the index of the subimage that is currently being read.
-The first subimage (or the only subimage, if there is just one) is
-number 0.
+\apiitem{int {\ce current_subimage} (void) const \\
+int {\ce current_miplevel} (void) const}
+Returns the index of the subimage and MIP level, respectively, that is
+currently being read. Subimage and MIP level index numbers begin with 0.
 \apiend
 
-
 \apiitem{bool {\ce seek_subimage} (int subimage, int miplevel, ImageSpec \&newspec)}
-
 Seek to the given subimage and MIP-map level within the open image file.
 The first subimage in the file has index 0, and for each subimage, the
 highest-resolution MIP level has index 0.  Return {\kw true} on success,
@@ -909,7 +959,6 @@ appearance of random access to subimages and MIP levels --- in other
 words, if it can't randomly seek to the given subimage or MIP level, it
 should transparently close, reopen, and sequentially read through prior
 subimages and levels.
-
 \apiend
 
 \apiitem{bool {\ce read_scanline} (int y, int z, TypeDesc format, void *data,\\
@@ -939,21 +988,39 @@ This simplified version of {\kw read_scanline()} reads to contiguous
 float pixels.
 \apiend
 
-\apiitem{bool {\ce read_scanlines} (int ybegin, int yend, int z,\\
-  \bigspc TypeDesc format, void *data,\\
-  \bigspc stride_t xstride=AutoStride, stride_t ystride=AutoStride) \\
-bool {\ce read_scanlines} (int ybegin, int yend, int z,\\
+\apiitem{bool {\ce read_scanlines} (int subimage, int miplevel \\
+  \bigspc int ybegin, int yend, int z,\\
   \bigspc int chbegin, int chend, TypeDesc format, void *data,\\
   \bigspc                      stride_t xstride=AutoStride, stride_t ystride=AutoStride)}
 
-Read all the scanlines that include pixels $(*,y,z)$, where
-$\mathit{ybegin} \le y < \mathit{yend}$, into {\kw data}.  This is 
-essentially identical to \readscanline, except that can read more than
-one scanline at a time, which may be more efficient for certain image
-format readers.
+Read from the specified subimage and MIP level all the scanlines that
+include pixels $(*,y,z)$, where $\mathit{ybegin} \le y < \mathit{yend}$, and
+the given channel subset {\kw chbegin} $\le c <$ {\kw chend}, into
+{\kw data}, converting if necessary from the file's native data format to
+the specified buffer {\kw format}.
+If {\cf format} is {\cf TypeDesc::UNKNOWN}, the data will be preserved
+in its native format (including per-channel formats, if applicable).
+The stride values
+give the data spacing of adjacent pixels and scanlines,
+respectively (measured in bytes).  Strides set to the special
+value of {\kw AutoStride} imply contiguous data in the shape of
+the region specified, i.e., \\
+\spc {\kw xstride} $=$ {\kw spec.pixel_size() * (chend - chbegin)} \\
+\spc {\kw ystride} $=$ {\kw xstride * (xend - xbegin)} \\
 
-The version that specifies a channel range will read only
-channels $[${\cf chbegin},{\cf chend}$)$ into the buffer.
+This function returns {\cf true} if it successfully reads the scanlines,
+otherwise {\cf false} for a failure.
+
+This function is guaranteed to be thread-safe against other concurrent calls
+to the {\cf read_tiles()} or {\cf read_scanlines()} varieties that takes
+explicit subimage and miplevel (but not necessarily against any other
+\ImageInput methods).
+
+\NEW % 1.9
+This call was changed for \OpenImageIO 1.9 to include the explicit subimage
+and miplevel parameters. The previous versions, which lacked subimage and
+miplevel parameters (thus were dependent on a prior call to
+{\cf seek_subimage}) are considered deprecated.
 \apiend
 
 
@@ -994,19 +1061,16 @@ Simple version of {\kw read_tile} that reads to contiguous float pixels.
 \apiend
 
 
-\apiitem{bool {\ce read_tiles} (int xbegin, int xend, int ybegin, int
-  yend, \\ \bigspc int zbegin, int zend, TypeDesc format,
-                            void *data, \\ \bigspc stride_t xstride=AutoStride,
-                            stride_t ystride=AutoStride, \\ \bigspc stride_t
-                            zstride=AutoStride) \\
-bool {\ce read_tiles} (int xbegin, int xend, int ybegin, int yend, \\
- \bigspc int zbegin, int zend, int chbegin, int chend,\\
- \bigspc TypeDesc format, void *data, \\ 
- \bigspc stride_t xstride=AutoStride, stride_t ystride=AutoStride, \\
- \bigspc stride_t zstride=AutoStride)}
+\apiitem{bool {\ce read_tiles} (int subimage, int miplevel, \\
+         \bigspc int xbegin, int xend, int ybegin, int yend, \\
+         \bigspc int zbegin, int zend, int chbegin, int chend,\\
+         \bigspc TypeDesc format, void *data, \\
+         \bigspc stride_t xstride=AutoStride, stride_t ystride=AutoStride, \\
+         \bigspc stride_t zstride=AutoStride)}
 Read the tiles bounded by {\kw xbegin} $\le x <$ {\kw xend},
-{\kw ybegin} $\le y <$ {\kw yend}, {\kw zbegin} $\le z <$ {\kw zend}
-into {\kw data}
+{\kw ybegin} $\le y <$ {\kw yend}, {\kw zbegin} $\le z <$ {\kw zend},
+and the given channel subset {\kw chbegin} $\le c <$ {\kw chend},
+into {\kw data},
 converting if necessary from the file's native data format into
 the specified buffer {\kw format}.
 If {\cf format} is {\cf TypeDesc::UNKNOWN}, the data will be preserved 
@@ -1016,7 +1080,7 @@ give the data spacing of adjacent pixels, scanlines, and volumetric
 slices, respectively (measured in bytes).  Strides set to the special
 value of {\kw AutoStride} imply contiguous data in the shape of
 the region specified, i.e., \\
-\spc {\kw xstride} $=$ {\kw spec.nchannels * spec.pixel_size()} \\
+\spc {\kw xstride} $=$ {\kw spec.pixel_size() * (chend - chbegin)} \\
 \spc {\kw ystride} $=$ {\kw xstride * (xend - xbegin)} \\
 \spc {\kw zstride} $=$ {\kw ystride * (yend - ybegin)} \\
 The \ImageInput is expected to give the appearance of random access
@@ -1032,8 +1096,16 @@ The call will fail if the image is not tiled, or if the pixel ranges
 do not fall along tile (or image) boundaries, or if it is not a valid
 tile range.
 
-The version that specifies a channel range will read only
-channels $[${\cf chbegin},{\cf chend}$)$ into the buffer.
+This function is guaranteed to be thread-safe against other concurrent calls
+to the {\cf read_tiles()} or {\cf read_scanlines()} varieties that takes
+explicit subimage and miplevel (but not necessarily against any other
+\ImageInput methods).
+
+\NEW % 1.9
+This call was changed for \OpenImageIO 1.9 to include the explicit subimage
+and miplevel parameters. The previous versions, which lacked subimage and
+miplevel parameters (thus were dependent on a prior call to
+{\cf seek_subimage}) are considered deprecated.
 \apiend
 
 
@@ -1043,7 +1115,7 @@ channels $[${\cf chbegin},{\cf chend}$)$ into the buffer.
                              \bigspc stride_t zstride=AutoStride, \\
                              \bigspc ProgressCallback progress_callback=NULL,\\
                              \bigspc void *progress_callback_data=NULL) \\
-bool {\ce read_image} (int chbegin, int chend, \\
+bool {\ce read_image} (int subimage, int miplevel, int chbegin, int chend, \\
                              \bigspc TypeDesc format, void *data, \\
                              \bigspc stride_t xstride=AutoStride,
                              stride_t ystride=AutoStride, \\
@@ -1079,13 +1151,22 @@ Periodically, it will be called as follows:\\
 \end{code}
 \noindent where \emph{done} gives the portion of the image 
 (between 0.0 and 1.0) that has been read thus far.
+
+\NEW % 1.9
+The version of {\cf read_image} that takes explicit subimage and
+miplevel parameters is guaranteed to be thread-safe against other concurrent
+calls to the {\cf read_scanlines()}, {\cf read_tiles()}, or
+{\cf read_image()} varieties that take an explicit
+subimage and miplevel (but not necessarily against any other \ImageInput
+methods).
 \apiend
 
 \apiitem{bool {\ce read_image} (float *data)}
 Simple version of {\kw read_image()} reads to contiguous float pixels.
 \apiend
 
-\apiitem{bool {\ce read_native_scanline} (int y, int z, void *data)}
+\apiitem{bool {\ce read_native_scanline} (int subimage, int miplevel,\\
+    \bigspc int y, int z, void *data)}
 The {\kw read_native_scanline()} function is just like {\kw
   read_scanline()}, except that it keeps the data in the native format
 of the disk file and always reads into contiguous memory (no strides).
@@ -1094,7 +1175,8 @@ with the data.  IT IS EXPECTED THAT EACH FORMAT PLUGIN WILL OVERRIDE
 THIS METHOD.
 \apiend
 
-\apiitem{bool {\ce read_native_scanlines} (int ybegin, int yend, int z, void *data)}
+\apiitem{bool {\ce read_native_scanlines} (int subimage, int miplevel,\\
+    \bigspc int ybegin, int yend, int z, void *data)}
 The {\kw read_native_scanlines()} function is just like 
 {\cf read_native_scanline}, except that it reads
 a range of scanlines rather than only one scanline.  It is not necessary
@@ -1105,8 +1187,8 @@ override this method if there is a way to achieve higher performance by
 reading multiple scanlines at once.
 \apiend
 
-\apiitem{bool {\ce read_native_scanlines} (int ybegin, int yend, int z,
-\\ \bigspc  int chbegin, int chend, void *data)}
+\apiitem{bool {\ce read_native_scanlines} (int subimage, int miplevel,\\
+    \bigspc int ybegin, int yend, int z, int chbegin, int chend, void *data)}
 A variant of {\cf read_native_scanlines} that reads only a subset of 
 channels \\ $[${\cf chbegin},{\cf chend}$)$.  
 If a format reader subclass does
@@ -1115,7 +1197,8 @@ call the all-channel version of {\cf read_native_scanlines} into a
 temporary buffer and copy the subset of channels.
 \apiend
 
-\apiitem{bool {\ce read_native_tile} (int x, int y, int z, void *data)}
+\apiitem{bool {\ce read_native_tile} (int subimage, int miplevel,\\
+    \bigspc int x, int y, int z, void *data)}
 The {\kw read_native_tile()} function is just like {\kw read_tile()}, 
 except that it keeps the data in the native format of the disk file and
 always read into contiguous memory (no strides).  It's up to the user to
@@ -1124,7 +1207,8 @@ EXPECTED THAT EACH FORMAT PLUGIN WILL OVERRIDE THIS METHOD IF IT
 SUPPORTS TILED IMAGES.
 \apiend
 
-\apiitem{bool {\ce read_native_tiles} (int xbegin, int xend, int ybegin,
+\apiitem{bool {\ce read_native_tiles} (int subimage, int miplevel,\\
+    \bigspc int xbegin, int xend, int ybegin,
   int yend, \\ \bigspc int zbegin, int zend, void *data)}
 The {\kw read_native_tiles()} function is just like {\kw read_tiles()}, 
 except that it keeps the data in the native format of the disk file and
@@ -1134,8 +1218,9 @@ implementation it will simply be a loop calling read_native_tile
 for each tile in the block.
 \apiend
 
-\apiitem{bool {\ce read_native_tiles} (int xbegin, int xend, int ybegin,
-  int yend, \\ \bigspc int zbegin, int zend, int chbegin, int chend, void *data)}
+\apiitem{bool {\ce read_native_tiles} (int subimage, int miplevel,\\
+    \bigspc int xbegin, int xend, int ybegin, int yend, \\
+    \bigspc int zbegin, int zend, int chbegin, int chend, void *data)}
 A variant of {\kw read_native_tiles()} that reads only a subset of 
 channels \\ $[${\cf chbegin},{\cf chend}$)$.  
 If a format reader subclass does
@@ -1144,20 +1229,20 @@ call the all-channel version of {\cf read_native_tiles} into a
 temporary buffer and copy the subset of channels.
 \apiend
 
-\apiitem{bool {\ce read_native_deep_scanlines} (int ybegin, int yend, int z,
- \\ \bigspc   int chbegin, int chend, DeepData \&deepdata) \\
-bool {\ce read_native_deep_tiles} (int xbegin, int xend,
-                                         int ybegin, int yend, \\ \bigspc
-                                         int zbegin, int zend,
-                                         int chbegin, int chend,
-                                         DeepData \&deepdata) \\
-bool {\ce read_native_deep_image} (DeepData \&deepdata)}
+\apiitem{bool {\ce read_native_deep_scanlines} (int subimage, int miplevel,
+ \\ \bigspc   int ybegin, int yend, int z, int chbegin, int chend, \\
+ \\ bigspc     DeepData \&deepdata) \\
+bool {\ce read_native_deep_tiles} (int subimage, int miplevel, \\
+    \bigspc int xbegin, int xend, int ybegin, int yend, \\
+    \bigspc int zbegin, int zend, int chbegin, int chend, DeepData \&deepdata) \\
+bool {\ce read_native_deep_image} (int subimage, int miplevel, DeepData \&deepdata)}
 Read native deep data from scanlines, tiles, or an entire image, 
 storing the results in {\cf deepdata} (analogously to the usual
-{\cf read_scanlines}, {\cf read_tiles},
-and {\cf read_image}, but with deep data).
-Only channels $[${\cf chbegin},{\cf chend}$)$
-will be read.
+{\cf read_scanlines}, {\cf read_tiles}, and {\cf read_image}, but with deep data).
+Only channels $[${\cf chbegin},{\cf chend}$)$ will be read.
+Note that for the scanline variety, the {\cf roi}'s $x$ range must specify
+the complete width of the image, and the $z$ range must be a single plane.
+For the tile variety, the {\cf roi} must specify a whole number of tiles.
 \apiend
 
 \apiitem{int {\ce send_to_input} (const char *format, ...)}

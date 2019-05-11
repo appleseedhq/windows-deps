@@ -2,7 +2,8 @@
 
 # FIXME -- eventually, we want more (all?) of these to work
 
-imagedir = parent + "/libtiffpic/depth"
+outputs = []
+imagedir = OIIO_TESTSUITE_IMAGEDIR + "/depth"
 files = [
     "flower-minisblack-02.tif",   #  73x43 2-bit minisblack gray image
     "flower-minisblack-04.tif",   #  73x43 4-bit minisblack gray image
@@ -44,5 +45,11 @@ files = [
 
 for f in files:
     command += rw_command (imagedir, f)
+
+# Test CMYK without conversion to RGB
+command += oiiotool ("-iconfig oiio:RawColor 1 " +
+                     imagedir+"/flower-separated-contig-08.tif " +
+                     "-attrib oiio:ColorSpace linear -o cmyk_as_cmyk.tif")
+outputs += [ "cmyk_as_cmyk.tif", "out.txt" ]
 
 print ("COMMAND= " + command)

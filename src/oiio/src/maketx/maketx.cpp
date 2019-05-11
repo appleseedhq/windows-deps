@@ -28,9 +28,9 @@
   (This is the Modified BSD License)
 */
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <cmath>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -38,19 +38,20 @@
 
 #include <OpenEXR/ImathMatrix.h>
 
-#include "OpenImageIO/argparse.h"
-#include "OpenImageIO/dassert.h"
-#include "OpenImageIO/filesystem.h"
-#include "OpenImageIO/fmath.h"
-#include "OpenImageIO/strutil.h"
-#include "OpenImageIO/timer.h"
-#include "OpenImageIO/imageio.h"
-#include "OpenImageIO/imagebuf.h"
-#include "OpenImageIO/imagebufalgo.h"
-#include "OpenImageIO/thread.h"
-#include "OpenImageIO/filter.h"
+#include <OpenImageIO/argparse.h>
+#include <OpenImageIO/dassert.h>
+#include <OpenImageIO/filesystem.h>
+#include <OpenImageIO/filter.h>
+#include <OpenImageIO/fmath.h>
+#include <OpenImageIO/imagebuf.h>
+#include <OpenImageIO/imagebufalgo.h>
+#include <OpenImageIO/imageio.h>
+#include <OpenImageIO/strutil.h>
+#include <OpenImageIO/sysutil.h>
+#include <OpenImageIO/thread.h>
+#include <OpenImageIO/timer.h>
 
-OIIO_NAMESPACE_USING
+using namespace OIIO;
 
 
 // # FIXME: Refactor all statics into a struct
@@ -59,46 +60,42 @@ OIIO_NAMESPACE_USING
 static std::string full_command_line;
 static std::vector<std::string> filenames;
 static std::string outputfilename;
-static bool verbose = false;
+static bool verbose  = false;
 static bool runstats = false;
-static int nthreads = 0;    // default: use #cores threads if available
+static int nthreads  = 0;  // default: use #cores threads if available
 
 // Conversion modes.  If none are true, we just make an ordinary texture.
-static bool mipmapmode = false;
-static bool shadowmode = false;
-static bool envlatlmode = false;
-static bool envcubemode = false;
+static bool mipmapmode     = false;
+static bool shadowmode     = false;
+static bool envlatlmode    = false;
+static bool envcubemode    = false;
 static bool lightprobemode = false;
-
-static ColorConfig colorconfig;
-
-
+static bool bumpslopesmode = false;
 
 
 static std::string
-filter_help_string ()
+filter_help_string()
 {
-    std::string s ("Select filter for resizing (choices:");
-    for (int i = 0, e = Filter2D::num_filters();  i < e;  ++i) {
+    std::string s("Select filter for resizing (choices:");
+    for (int i = 0, e = Filter2D::num_filters(); i < e; ++i) {
         FilterDesc d;
-        Filter2D::get_filterdesc (i, &d);
-        s.append (" ");
-        s.append (d.name);
+        Filter2D::get_filterdesc(i, &d);
+        s.append(" ");
+        s.append(d.name);
     }
-    s.append (", default=box)");
+    s.append(", default=box)");
     return s;
 }
 
 
 
 static std::string
-colortitle_help_string ()
+colortitle_help_string()
 {
-    std::string s ("Color Management Options ");
-    if(ColorConfig::supportsOpenColorIO()) {
+    std::string s("Color Management Options ");
+    if (ColorConfig::supportsOpenColorIO()) {
         s += "(OpenColorIO enabled)";
-    }
-    else {
+    } else {
         s += "(OpenColorIO DISABLED)";
     }
     return s;
@@ -107,19 +104,22 @@ colortitle_help_string ()
 
 
 static std::string
-colorconvert_help_string ()
+colorconvert_help_string()
 {
-    std::string s = "Apply a color space conversion to the image. "
-    "If the output color space is not the same bit depth "
-    "as input color space, it is your responsibility to set the data format "
-    "to the proper bit depth using the -d option. ";
-    
+    std::string s
+        = "Apply a color space conversion to the image. "
+          "If the output color space is not the same bit depth "
+          "as input color space, it is your responsibility to set the data format "
+          "to the proper bit depth using the -d option. ";
+
     s += " (choices: ";
-    if (colorconfig.error() || colorconfig.getNumColorSpaces()==0) {
+    ColorConfig colorconfig;
+    if (colorconfig.error() || colorconfig.getNumColorSpaces() == 0) {
         s += "NONE";
     } else {
-        for (int i=0; i < colorconfig.getNumColorSpaces(); ++i) {
-            if (i!=0) s += ", ";
+        for (int i = 0; i < colorconfig.getNumColorSpaces(); ++i) {
+            if (i != 0)
+                s += ", ";
             s += colorconfig.getColorSpaceNameByIndex(i);
         }
     }
@@ -130,41 +130,47 @@ colorconvert_help_string ()
 
 
 static int
-parse_files (int argc, const char *argv[])
+parse_files(int argc, const char* argv[])
 {
-    for (int i = 0;  i < argc;  i++)
-        filenames.push_back (argv[i]);
+    for (int i = 0; i < argc; i++)
+        filenames.emplace_back(argv[i]);
     return 0;
 }
 
 
 
 // Concatenate the command line into one string, optionally filtering out
-// verbose attribute commands.
+// verbose attribute commands. Escape control chars in the arguments, and
+// double-quote any that contain spaces.
 static std::string
-command_line_string (int argc, char * argv[], bool sansattrib)
+command_line_string(int argc, char* argv[], bool sansattrib)
 {
     std::string s;
-    for (int i = 0;  i < argc;  ++i) {
+    for (int i = 0; i < argc; ++i) {
         if (sansattrib) {
             // skip any filtered attributes
-            if (!strcmp(argv[i], "--attrib") || !strcmp(argv[i], "-attrib") ||
-                !strcmp(argv[i], "--sattrib") || !strcmp(argv[i], "-sattrib")) {
+            if (!strcmp(argv[i], "--attrib") || !strcmp(argv[i], "-attrib")
+                || !strcmp(argv[i], "--sattrib")
+                || !strcmp(argv[i], "-sattrib")) {
                 i += 2;  // also skip the following arguments
                 continue;
             }
-            if (!strcmp(argv[i], "--sansattrib") || !strcmp(argv[i], "-sansattrib")) {
+            if (!strcmp(argv[i], "--sansattrib")
+                || !strcmp(argv[i], "-sansattrib")) {
                 continue;
             }
         }
-        if (strchr (argv[i], ' ')) {  // double quote args with spaces
+        std::string a = Strutil::escape_chars(argv[i]);
+        // If the string contains spaces
+        if (a.find(' ') != std::string::npos) {
+            // double quote args with spaces
             s += '\"';
-            s += argv[i];
+            s += a;
             s += '\"';
         } else {
-            s += argv[i];
+            s += a;
         }
-        if (i < argc-1)
+        if (i < argc - 1)
             s += ' ';
     }
     return s;
@@ -173,7 +179,7 @@ command_line_string (int argc, char * argv[], bool sansattrib)
 
 
 static void
-getargs (int argc, char *argv[], ImageSpec &configspec)
+getargs(int argc, char* argv[], ImageSpec& configspec)
 {
     bool help = false;
     // Basic runtime options
@@ -182,41 +188,44 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
     std::vector<std::string> mipimages;
     int tile[3] = { 64, 64, 1 };  // FIXME if we ever support volume MIPmaps
     std::string compression = "zip";
-    bool updatemode = false;
-    bool checknan = false;
-    std::string fixnan; // none, black, box3
-    bool set_full_to_pixels = false;
+    bool updatemode         = false;
+    bool checknan           = false;
+    std::string fixnan;  // none, black, box3
+    bool set_full_to_pixels        = false;
     bool do_highlight_compensation = false;
     std::string filtername;
     // Options controlling file metadata or mipmap creation
-    float fovcot = 0.0f;
+    float fovcot     = 0.0f;
     std::string wrap = "black";
     std::string swrap;
     std::string twrap;
     bool doresize = false;
     Imath::M44f Mcam(0.0f), Mscr(0.0f);  // Initialize to 0
-    bool separate = false;
-    bool nomipmap = false;
-    bool prman_metadata = false;
+    bool separate              = false;
+    bool nomipmap              = false;
+    bool prman_metadata        = false;
     bool constant_color_detect = false;
-    bool monochrome_detect = false;
-    bool opaque_detect = false;
-    bool compute_average = true;
-    int nchannels = -1;
-    bool prman = false;
-    bool oiio = false;
-    bool ignore_unassoc = false;  // ignore unassociated alpha tags
-    bool unpremult = false;
-    bool sansattrib = false;
-    float sharpen = 0.0f;
+    bool monochrome_detect     = false;
+    bool opaque_detect         = false;
+    bool compute_average       = true;
+    int nchannels              = -1;
+    bool prman                 = false;
+    bool oiio                  = false;
+    bool ignore_unassoc        = false;  // ignore unassociated alpha tags
+    bool unpremult             = false;
+    bool sansattrib            = false;
+    float sharpen              = 0.0f;
     std::string incolorspace;
     std::string outcolorspace;
+    std::string colorconfigname;
     std::string channelnames;
+    std::string bumpformat = "auto";
     std::vector<std::string> string_attrib_names, string_attrib_values;
     std::vector<std::string> any_attrib_names, any_attrib_values;
     filenames.clear();
 
     ArgParse ap;
+    // clang-format off
     ap.options ("maketx -- convert images to tiled, MIP-mapped textures\n"
                 OIIO_INTRO_STRING "\n"
                 "Usage:  maketx [options] file...",
@@ -276,8 +285,11 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
                   "--shadow", &shadowmode, "Create shadow map",
                   "--envlatl", &envlatlmode, "Create lat/long environment map",
                   "--lightprobe", &lightprobemode, "Create lat/long environment map from a light probe",
+                  "--bumpslopes", &bumpslopesmode, "Create a 6 channels bump-map with height, derivatives and square derivatives from an height or a normal map",
+                  "--bumpformat %s", &bumpformat, "Specify the interpretation of a 3-channel input image for --bumpslopes: \"height\", \"normal\" or \"auto\" (default).",
 //                  "--envcube", &envcubemode, "Create cubic env map (file order: px, nx, py, ny, pz, nz) (UNIMP)",
                   "<SEPARATOR>", colortitle_help_string().c_str(),
+                  "--colorconfig %s", &colorconfigname, "Explicitly specify an OCIO configuration file",
                   "--colorconvert %s %s", &incolorspace, &outcolorspace,
                           colorconvert_help_string().c_str(),
                   "--unpremult", &unpremult, "Unpremultiply before color conversion, then premultiply "
@@ -286,49 +298,54 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
                   "<SEPARATOR>", "Configuration Presets",
                   "--prman", &prman, "Use PRMan-safe settings for tile size, planarconfig, and metadata.",
                   "--oiio", &oiio, "Use OIIO-optimized settings for tile size, planarconfig, metadata.",
-                  NULL);
-    if (ap.parse (argc, (const char**)argv) < 0) {
+                  nullptr);
+    // clang-format on
+    if (ap.parse(argc, (const char**)argv) < 0) {
         std::cerr << ap.geterror() << std::endl;
-        ap.usage ();
-        exit (EXIT_FAILURE);
+        ap.usage();
+        exit(EXIT_FAILURE);
     }
     if (help) {
-        ap.usage ();
-        exit (EXIT_FAILURE);
+        ap.usage();
+        exit(EXIT_FAILURE);
     }
     if (filenames.empty()) {
-        ap.briefusage ();
+        ap.briefusage();
         std::cout << "\nFor detailed help: maketx --help\n";
-        exit (EXIT_SUCCESS);
+        exit(EXIT_SUCCESS);
     }
 
-    int optionsum = ((int)shadowmode + (int)envlatlmode + (int)envcubemode +
-                     (int)lightprobemode);
+    int optionsum = ((int)shadowmode + (int)envlatlmode + (int)envcubemode
+                     + (int)lightprobemode)
+                    + (int)bumpslopesmode;
     if (optionsum > 1) {
-        std::cerr << "maketx ERROR: At most one of the following options may be set:\n"
-                  << "\t--shadow --envlatl --envcube --lightprobe\n";
-        exit (EXIT_FAILURE);
+        std::cerr
+            << "maketx ERROR: At most one of the following options may be set:\n"
+            << "\t--shadow --envlatl --envcube --lightprobe\n";
+        exit(EXIT_FAILURE);
     }
     if (optionsum == 0)
         mipmapmode = true;
-    
+
     if (prman && oiio) {
-        std::cerr << "maketx ERROR: '--prman' compatibility, and '--oiio' optimizations are mutually exclusive.\n";
-        std::cerr << "\tIf you'd like both prman and oiio compatibility, you should choose --prman\n";
+        std::cerr
+            << "maketx ERROR: '--prman' compatibility, and '--oiio' optimizations are mutually exclusive.\n";
+        std::cerr
+            << "\tIf you'd like both prman and oiio compatibility, you should choose --prman\n";
         std::cerr << "\t(at the expense of oiio-specific optimizations)\n";
-        exit (EXIT_FAILURE);
+        exit(EXIT_FAILURE);
     }
 
     if (filenames.size() != 1) {
         std::cerr << "maketx ERROR: requires exactly one input filename\n";
-        exit (EXIT_FAILURE);
+        exit(EXIT_FAILURE);
     }
 
 
-//    std::cout << "Converting " << filenames[0] << " to " << outputfilename << "\n";
+    //    std::cout << "Converting " << filenames[0] << " to " << outputfilename << "\n";
 
     // Figure out which data format we want for output
-    if (! dataformatname.empty()) {
+    if (!dataformatname.empty()) {
         if (dataformatname == "uint8")
             configspec.format = TypeDesc::UINT8;
         else if (dataformatname == "int8" || dataformatname == "sint8")
@@ -344,64 +361,69 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
         else if (dataformatname == "double")
             configspec.format = TypeDesc::DOUBLE;
         else {
-            std::cerr << "maketx ERROR: unknown data format \"" << dataformatname << "\"\n";
-            exit (EXIT_FAILURE);
+            std::cerr << "maketx ERROR: unknown data format \""
+                      << dataformatname << "\"\n";
+            exit(EXIT_FAILURE);
         }
     }
 
     configspec.tile_width  = tile[0];
     configspec.tile_height = tile[1];
     configspec.tile_depth  = tile[2];
-    configspec.attribute ("compression", compression);
+    configspec.attribute("compression", compression);
     if (fovcot != 0.0f)
-        configspec.attribute ("fovcot", fovcot);
-    configspec.attribute ("planarconfig", separate ? "separate" : "contig");
+        configspec.attribute("fovcot", fovcot);
+    configspec.attribute("planarconfig", separate ? "separate" : "contig");
     if (Mcam != Imath::M44f(0.0f))
-        configspec.attribute ("worldtocamera", TypeDesc::TypeMatrix, &Mcam);
+        configspec.attribute("worldtocamera", TypeMatrix, &Mcam);
     if (Mscr != Imath::M44f(0.0f))
-        configspec.attribute ("worldtoscreen", TypeDesc::TypeMatrix, &Mscr);
-    std::string wrapmodes = (swrap.size() ? swrap : wrap) + ',' + 
-                            (twrap.size() ? twrap : wrap);
-    configspec.attribute ("wrapmodes", wrapmodes);
+        configspec.attribute("worldtoscreen", TypeMatrix, &Mscr);
+    std::string wrapmodes = (swrap.size() ? swrap : wrap) + ','
+                            + (twrap.size() ? twrap : wrap);
+    configspec.attribute("wrapmodes", wrapmodes);
 
-    configspec.attribute ("maketx:verbose", verbose);
-    configspec.attribute ("maketx:runstats", runstats);
-    configspec.attribute ("maketx:resize", doresize);
-    configspec.attribute ("maketx:nomipmap", nomipmap);
-    configspec.attribute ("maketx:updatemode", updatemode);
-    configspec.attribute ("maketx:constant_color_detect", constant_color_detect);
-    configspec.attribute ("maketx:monochrome_detect", monochrome_detect);
-    configspec.attribute ("maketx:opaque_detect", opaque_detect);
-    configspec.attribute ("maketx:compute_average", compute_average);
-    configspec.attribute ("maketx:unpremult", unpremult);
-    configspec.attribute ("maketx:incolorspace", incolorspace);
-    configspec.attribute ("maketx:outcolorspace", outcolorspace);
-    configspec.attribute ("maketx:checknan", checknan);
-    configspec.attribute ("maketx:fixnan", fixnan);
-    configspec.attribute ("maketx:set_full_to_pixels", set_full_to_pixels);
-    configspec.attribute ("maketx:highlightcomp", (int)do_highlight_compensation);
-    configspec.attribute ("maketx:sharpen", sharpen);
+    configspec.attribute("maketx:verbose", verbose);
+    configspec.attribute("maketx:runstats", runstats);
+    configspec.attribute("maketx:resize", doresize);
+    configspec.attribute("maketx:nomipmap", nomipmap);
+    configspec.attribute("maketx:updatemode", updatemode);
+    configspec.attribute("maketx:constant_color_detect", constant_color_detect);
+    configspec.attribute("maketx:monochrome_detect", monochrome_detect);
+    configspec.attribute("maketx:opaque_detect", opaque_detect);
+    configspec.attribute("maketx:compute_average", compute_average);
+    configspec.attribute("maketx:unpremult", unpremult);
+    configspec.attribute("maketx:incolorspace", incolorspace);
+    configspec.attribute("maketx:outcolorspace", outcolorspace);
+    configspec.attribute("maketx:colorconfig", colorconfigname);
+    configspec.attribute("maketx:checknan", checknan);
+    configspec.attribute("maketx:fixnan", fixnan);
+    configspec.attribute("maketx:set_full_to_pixels", set_full_to_pixels);
+    configspec.attribute("maketx:highlightcomp",
+                         (int)do_highlight_compensation);
+    configspec.attribute("maketx:sharpen", sharpen);
     if (filtername.size())
-        configspec.attribute ("maketx:filtername", filtername);
-    configspec.attribute ("maketx:nchannels", nchannels);
-    configspec.attribute ("maketx:channelnames", channelnames);
+        configspec.attribute("maketx:filtername", filtername);
+    configspec.attribute("maketx:nchannels", nchannels);
+    configspec.attribute("maketx:channelnames", channelnames);
     if (fileformatname.size())
-        configspec.attribute ("maketx:fileformatname", fileformatname);
-    configspec.attribute ("maketx:prman_metadata", prman_metadata);
-    configspec.attribute ("maketx:oiio_options", oiio);
-    configspec.attribute ("maketx:prman_options", prman);
+        configspec.attribute("maketx:fileformatname", fileformatname);
+    configspec.attribute("maketx:prman_metadata", prman_metadata);
+    configspec.attribute("maketx:oiio_options", oiio);
+    configspec.attribute("maketx:prman_options", prman);
     if (mipimages.size())
-        configspec.attribute ("maketx:mipimages", Strutil::join(mipimages,";"));
+        configspec.attribute("maketx:mipimages", Strutil::join(mipimages, ";"));
+    if (bumpslopesmode)
+        configspec.attribute("maketx:bumpformat", bumpformat);
 
-    std::string cmdline = Strutil::format ("OpenImageIO %s : %s",
-                                     OIIO_VERSION_STRING,
-                                     command_line_string (argc, argv, sansattrib));
-    configspec.attribute ("Software", cmdline);
-    configspec.attribute ("maketx:full_command_line", cmdline);
+    std::string cmdline
+        = Strutil::sprintf("OpenImageIO %s : %s", OIIO_VERSION_STRING,
+                           command_line_string(argc, argv, sansattrib));
+    configspec.attribute("Software", cmdline);
+    configspec.attribute("maketx:full_command_line", cmdline);
 
     // Add user-specified string attributes
     for (size_t i = 0; i < string_attrib_names.size(); ++i) {
-        configspec.attribute (string_attrib_names[i], string_attrib_values[i]);
+        configspec.attribute(string_attrib_names[i], string_attrib_values[i]);
     }
 
     // Add user-specified "any" attributes -- try to deduce the type
@@ -409,52 +431,59 @@ getargs (int argc, char *argv[], ImageSpec &configspec)
         string_view s = any_attrib_values[i];
         // Does it parse as an int (and nothing more?)
         int ival;
-        if (Strutil::parse_int(s,ival)) {
+        if (Strutil::parse_int(s, ival)) {
             Strutil::skip_whitespace(s);
-            if (! s.size()) {
-                configspec.attribute (any_attrib_names[i], ival);
+            if (!s.size()) {
+                configspec.attribute(any_attrib_names[i], ival);
                 continue;
             }
         }
         s = any_attrib_values[i];
         // Does it parse as a float (and nothing more?)
         float fval;
-        if (Strutil::parse_float(s,fval)) {
+        if (Strutil::parse_float(s, fval)) {
             Strutil::skip_whitespace(s);
-            if (! s.size()) {
-                configspec.attribute (any_attrib_names[i], fval);
+            if (!s.size()) {
+                configspec.attribute(any_attrib_names[i], fval);
                 continue;
             }
         }
         // OK, treat it like a string
-        configspec.attribute (any_attrib_names[i], any_attrib_values[i]);
+        configspec.attribute(any_attrib_names[i], any_attrib_values[i]);
     }
 
     if (ignore_unassoc) {
-        configspec.attribute ("maketx:ignore_unassoc", (int)ignore_unassoc);
-        ImageCache *ic = ImageCache::create ();  // get the shared one
-        ic->attribute ("unassociatedalpha", (int)ignore_unassoc);
+        configspec.attribute("maketx:ignore_unassoc", (int)ignore_unassoc);
+        ImageCache* ic = ImageCache::create();  // get the shared one
+        ic->attribute("unassociatedalpha", (int)ignore_unassoc);
     }
 }
 
 
 
-
 int
-main (int argc, char *argv[])
+main(int argc, char* argv[])
 {
     Timer alltimer;
 
-    ImageSpec configspec;
-    Filesystem::convert_native_arguments (argc, (const char **)argv);
-    getargs (argc, argv, configspec);
+    // Helpful for debugging to make sure that any crashes dump a stack
+    // trace.
+    Sysutil::setup_crash_stacktrace("stdout");
 
-    OIIO::attribute ("threads", nthreads);
+    // Globally force classic "C" locale, and turn off all formatting
+    // internationalization, for the entire maketx application.
+    std::locale::global(std::locale::classic());
+
+    ImageSpec configspec;
+    Filesystem::convert_native_arguments(argc, (const char**)argv);
+    getargs(argc, argv, configspec);
+
+    OIIO::attribute("threads", nthreads);
 
     // N.B. This will apply to the default IC that any ImageBuf's get.
-    ImageCache *ic = ImageCache::create ();  // get the shared one
-    ic->attribute ("forcefloat", 1);   // Force float upon read
-    ic->attribute ("max_memory_MB", 1024.0);  // 1 GB cache
+    ImageCache* ic = ImageCache::create();   // get the shared one
+    ic->attribute("forcefloat", 1);          // Force float upon read
+    ic->attribute("max_memory_MB", 1024.0);  // 1 GB cache
 
     ImageBufAlgo::MakeTextureMode mode = ImageBufAlgo::MakeTxTexture;
     if (shadowmode)
@@ -463,9 +492,11 @@ main (int argc, char *argv[])
         mode = ImageBufAlgo::MakeTxEnvLatl;
     if (lightprobemode)
         mode = ImageBufAlgo::MakeTxEnvLatlFromLightProbe;
-    bool ok = ImageBufAlgo::make_texture (mode, filenames[0],
-                                          outputfilename, configspec,
-                                          &std::cout);
+    if (bumpslopesmode)
+        mode = ImageBufAlgo::MakeTxBumpWithSlopes;
+
+    bool ok = ImageBufAlgo::make_texture(mode, filenames[0], outputfilename,
+                                         configspec, &std::cout);
     if (runstats)
         std::cout << "\n" << ic->getstats();
 

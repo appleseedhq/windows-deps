@@ -1,4 +1,4 @@
-#!/usr/bin/env python 
+#!/usr/bin/env python
 
 # Create some test images we need
 command += oiiotool ("--create 320x240 3 -d uint8 -o black.tif")
@@ -21,34 +21,6 @@ command += oiiotool ("src/tahoe-small.tif --rangecompress -d uint8 -o rangecompr
 command += oiiotool ("rangecompress.tif --rangeexpand -d uint8 -o rangeexpand.tif")
 command += oiiotool ("src/tahoe-small.tif --rangecompress:luma=1 -d uint8 -o rangecompress-luma.tif")
 command += oiiotool ("rangecompress-luma.tif --rangeexpand:luma=1 -d uint8 -o rangeexpand-luma.tif")
-
-# test resample
-command += oiiotool (parent + "/oiio-images/grid.tif --resample 128x128 -o resample.tif")
-
-# test resize
-command += oiiotool (parent + "/oiio-images/grid.tif --resize 256x256 -o resize.tif")
-command += oiiotool (parent + "/oiio-images/grid.tif --resize 25% -o resize2.tif")
-
-# test extreme resize
-command += oiiotool (parent + "/oiio-images/grid.tif --resize 64x64 -o resize64.tif")
-command += oiiotool ("resize64.tif --resize 512x512 -o resize512.tif")
-
-# test fit
-command += oiiotool (parent + "/oiio-images/grid.tif --fit 360x240 -d uint8 -o fit.tif")
-command += oiiotool (parent + "/oiio-images/grid.tif --fit 240x360 -d uint8 -o fit2.tif")
-# regression test: --fit without needing resize used to be problematic
-command += oiiotool ("src/tahoe-tiny.tif --fit 128x128 -d uint8 -o fit3.tif")
-
-# test --pixelaspect
-command += oiiotool ("src/tahoe-small.tif -resize 256x192 --pixelaspect 2.0 -d uint8 -o pixelaspect.tif")
-
-# test rotate
-command += oiiotool ("resize.tif --rotate 45 -o rotated.tif")
-command += oiiotool ("resize.tif --rotate:center=50,50 45 -o rotated-offcenter.tif")
-command += oiiotool ("resize.tif --rotate 45 --rotate 90 --rotate 90 --rotate 90 --rotate 45 -o rotated360.tif")
-
-# test warp
-command += oiiotool ("resize.tif --warp 0.7071068,0.7071068,0,-0.7071068,0.7071068,0,128,-53.01933,1 -o warped.tif")
 
 # Test --add
 command += oiiotool ("--pattern constant:color=.1,.2,.3 64x64+0+0 3 "
@@ -114,13 +86,13 @@ command += oiiotool ("ref/histogram_input.png --histogram:cumulative=1 256x256 0
             + "-o histogram_cumulative.tif")
 
 # test --crop
-command += oiiotool (parent + "/oiio-images/grid.tif --crop 100x400+50+200 -o crop.tif")
+command += oiiotool (OIIO_TESTSUITE_IMAGEDIR + "/grid.tif --crop 100x400+50+200 -o crop.tif")
 
 # test --cut
-command += oiiotool (parent + "/oiio-images/grid.tif --cut 100x400+50+200 -o cut.tif")
+command += oiiotool (OIIO_TESTSUITE_IMAGEDIR + "/grid.tif --cut 100x400+50+200 -o cut.tif")
 
 # test paste
-command += oiiotool (parent + "/oiio-images/grid.tif "
+command += oiiotool (OIIO_TESTSUITE_IMAGEDIR + "/grid.tif "
             + "--pattern checker 256x256 3 --paste +150+75 -o pasted.tif")
 
 # test --trim
@@ -139,42 +111,8 @@ command += oiiotool ("--pattern constant:color=1,0,0 50x50 3 "
             + "--pattern constant:color=0,0,1 50x50 3 "
             + "--mosaic:pad=10 2x2 -d uint8 -o mosaic.tif")
 
-# test flip
-command += oiiotool ("src/image.tif --flip -o flip.tif")
-command += oiiotool ("src/image.tif --crop 180x140+30+30 --flip -o flip-crop.tif")
-
-# test flop
-command += oiiotool ("src/image.tif --flop -o flop.tif")
-command += oiiotool ("src/image.tif --crop 180x140+30+30 --flop -o flop-crop.tif")
-
-# test rotate90
-command += oiiotool ("src/image.tif --rotate90 -o rotate90.tif")
-command += oiiotool ("src/image.tif --crop 180x140+30+30 --rotate90 -o rotate90-crop.tif")
-
-# test rotate270
-command += oiiotool ("src/image.tif --rotate270 -o rotate270.tif")
-command += oiiotool ("src/image.tif --crop 180x140+30+30 --rotate270 -o rotate270-crop.tif")
-
-# test rotate180
-command += oiiotool ("src/image.tif --rotate180 -o flipflop.tif")
-command += oiiotool ("src/image.tif --crop 160x120+30+30 --rotate180 -o flipflop-crop.tif")
-
-# Tricky: make image, rotate, set Orientation, and then re-orient.
-# Make it half size so it can't accidentally match to another test image
-# for the rotation tests.
-command += oiiotool ("src/image.tif --resample 160x120 --rotate90  --orientccw --reorient -o reorient1.tif")
-command += oiiotool ("src/image.tif --resample 160x120 --rotate180 --orient180 --reorient -o reorient2.tif")
-command += oiiotool ("src/image.tif --resample 160x120 --rotate270 --orientcw  --reorient -o reorient3.tif")
-
-# test transpose
-command += oiiotool ("src/image.tif --transpose -o transpose.tif")
-command += oiiotool ("src/image.tif --crop 160x120+30+30 --transpose -o transpose-crop.tif")
-
-# test cshift
-command += oiiotool ("src/image.tif --cshift +100+50 -o cshift.tif")
-
 # test channel shuffling
-command += oiiotool (parent + "/oiio-images/grid.tif"
+command += oiiotool (OIIO_TESTSUITE_IMAGEDIR + "/grid.tif"
             + " --ch =0.25,B,G -o chanshuffle.tif")
 
 # test --ch to separate RGBA from an RGBAZ file
@@ -199,17 +137,12 @@ command += info_command ("rgbahalf-zfloat.exr", safematch=1)
 
 # test hole filling
 command += oiiotool ("ref/hole.tif --fillholes -o tahoe-filled.tif")
+# test hole filling for a cropped image
+command += oiiotool ("-pattern checker 64x64+32+32 3 -ch R,G,B,A=1.0 -fullsize 128x128+0+0 --croptofull -fillholes -d uint8 -o growholes.tif")
 
 # test clamping
-command += oiiotool (parent + "/oiio-images/grid.tif --resize 50%"
+command += oiiotool (OIIO_TESTSUITE_IMAGEDIR + "/grid.tif --resize 50%"
             + " --clamp:min=0.2:max=,,0.5,1 -o grid-clamped.tif")
-
-# test unpremult/premult
-command += oiiotool ("--pattern constant:color=.1,.1,.1,1 100x100 4 " 
-            + " --fill:color=.2,.2,.2,.5 30x30+50+50 "
-            + " -d half -o premulttarget.exr")
-command += oiiotool ("premulttarget.exr --unpremult -o unpremult.exr")
-command += oiiotool ("unpremult.exr --premult -o premult.exr")
 
 # test kernel
 command += oiiotool ("--kernel bspline 15x15 -o bsplinekernel.exr")
@@ -275,20 +208,38 @@ command += oiiotool ("subimages-2.exr --sisplit -o subimage2.exr " +
                      "--pop -o subimage1.exr")
 
 # test sequences
-command += oiiotool ("fit.tif -o copyA.1-10#.jpg");
+command += oiiotool ("src/tahoe-tiny.tif -o copyA.1-10#.jpg")
 command += oiiotool (" --info  " +  " ".join(["copyA.{0:04}.jpg".format(x) for x in range(1,11)]))
+command += oiiotool ("--frames 1-5 --echo \"Sequence 1-5:  {FRAME_NUMBER}\"")
+command += oiiotool ("--frames -5-5 --echo \"Sequence -5-5:  {FRAME_NUMBER}\"")
+command += oiiotool ("--frames -5--2 --echo \"Sequence -5--2:  {FRAME_NUMBER}\"")
 
 # test expression substitution
 command += oiiotool ("src/tahoe-small.tif --pattern fill:top=0,0,0,0:bottom=0,0,1,1 " +
                      "{TOP.geom} {TOP.nchannels} -d uint8 -o exprgradient.tif")
 command += oiiotool ("src/tahoe-small.tif -cut '{TOP.width-20* 2}x{TOP.height-40+(4*2- 2 ) /6-1}+{TOP.x+100.5-80.5 }+{TOP.y+20}' -d uint8 -o exprcropped.tif")
 command += oiiotool ("src/tahoe-small.tif -o exprstrcat{TOP.compression}.tif")
-
-# test --no-autopremult on a TGA file thet needs it.
-command += oiiotool ("--no-autopremult src/rgba.tga --ch R,G,B -o rgbfromtga.png")
+command += oiiotool ("src/tahoe-tiny.tif -subc '{TOP.MINCOLOR}' -divc '{TOP.MAXCOLOR}' -o tahoe-contraststretch.tif")
+# test use of quotes inside evaluation, {TOP.foo/bar} would ordinarily want
+# to interpret '/' for division, but we want to look up metadata called
+# 'foo/bar'.
+command += oiiotool ("-create 16x16 3 -attrib \"foo/bar\" \"xyz\" -echo \"{TOP.'foo/bar'} should say xyz\"")
+command += oiiotool ("-create 16x16 3 -attrib smpte:TimeCode \"01:02:03:04\" -echo \"timecode is {TOP.'smpte:TimeCode'}\"")
+# Ensure that --evaloff/--evalon work
+command += oiiotool ("-echo \"{1+1}\" --evaloff -echo \"{3+4}\" --evalon -echo \"{2*2}\"")
 
 # test --iconfig
 command += oiiotool ("--info -v -metamatch Debug --iconfig oiio:DebugOpenConfig! 1 black.tif")
+
+# test -i:ch=...
+command += oiiotool ("--pattern fill:color=.6,.5,.4,.3,.2 64x64 5 -d uint8 -o const5.tif")
+command += oiiotool ("-i:ch=R,G,B const5.tif -o const5-rgb.tif")
+
+# Test that combining two images, if the first has no alpha but the second
+# does, gets the right channel names instead of just copying from the first.
+command += oiiotool ("-pattern constant:color=1,0,0 64x64 3 -pattern constant:color=0,1,0,1 64x64 4 -add -o add_rgb_rgba.exr")
+command += info_command ("add_rgb_rgba.exr", safematch=True)
+
 
 # To add more tests, just append more lines like the above and also add
 # the new 'feature.tif' (or whatever you call it) to the outputs list,
@@ -296,26 +247,12 @@ command += oiiotool ("--info -v -metamatch Debug --iconfig oiio:DebugOpenConfig!
 
 
 # Outputs to check against references
-outputs = [ 
+outputs = [
             "filled.tif",
             "autotrim.tif",
-            "resample.tif", "resize.tif", "resize2.tif",
-            "resize64.tif", "resize512.tif",
-            "fit.tif", "fit2.tif", "fit3.tif",
-            "pixelaspect.tif",
-            "warped.tif",
-            "rotated.tif", "rotated-offcenter.tif", "rotated360.tif",
             "histogram_regular.tif", "histogram_cumulative.tif",
             "crop.tif", "cut.tif", "pasted.tif", "mosaic.tif",
             "trim.tif", "trimsubimages.tif",
-            "flip.tif", "flip-crop.tif",
-            "flop.tif", "flop-crop.tif",
-            "flipflop.tif", "flipflop-crop.tif",
-            "rotate90.tif", "rotate90-crop.tif",
-            "rotate270.tif", "rotate270-crop.tif",
-            "reorient1.tif", "reorient2.tif", "reorient3.tif",
-            "transpose.tif", "transpose-crop.tif",
-            "cshift.tif",
             "chanshuffle.tif", "ch-rgba.exr", "ch-z.exr",
             "chappend-rgbaz.exr", "chname.exr",
             "add.exr", "cadd1.exr", "cadd2.exr",
@@ -327,11 +264,10 @@ outputs = [
             "abs.exr", "absdiff.exr", "absdiffc.exr",
             "chsum.tif",
             "rgbahalf-zfloat.exr",
-            "tahoe-filled.tif",
+            "tahoe-filled.tif", "growholes.tif",
             "rangecompress.tif", "rangeexpand.tif",
             "rangecompress-luma.tif", "rangeexpand-luma.tif",
             "grid-clamped.tif",
-            "unpremult.exr", "premult.exr",
             "bsplinekernel.exr", "bspline-blur.tif",
             "gauss5x5-blur.tif", "tahoe-median.tif",
             "dilate.tif", "erode.tif",
@@ -340,7 +276,8 @@ outputs = [
             "polar.exr", "unpolar.exr",
             "labeladd.exr",
             "exprgradient.tif", "exprcropped.tif", "exprstrcatlzw.tif",
-            "rgbfromtga.png",
+            "tahoe-contraststretch.tif",
+            "const5-rgb.tif",
             "out.txt" ]
 
 #print "Running this command:\n" + command + "\n"

@@ -33,7 +33,6 @@
  */
 
 
-
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -41,7 +40,7 @@
 #include <ctime>
 #include <limits>
 
-#include "OpenImageIO/strutil.h"
+#include <OpenImageIO/strutil.h>
 
 #include "CineonHeader.h"
 #include "EndianSwap.h"
@@ -523,19 +522,19 @@ void cineon::IndustryHeader::SetFilmEdgeCode(const char *edge)
 	char buf[7];
 
 	strncpy(buf, edge, 2);
-	this->filmManufacturingIdCode = atoi(buf);
+	this->filmManufacturingIdCode = OIIO::Strutil::stoi(buf);
 
 	strncpy(buf, edge + 2, 2);
-	this->filmType = atoi(buf);
+	this->filmType = OIIO::Strutil::stoi(buf);
 
 	strncpy(buf, edge + 4, 2);
-	this->perfsOffset = atoi(buf);
+	this->perfsOffset = OIIO::Strutil::stoi(buf);
 
 	strncpy(buf, edge + 6, 6);
-	this->prefix = atoi(buf);
+	this->prefix = OIIO::Strutil::stoi(buf);
 
 	strncpy(buf, edge + 12, 4);
-	this->count = atoi(buf);
+	this->count = OIIO::Strutil::stoi(buf);
 }
 
 
@@ -551,8 +550,8 @@ void cineon::GenericHeader::SetCreationTimeDate(const long sec)
 	const time_t t = time_t(sec);
 	tm_time = ::localtime(&t);
 	::strftime(str, 32, "%Y:%m:%d:%H:%M:%S%Z", tm_time);
-	::strncpy(this->creationDate, str, 10);
-	::strncpy(this->creationTime, str + 11, 12);
+	OIIO::Strutil::safe_strcpy(this->creationDate, str, 11);
+	OIIO::Strutil::safe_strcpy(this->creationTime, str + 11, 12);
 }
 
 
@@ -568,8 +567,8 @@ void cineon::GenericHeader::SetSourceTimeDate(const long sec)
 	const time_t t = time_t(sec);
 	tm_time = ::localtime(&t);
 	::strftime(str, 32, "%Y:%m:%d:%H:%M:%S%Z", tm_time);
-	::strncpy(this->sourceDate, str, 10);
-	::strncpy(this->sourceTime, str + 11, 12);
+	OIIO::Strutil::safe_strcpy(this->sourceDate, str, 11);
+	OIIO::Strutil::safe_strcpy(this->sourceTime, str + 11, 12);
 }
 
 

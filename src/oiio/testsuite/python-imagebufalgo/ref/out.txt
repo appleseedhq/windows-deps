@@ -1,9 +1,17 @@
+Stats for tahoe-small.tif:
+  min         =  [0.0, 0.003921568859368563, 0.007843137718737125]
+  max         =  [0.8784314393997192, 1.0, 1.0]
+  avg         =  [0.10193096846342087, 0.21669696271419525, 0.4254732131958008]
+  stddev      =  [0.13176831603050232, 0.23792722821235657, 0.3826749324798584]
+  nancount    =  [0L, 0L, 0L]
+  infcount    =  [0L, 0L, 0L]
+  finitecount =  [196608L, 196608L, 196608L]
 Comparison: of flip.tif and flop.tif
   mean = 0.0068759
   rms  = 0.051175
   PSNR = 25.819
   max  = 0.45098
-  max @ (214, 88, 0, 0)
+  max @ (214L, 88L, 0L, 0L)
   warns 2034 fails 2034
 isConstantColor on pink image is (1 0.50196 0.50196)
 isConstantColor on checker is  None
@@ -11,6 +19,9 @@ Is cmul1.exr monochrome?  True
 Is cmul2.exr monochrome?  False
 Nonzero region is:  100 180 100 180 0 1 0 3
 SHA-1 of bsplinekernel.exr is: D5826B66A5313F9A32D42C5CF49C90EC4E7F84BF
+R hist:  (10000L, 0L, 0L, 0L)
+G hist:  (10000L, 0L, 0L, 0L)
+B hist:  (0L, 10000L, 0L, 0L)
 Done.
 Comparing "black.tif" and "ref/black.tif"
 PASS
@@ -42,27 +53,27 @@ Comparing "cut.tif" and "../../../../testsuite/oiiotool/ref/cut.tif"
 PASS
 Comparing "pasted.tif" and "../../../../testsuite/oiiotool/ref/pasted.tif"
 PASS
-Comparing "rotate90.tif" and "../../../../testsuite/oiiotool/ref/rotate90.tif"
+Comparing "rotate90.tif" and "../../../../testsuite/oiiotool-xform/ref/rotate90.tif"
 PASS
 Comparing "rotate180.tif" and "../../../../testsuite/oiiotool/ref/rotate180.tif"
 PASS
-Comparing "rotate270.tif" and "../../../../testsuite/oiiotool/ref/rotate270.tif"
+Comparing "rotate270.tif" and "../../../../testsuite/oiiotool-xform/ref/rotate270.tif"
 PASS
-Comparing "rotated.tif" and "../../../../testsuite/oiiotool/ref/rotated.tif"
+Comparing "rotated.tif" and "../../../../testsuite/oiiotool-xform/ref/rotated.tif"
 PASS
-Comparing "rotated-offcenter.tif" and "../../../../testsuite/oiiotool/ref/rotated-offcenter.tif"
+Comparing "rotated-offcenter.tif" and "../../../../testsuite/oiiotool-xform/ref/rotated-offcenter.tif"
 PASS
-Comparing "warped.tif" and "../../../../testsuite/oiiotool/ref/warped.tif"
+Comparing "warped.tif" and "../../../../testsuite/oiiotool-xform/ref/warped.tif"
 PASS
-Comparing "flip.tif" and "../../../../testsuite/oiiotool/ref/flip.tif"
+Comparing "flip.tif" and "../../../../testsuite/oiiotool-xform/ref/flip.tif"
 PASS
-Comparing "flop.tif" and "../../../../testsuite/oiiotool/ref/flop.tif"
+Comparing "flop.tif" and "../../../../testsuite/oiiotool-xform/ref/flop.tif"
 PASS
-Comparing "reorient1.tif" and "../../../../testsuite/oiiotool/ref/reorient1.tif"
+Comparing "reorient1.tif" and "../../../../testsuite/oiiotool-xform/ref/reorient1.tif"
 PASS
-Comparing "transpose.tif" and "../../../../testsuite/oiiotool/ref/transpose.tif"
+Comparing "transpose.tif" and "../../../../testsuite/oiiotool-xform/ref/transpose.tif"
 PASS
-Comparing "cshift.tif" and "../../../../testsuite/oiiotool/ref/cshift.tif"
+Comparing "cshift.tif" and "../../../../testsuite/oiiotool-xform/ref/cshift.tif"
 PASS
 Comparing "cadd1.exr" and "../../../../testsuite/oiiotool/ref/cadd1.exr"
 PASS
@@ -84,6 +95,10 @@ Comparing "cmul2.exr" and "../../../../testsuite/oiiotool/ref/cmul2.exr"
 PASS
 Comparing "mad.exr" and "../../../../testsuite/oiiotool/ref/mad.exr"
 PASS
+Comparing "mad2.exr" and "ref/mad2.exr"
+PASS
+Comparing "mad3.exr" and "ref/mad3.exr"
+PASS
 Comparing "cpow1.exr" and "../../../../testsuite/oiiotool/ref/cpow1.exr"
 PASS
 Comparing "cpow2.exr" and "../../../../testsuite/oiiotool/ref/cpow2.exr"
@@ -98,21 +113,37 @@ Comparing "invert.tif" and "../../../../testsuite/oiiotool/ref/invert.tif"
 PASS
 Comparing "chsum.tif" and "../../../../testsuite/oiiotool/ref/chsum.tif"
 PASS
+Comparing "colormap-inferno.tif" and "../../../../testsuite/oiiotool-color/ref/colormap-inferno.tif"
+PASS
+Comparing "colormap-custom.tif" and "../../../../testsuite/oiiotool-color/ref/colormap-custom.tif"
+PASS
 Comparing "grid-clamped.tif" and "../../../../testsuite/oiiotool/ref/grid-clamped.tif"
 PASS
 Comparing "rangecompress.tif" and "../../../../testsuite/oiiotool/ref/rangecompress.tif"
 PASS
 Comparing "rangeexpand.tif" and "../../../../testsuite/oiiotool/ref/rangeexpand.tif"
 PASS
-Comparing "resize.tif" and "../../../../testsuite/oiiotool/ref/resize.tif"
+Comparing "contrast-stretch.tif" and "../../../../testsuite/oiiotool-color/ref/contrast-stretch.tif"
 PASS
-Comparing "resample.tif" and "../../../../testsuite/oiiotool/ref/resample.tif"
+Comparing "contrast-shrink.tif" and "../../../../testsuite/oiiotool-color/ref/contrast-shrink.tif"
+PASS
+Comparing "contrast-sigmoid5.tif" and "../../../../testsuite/oiiotool-color/ref/contrast-sigmoid5.tif"
+PASS
+Comparing "resize.tif" and "../../../../testsuite/oiiotool-xform/ref/resize.tif"
+PASS
+Comparing "resample.tif" and "../../../../testsuite/oiiotool-xform/ref/resample.tif"
+PASS
+Comparing "fit.tif" and "../../../../testsuite/oiiotool-xform/ref/fit.tif"
 PASS
 Comparing "bsplinekernel.exr" and "../../../../testsuite/oiiotool/ref/bsplinekernel.exr"
 PASS
 Comparing "bspline-blur.tif" and "../../../../testsuite/oiiotool/ref/bspline-blur.tif"
 PASS
 Comparing "tahoe-median.tif" and "../../../../testsuite/oiiotool/ref/tahoe-median.tif"
+PASS
+Comparing "dilate.tif" and "../../../../testsuite/oiiotool/ref/dilate.tif"
+PASS
+Comparing "erode.tif" and "../../../../testsuite/oiiotool/ref/erode.tif"
 PASS
 Comparing "unsharp.tif" and "../../../../testsuite/oiiotool/ref/unsharp.tif"
 PASS
@@ -136,5 +167,7 @@ Comparing "a_over_b.exr" and "../../../../testsuite/oiiotool-composite/ref/a_ove
 PASS
 Comparing "tahoe-small.tx" and "ref/tahoe-small.tx"
 PASS
-Comparing "text.tif" and "../../../../testsuite/oiiotool-text/ref/text.tif"
+Comparing "text.tif" and "../../../../testsuite/oiiotool-text/ref/text-freetype2.7.tif"
+PASS
+Comparing "textcentered.tif" and "ref/textcentered.tif"
 PASS

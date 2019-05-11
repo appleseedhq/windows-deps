@@ -88,19 +88,85 @@ these compression modes.  Alas.
 
 \vspace{.25in}
 
+\section{DICOM}
+\label{sec:bundledplugins:dicom}
+\index{DICOM}
+
+DICOM (Digital Imaging and Communications in Medicine) is the standard
+format used for medical images. DICOM files usually have the extension
+{\cf .dcm}.
+
+\productver currently only supports reading DICOM files, not writing them.
+
+%\subsubsection*{Attributes}
+\vspace{.125in}
+
+\noindent\begin{tabular}{p{1.5in}|p{0.5in}|p{3.5in}}
+\ImageSpec Attribute & Type & DICOM header data or explanation \\
+\hline
+\qkw{oiio:BitsPerSample} & int & bits per sample \\
+\qkw{dicom:*} &  & DICOM header information and metadata is currently all
+preceded by the {\cf dicom:} prefix. \\
+\end{tabular}
+
+%\subsubsection*{Limitations}
+%\begin{itemize}
+%\item blah
+%\end{itemize}
+
+
+\vspace{.25in}
+
 \section{DPX}
 \label{sec:bundledplugins:dpx}
 \index{DPX}
 
 
-DPX (Digital Picture Exchange) is an image file format used for 
+DPX (Digital Picture Exchange) is an image file format used for
 motion picture film scanning, output, and digital intermediates.
 DPX files use the file extension {\cf .dpx}.
 
 %\subsubsection*{Attributes}
 \vspace{.125in}
 
-\noindent\begin{tabular}{p{1.8in}|p{0.65in}|p{2.75in}}
+\subsubsection*{Configuration settings for DPX input}
+
+When opening a DPX \ImageInput with a \emph{configuration} (see
+Section~\ref{sec:inputwithconfig}), the following special configuration
+options are supported:
+
+\vspace{.125in}
+
+\noindent\begin{tabular}{p{1.8in}|p{0.5in}|p{2.95in}}
+Configuration attribute & Type & Meaning \\
+\hline
+\qkws{oiio:RawColor} & int & If nonzero, reading images with non-RGB color
+                        models (such as YCbCr) will return unaltered
+                        pixel values (versus the default OIIO behavior of
+                        automatically converting to RGB). \\
+\end{tabular}
+
+\subsubsection*{Configuration settings for DPX output}
+
+When opening a DPX \ImageOutput, the following special metadata tokens
+control aspects of the writing itself:
+
+\vspace{.125in}
+
+\noindent\begin{tabular}{p{1.8in}|p{0.5in}|p{2.95in}}
+Output attribute & Type & Meaning \\
+\hline
+\qkws{oiio:RawColor} & int & If nonzero, writing images with non-RGB color
+                        models (such as YCbCr) will keep unaltered
+                        pixel values (versus the default OIIO behavior of
+                        automatically converting from RGB to the designated
+                        color space as the pixels are written). \\
+\end{tabular}
+
+
+\subsubsection*{DPX Attributes}
+
+\noindent\begin{longtable}{p{1.8in}|p{0.65in}|p{2.75in}}
 OIIO Attribute & Type & DPX header data or explanation \\
 \hline
 \qkw{ImageDescription} & string & Description of image element \\
@@ -119,12 +185,6 @@ OIIO Attribute & Type & DPX header data or explanation \\
                                 marked as TIMECODE) \\
 \qkw{smpte:KeyCode} & int[7] & SMPTE key code (vecsemantics will be
                                 marked as KEYCODE) \\
-
-\end{tabular} 
-
-\noindent\begin{tabular}{p{1.8in}|p{0.65in}|p{2.75in}}
-OIIO Attribute & Type & DPX header data or explanation \\
-\hline
 \qkw{dpx:Transfer} & string & Transfer characteristic \\
 \qkw{dpx:Colorimetric} & string & Colorimetric specification \\
 \qkw{dpx:ImageDescriptor} & string & ImageDescriptor \\
@@ -172,7 +232,7 @@ pixel (ms) \\
 \qkw{dpx:IntegrationTimes} & float & integration time (s) \\
 \qkw{dpx:EndOfLinePadding} & int & Padded bytes at the end of each line \\
 \qkw{dpx:EndOfImagePadding} & int & Padded bytes at the end of each image \\
-\end{tabular}
+\end{longtable}
 
 %\subsubsection*{Limitations}
 %\begin{itemize}
@@ -189,7 +249,7 @@ pixel (ms) \\
 Field3d is an open-source volume data file format.  Field3d files
 commonly use the extension {\cf .f3d}.
 The official Field3D site is:
-\url{http://sites.google.com/site/field3d/}
+\url{https://github.com/imageworks/Field3D}
 Currently, \product only reads Field3d files, and does not write them.
 
 Fields are comprised of multiple \emph{layers} (which appear to \product
@@ -217,7 +277,7 @@ Otherwise, the tile size will be the size of the entire volume.
 \qkw{field3d:mapping} & string & the coordinate mapping type \\
 \qkws{field3d:localtoworld} & matrix of doubles & if a
   matrixMapping, the local-to-world transformation matrix \\
-\qkw{worldtocamera} & matrix & if a matrixMapping, the
+\qkw{worldtolocal} & matrix & if a matrixMapping, the
   world-to-local coordinate mapping \\
 \end{tabular}
 
@@ -229,7 +289,7 @@ exceptions: (1) if the partition and attribute names are identical, just
 one is used rather than it being pointlessly concatenated (e.g.,
 \qkw{density}, not \qkw{density:density}); (2) if there are mutiple
 partitions + attribute combinations with identical names in the same
-file, ``.\emph{number}'' will be added after the partition name for 
+file, ``.\emph{number}'' will be added after the partition name for
 subsequent layers (e.g., \qkw{default:density}, \qkw{default.2:density},
 \qkw{default.3:density}).
 
@@ -243,7 +303,7 @@ FITS (Flexible Image Transport System) is an image file format used
 for scientific applications, particularly professional astronomy.
 FITS files use the file extension {\cf .fits}.
 Official FITS specs and other info may be found at:
-\url{http://fits.gsfc.nasa.gov/} 
+\url{http://fits.gsfc.nasa.gov/}
 
 \product supports multiple images in FITS files, and supports the
 following pixel data types: UINT8, UINT16, UINT32, FLOAT, DOUBLE.
@@ -278,20 +338,20 @@ storage.  Currently, \product only supports 2D FITS data (images), not
 \label{sec:bundledplugins:gif}
 \index{GIF}
 
-GIF (Graphics Interchange Format) is an image file format developed by 
+GIF (Graphics Interchange Format) is an image file format developed by
 CompuServe in 1987.  Nowadays it is widely used to display basic animations
 despite its technical limitations.
 
 %\subsubsection*{Attributes}
 \vspace{.125in}
 
-\noindent\begin{tabular}{p{1.5in}|p{0.5in}|p{3.25in}}
+\noindent\begin{tabular}{p{1.5in}|p{1in}|p{2.75in}}
 \ImageSpec Attribute & Type & GIF header data or explanation \\
 \hline
 \qkw{gif:Interlacing} & int & Specifies if image is interlaced (0 or 1). \\
-\qkw{FramesPerSecond} & float & Frames per second \\
+\qkw{FramesPerSecond} & int[2] (rational) & Frames per second \\
 \qkw{oiio:Movie} & int & If nonzero, indicates that it's an animated GIF. \\
-\qkw{gif:LoopCount} & int & Number of times the animation should be played 
+\qkw{gif:LoopCount} & int & Number of times the animation should be played
 (0--65535, 0 stands for infinity). \\
 \qkw{ImageDescription} & string & The GIF comment field.
 \end{tabular}
@@ -299,10 +359,10 @@ despite its technical limitations.
 \subsubsection*{Limitations}
 
 \begin{itemize}
-\item GIF only supports 3-channel (RGB) images and at most 8 bits per 
+\item GIF only supports 3-channel (RGB) images and at most 8 bits per
 channel.
 \item Each subimage can include its own palette or use global palette.
-Palettes contain up to 256 colors of which one can be used as background 
+Palettes contain up to 256 colors of which one can be used as background
 color. It is then emulated with additional Alpha channel by \product's reader.
 \end{itemize}
 
@@ -336,9 +396,11 @@ required.
 \ImageSpec Attribute & Type & RGBE header data or explanation \\
 \hline
 \qkw{Orientation} & int & encodes the orientation (see
-  \ref{metadata:orientation}) \\
-{\cf ImageSpec.gamma} & float & the gamma correction specified in the
-  RGBE header.
+  Section~\ref{metadata:orientation}) \\
+\qkw{oiio:ColorSpace} & string & Color space (see
+    Section~\ref{metadata:colorspace}). \\
+\qkw{oiio:Gamma} & float & the gamma correction specified in the
+  RGBE header (if it's gamma corrected).
 \end{tabular}
 
 
@@ -390,9 +452,9 @@ OIIO Attribute & Type & DPX header data or explanation \\
 \hline
 \qkw{Artist} & string & The IFF ``author'' \\
 \qkw{DateTime} & string & Creation date/time \\
-\qkw{compression} & string & The compression type \\
+\qkw{compression} & string & The compression type (\qkw{none} or \qkw{rle} [default]) \\
 \qkw{oiio:BitsPerSample} & int & the true bits per sample of the IFF file. \\
-\end{tabular} 
+\end{tabular}
 
 
 
@@ -436,7 +498,9 @@ anywhere near the acceptance of the original JPEG/JFIF format.
 \qkw{Orientation} & int & the image orientation \\[2ex]
 \qkw{XResolution}, \qkw{YResolution},
 \qkw{ResolutionUnit} & & The resolution and units from the Exif header \\[2ex]
-\qkw{CompressionQuality} & int & Quality of compression (1-100) \\[2ex]
+\qkw{Compression} & string & If supplied, must be \qkw{jpeg}, but may
+     optionally have a quality value appended, like \qkw{jpeg:90}.
+     Quality can be 1-100, with 100 meaning lossless. \\[2ex]
 \qkw{ICCProfile} & uint8[] & The ICC color profile \\[2ex]
 \qkw{jpeg:subsampling} & string & Describes the chroma subsampling,
     e.g., \qkw{4:2:0} (the default), \qkw{4:4:4}, \qkw{4:2:2},
@@ -451,11 +515,10 @@ Exif, IPTC, XMP, GPS & & Extensive Exif, IPTC, XMP, and GPS data are supported b
 \subsubsection*{Limitations}
 \begin{itemize}
 \item JPEG/JFIF only supports 1- (grayscale) and 3-channel (RGB) images.
-  As a special case, \product's JPEG writer will accept 4-channel image
-  data and silently drop the alpha channel while outputting.  Other
-  channel count requests (i.e., anything other than 1, 3, and 4) will
-  cause {\cf open()} to fail, since it is not possible to write a JFIF
-  file with other than 1 or 3 channels.
+  As a special case, \product's JPEG writer will accept $n$-channel image
+  data, but will only output the first 3 channels (if $n \ge 3$) or the
+  first channel (if $n \le 2$), silently drop any extra channels from the
+  output.
 \item Since JPEG/JFIF only supports 8 bits per channel, \product's
   JPEG/JFIF writer will silently convert to UINT8 upon output,
   regardless of requests to the contrary from the calling program.
@@ -478,7 +541,7 @@ JPEG-2000 files use the file extensions {\cf .jp2} or {\cf .j2k}.
 The official JPEG-2000 format specification and other helpful info
 may be found at \url{http://www.jpeg.org/JPEG2000.htm}.
 
-JPEG-2000 is not yet widely used, so \product's support of it is 
+JPEG-2000 is not yet widely used, so \product's support of it is
 preliminary.  In particular, we are not yet very good at handling
 the metadata robustly.
 
@@ -531,12 +594,60 @@ Some special attributes are used for movie files:
 
 \medskip
 
-\noindent\begin{tabular}{p{1.8in}|p{0.65in}|p{2.75in}}
+\noindent\begin{tabular}{p{1.5in}|p{1in}|p{2.7in}}
 OIIO Attribute & Type & Explanation \\
 \hline
 \qkw{oiio:Movie} & int & Nonzero value for movie files \\
-\qkw{FramesPerSecond} & float & Frames per second \\
+\qkw{FramesPerSecond} & int[2] (rational) & Frames per second \\
 \end{tabular}
+
+
+
+\vspace{.25in}
+
+\section{Null format}
+\label{sec:bundledplugins:null}
+\index{null format}
+
+The {\cf null} reader/writer is a mock-up that does not perform any actual
+I/O. The reader just returns constant-colored pixels, and the writer just
+returns directly without saving any data. This has several uses:
+
+\begin{itemize}
+\item Benchmarking, if you want to have OIIO's input or output truly take
+as close to no time whatsoever.
+
+\item ``Dry run'' of applications where you don't want it to produce any real
+output (akin to a Unix command that you redirect output to /dev/null).
+
+\item Make ``fake'' input that looks like a file, but the file doesn't exist
+(if you are happy with constant-colored pixels).
+\end{itemize}
+
+The filename allows a REST-ful syntax, where you can append modifiers
+that specify things like resolution (of the non-existent file), etc.
+For example,
+
+\begin{code}
+      foo.null?RES=640x480&CHANNELS=3
+\end{code}
+
+\noindent would specify a null file with resolution 640x480 and 3 channels.
+Token/value pairs accepted are:
+
+\medskip
+\begin{tabular}{p{1.4in} p{4in}}
+{\cf RES=1024x1024}        & Set resolution (3D example: 256x256x100) \\
+{\cf CHANNELS=4}           & Set number of channels \\
+{\cf TILES=64x64}          & Makes it look like a tiled image with tile size \\
+{\cf TYPE=uint8}           & Set the pixel data type \\
+{\cf PIXEL=r,g,b,...}      & Set pixel values (comma separates channel values) \\
+{\cf TEX=1}                & Make it look like a full MIP-mapped texture \\
+{\cf attrib=value}         & Anything else will set metadata \\
+\end{tabular}
+
+\medskip
+
 
 
 
@@ -554,14 +665,14 @@ arbitrary metadata, and arbitrary numbers of color channels.  OpenEXR
 files use the file extension {\cf .exr}.
 The official OpenEXR site is \url{http://www.openexr.com/}.
 
-%\subsubsection*{Attributes}
+\subsubsection*{Attributes}
 \vspace{.125in}
 
-\noindent\begin{tabular}{p{1.95in}|p{0.5in}|p{2.8in}}
+\noindent\begin{longtable}{p{1.95in}|p{0.5in}|p{2.8in}}
 \ImageSpec Attribute & Type & OpenEXR header data or explanation \\
 \hline
-{\cf width}, {\cf height}, {\cf x}, {\cf y} & & {\cf dataWindow} \\[1ex]
-{\cf\small full_width}, {\cf\small full_height}, {\cf\small full_x}, 
+{\cf width}, {\cf height}, {\cf x}, {\cf y} & & {\cf dataWindow} \\[0.5ex]
+{\cf\small full_width}, {\cf\small full_height}, {\cf\small full_x},
   {\cf\small full_y} & & {\cf displayWindow}.  \\[4ex]
 \qkw{worldtocamera} & matrix & worldToCamera \\
 \qkw{worldtoscreen} & matrix & worldToNDC \\
@@ -572,18 +683,23 @@ The official OpenEXR site is \url{http://www.openexr.com/}.
 \qkw{ExposureTime} & float & expTime \\
 \qkw{FNumber} & float & aperture \\
 \qkw{compression} & string & one of: \qkw{none}, \qkw{rle},
-  \qkw{zip}, \qkw{piz}, \qkw{pxr24}, \qkw{b44}, \qkw{b44a},
+  \qkw{zip}, \qkw{zips}, \qkw{piz}, \qkw{pxr24}, \qkw{b44}, \qkw{b44a},
   \qkw{dwaa}, or \qkw{dwab}.  If the
   writer receives a request for a compression type it does not
   recognize or is not supported by the version of OpenEXR on the system,
   it will use \qkw{zip} by default. For \qkw{dwaa} and \qkw{dwab}, the
   dwaCompressionLevel may be optionally appended to the compression name
-  after a colon, like this: \qkw{dwaa:200}. \\
-\qkw{textureformat} & string & set to \qkw{Plain Texture} for
+  after a colon, like this: \qkw{dwaa:200}. (The default DWA compression
+  value is 45.) \\
+\qkw{textureformat} & string & \qkw{Plain Texture} for
   MIP-mapped OpenEXR files, \qkw{CubeFace Environment} or \qkw{Latlong
     Environment} for OpenEXR environment maps.  Non-environment
   non-MIP-mapped OpenEXR files will not set this attribute. \\
 \qkw{wrapmodes} & string & wrapmodes \\
+\qkw{FramesPerSecond} & int[2] & Frames per second playback rate (vecsemantics
+                                will be marked as RATIONAL) \\
+\qkw{captureRate} & int[2] & Frames per second capture rate (vecsemantics
+                                will be marked as RATIONAL)\\
 \qkw{smpte:TimeCode} & int[2] & SMPTE time code (vecsemantics will be
                                 marked as TIMECODE) \\
 \qkw{smpte:KeyCode} & int[7] & SMPTE key code (vecsemantics will be
@@ -594,16 +710,64 @@ The official OpenEXR site is \url{http://www.openexr.com/}.
 %\qkw{oiio:sampleborder} & int & Will be set to 1 for OpenEXR environment
 % maps to indicate that OpenEXR dictates that boundary texels sample exactly
 % on the texture border (pole, meridian, or cube edge).\\[2ex]
-\qkw{openexr:lineOrder} & string & the OpenEXR lineOrder attribute
-  (set to \qkws{increasingY}, \qkws{randomY}, or \qkws{decreasingY}).
+\qkw{openexr:lineOrder} & string & OpenEXR lineOrder attribut:
+  \qkws{increasingY}, \qkws{randomY}, or \qkws{decreasingY}.
  \\
 \qkws{openexr:roundingmode} & int & the MIPmap rounding mode of the
   file. \\
 \qkws{\small openexr:dwaCompressionLevel} & float & compression level for
-   dwaa or dwab compression (default: 45.0). \\[2ex]
+   dwaa or dwab compression (default: 45.0). \\[1ex]
 \emph{other} & & All other attributes will be added to the \ImageSpec by their
   name and apparent type.
+\end{longtable}
+
+\subsubsection*{Configuration settings for OpenEXR input}
+
+When opening an OpenEXR \ImageInput with a \emph{configuration} (see
+Section~\ref{sec:inputwithconfig}), the following special configuration
+attributes are supported:
+
+\vspace{.125in}
+
+\noindent\begin{tabular}{p{1.8in}|p{0.5in}|p{2.95in}}
+Configuration attribute & Type & Meaning \\
+\hline
+\qkws{oiio:ioproxy} & ptr & Pointer to a {\cf Filesystem::IOProxy} that will
+    handle the I/O, for example by reading from memory rather than the file
+    system. \\[0.5ex]
+\qkws{oiio:missingcolor} & float[] & \\
+\qkws{oiio:missingcolor} & string & Either an array of float values or a
+    string holding a comma-separated list of values, if present this is
+    a request to use this color for pixels of any missing tiles or scanlines,
+    rather than considering a tile/scanline read failure to be an error.
+    This can be helpful when intentionally reading partially-written or
+    incomplete files (such as an in-progress render). \\
 \end{tabular}
+
+\subsubsection*{Configuration settings for OpenEXR output}
+
+When opening an OpenEXR \ImageOutput, the following special metadata tokens
+control aspects of the writing itself:
+
+\vspace{.125in}
+
+\noindent\begin{tabular}{p{1.8in}|p{0.5in}|p{2.95in}}
+Output attribute & Type & Meaning \\
+\hline
+\qkws{oiio:RawColor} & int & If nonzero, writing images with non-RGB color
+                        models (such as YCbCr) will keep unaltered
+                        pixel values (versus the default OIIO behavior of
+                        automatically converting from RGB to the designated
+                        color space as the pixels are written). \\[0.5ex]
+\qkws{oiio:ioproxy} & ptr & Pointer to a {\cf Filesystem::IOProxy} that will
+    handle the I/O, for example by writing to a memory buffer. \\[0.5ex]
+\end{tabular}
+
+\subsection*{Custom I/O Overrides}
+
+OpenEXR input and output both support the ``custom I/O'' feature via the
+special \qkw{oiio:ioproxy} attributes (see
+Sections~\ref{sec:imageoutput:ioproxy} and \ref{sec:imageinput:ioproxy}).
 
 \subsubsection*{A note on channel names}
 
@@ -628,6 +792,43 @@ OIIO by libIlmImf.
 
 \vspace{.25in}
 
+\section{OpenVDB}
+\label{sec:bundledplugins:openvdb}
+\index{OpenVDB}
+
+\NEW % 1.9
+OpenVDB is an open-source volume data file format.  OpenVDB files
+commonly use the extension {\cf .vdb}.
+The official OpenVDB site is:
+\url{http://www.openvdb.org/}
+Currently, \product only reads OpenVDB files, and does not write them.
+
+Volumes are comprised of multiple \emph{layers} (which appear to \product as
+subimages).  Each layer/subimage may have a different name, resolution, and
+coordinate mapping.  Layers may be scalar (1 channel) or vector (3 channel)
+fields, and the voxel data are always {\cf float}. OpenVDB files always
+report as tiled, using the leaf dimension size.
+
+%\subsubsection*{Attributes}
+\vspace{.125in}
+
+\noindent\begin{tabular}{p{1.6in}|p{0.6in}|p{3.0in}}
+\ImageSpec Attribute & Type & Field3d header data or explanation \\
+\hline
+\qkw{ImageDescription} & string & unique layer name \\
+\qkw{oiio:subimagename} & string & unique layer name \\
+\qkws{openvdb:indextoworld} & matrix of doubles & conversion of pixel
+   index to world space coordinates. \\
+\qkws{openvdb:worldtoindex} & matrix of doubles & conversion of world
+    space coordinates to pixel index. \\
+\qkw{worldtolocal} & matrix & the world-to-local coordinate mapping. \\
+\end{tabular}
+
+\vspace{10pt}
+
+
+\vspace{.25in}
+
 \section{PNG}
 \label{sec:bundledplugins:png}
 \index{PNG}
@@ -637,7 +838,7 @@ open source community as an alternative to the GIF, after Unisys started
 enforcing patents allegedly covering techniques necessary to use GIF.
 PNG files use the file extension {\cf .png}.
 
-%\subsubsection*{Attributes}
+\subsubsection*{Attributes}
 \vspace{.125in}
 
 \noindent\begin{tabular}{p{1.75in}|p{0.5in}|p{3.0in}}
@@ -650,8 +851,53 @@ PNG files use the file extension {\cf .png}.
 \qkw{PixelAspectRatio} & float & pixel aspect ratio \\
 \qkw{XResolution} \qkw{YResolution}
   \qkw{ResolutionUnit} & & resolution and units from the PNG header. \\
+\qkw{oiio:ColorSpace} & string & Color space (see
+    Section~\ref{metadata:colorspace}). \\
+\qkw{oiio:Gamma} & float & the gamma correction value (if specified). \\
 \qkw{ICCProfile} & uint8[] & The ICC color profile \\
 \end{tabular}
+
+\subsubsection*{Configuration settings for PNG input}
+
+When opening an PNG \ImageInput with a \emph{configuration} (see
+Section~\ref{sec:inputwithconfig}), the following special configuration
+attributes are supported:
+
+\vspace{.125in}
+
+\noindent\begin{tabular}{p{1.8in}|p{0.5in}|p{2.95in}}
+Configuration attribute & Type & Meaning \\
+\hline
+\qkws{oiio:UnassociatedAlpha} & int & If nonzero, will leave alpha unassociated
+                                     (versus the default of premultiplying
+                                     color channels by alpha if the alpha channel
+                                     is unassociated). \\
+%\qkws{oiio:ioproxy} & ptr & Pointer to a {\cf Filesystem::IOProxy} that will
+%    handle the I/O, for example by reading from memory rather than the file
+%    system. \\
+\end{tabular}
+
+\subsubsection*{Configuration settings for PNG output}
+
+When opening an PNG \ImageOutput, the following special metadata tokens
+control aspects of the writing itself:
+
+\vspace{.125in}
+
+\noindent\begin{tabular}{p{1.8in}|p{0.5in}|p{2.95in}}
+Output attribute & Type & Meaning \\
+\hline
+\qkws{oiio:ioproxy} & ptr & Pointer to a {\cf Filesystem::IOProxy} that will
+    handle the I/O, for example by writing to a memory buffer. \\[0.5ex]
+\qkws{oiio:dither} & int & If nonzero and outputting UINT8 values in the
+    file, will add a small amount of random dither to combat the appearance
+    of banding. \\
+\end{tabular}
+
+\subsection*{Custom I/O Overrides}
+
+PNG output supports the ``custom I/O'' feature via the special
+\qkw{oiio:ioproxy} attributes (see Section~\ref{sec:imageoutput:ioproxy}).
 
 \subsubsection*{Limitations}
 
@@ -680,7 +926,7 @@ PNG files use the file extension {\cf .png}.
 The Netpbm project, a.k.a.\ PNM (portable ``any'' map) defines PBM, PGM,
 and PPM (portable bitmap, portable graymap, portable pixmap) files.
 Without loss of generality, we will refer to these all collectively as
-``PNM.''  These files have extensions {\cf .pbm}, {\cf .pgm}, and 
+``PNM.''  These files have extensions {\cf .pbm}, {\cf .pgm}, and
 {\cf .ppm} and customarily correspond to bi-level bitmaps, 1-channel
 grayscale, and 3-channel RGB files, respectively, or {\cf .pnm} for
 those who reject the nonsense about naming the files depending on the
@@ -715,10 +961,32 @@ It's not a smart choice unless you are sending your images back to the
 
 \section{PSD}
 \label{sec:bundledplugins:psd}
-\index{PSD}
+\index{PSD} \index{PhotoShop images}
 
-% FIXME
+PSD is the file format used for storing Adobe PhotoShop images. \product
+provides limited read abilities for PSD, but not currently the ability to
+write PSD files.
 
+\subsubsection*{Configuration settings for PSD input}
+
+When opening an \ImageInput with a \emph{configuration} (see
+Section~\ref{sec:inputwithconfig}), the following special configuration
+options are supported:
+
+\vspace{.125in}
+
+\noindent\begin{tabular}{p{1.8in}|p{0.5in}|p{2.95in}}
+Configuration attribute & Type & Meaning \\
+\hline
+\qkws{oiio:RawColor} & int & If nonzero, reading images with non-RGB color models
+                        (such as CMYK or YCbCr) will return unaltered raw
+                        pixel values (versus the default OIIO behavior of
+                        automatically converting to RGB). \\
+\end{tabular}
+
+Currently, the PSD format reader supports color modes RGB,
+CMYK, multichannel, grayscale, indexed, and bitmap. It
+does NOT currenty support Lab or duotone modes.
 
 \vspace{.25in}
 
@@ -792,22 +1060,35 @@ Configuration attribute & Type & Meaning \\
                                correction. (Default: 0) \\
 \qkws{raw:use_camera_wb} & int & If 1, use libraw's camera white
                                balance adjustment. (Default: 1) \\
-\qkws{raw:use_camera_matrix} & int & If 1, use libraw's camera matrix
-                               balance adjustment. (Default: 0) \\
+\qkws{raw:use_camera_matrix} & int & Whether to use the embedded color profile,
+                            if it's present: 0 = never,
+                            1 (default) = only for DNG files, 3 = always. \\
 \qkws{raw:adjust_maximum_thr} & float & If nonzero, auto-adjusting maximum
                                     value. (Default:0.0) \\
+\qkws{raw:user_sat} & int & If nonzero, sets the camera maximum value that
+                            will be normalized to appear saturated.
+                            (Default: 0) \\
+\qkws{raw:aber} & float[2] & Red and blue scale factors for chromatic
+                                aberration correction when decoding the raw
+                                image. The default (1,1) means to perform
+                                no correction. This is an overall spatial
+                                scale, sensible values will be very close
+                                to 1.0. \\
 \qkws{raw:ColorSpace} & string & Which color primaries to use: \qkw{raw},
                                 \qkw{sRGB}, \qkw{Adobe}, \qkw{Wide},
-                                \qkw{ProPhoto}, \qkw{XYZ}.
+                                \qkw{ProPhoto}, \qkw{ACES}, \qkw{XYZ}.
                                 (Default: \qkw{sRGB}) \\
 \qkws{raw:Exposure} & float & Amount of exposure before de-mosaicing, from
                                 0.25 (2 stop darken) to 8 (3 stop brighten).
                                 (Default: 0, meaning no correction.) \\
 \qkws{raw:Demosaic} & string & Force a demosaicing algorithm: \qkw{linear},
                                 \qkw{VNG}, \qkw{PPG}, \qkw{AHD} (default),
-                                \qkw{DCB}, \qkw{Modified AHD}, \qkw{AFD},
+                                \qkw{DCB}, \qkw{AHD-Mod}, \qkw{AFD},
                                 \qkw{VCD}, \qkw{Mixed}, \qkw{LMMSE},
-                                \qkw{AMaZE}. \\
+                                \qkw{AMaZE}, \qkw{DHT}, \qkw{AAHD}, \qkw{none}. \\
+\qkws{raw:HighlightMode} & int & Set libraw highlight mode processing:
+                                0 = clip, 1 = unclip, 2 = blend, 3+ = rebuild.
+                                (Default: 0.) \\
 \end{tabular}
 
 
@@ -831,7 +1112,7 @@ developed at Wavefront.  RLA files commonly use the file extension {\cf .rla}.
 \hline
 {\cf width}, {\cf height}, {\cf x}, {\cf y} & {\kw int} & RLA ``active/viewable'' window. \\
 & & \\
-{\cf\small full_width}, {\cf\small full_height}, {\cf\small full_x}, 
+{\cf\small full_width}, {\cf\small full_height}, {\cf\small full_x},
   {\cf\small full_y} & {\kw int} & RLA ``full'' window.  \\
 & & \\
 \qkws{rla:FrameNumber} & int & frame sequence number. \\
@@ -863,6 +1144,9 @@ developed at Wavefront.  RLA files commonly use the file extension {\cf .rla}.
   (vec3) coordinates. \\
 \qkws{rla:WhitePoint} & vec2 or vec3 of floats & white point XY (vec2) or XYZ
   (vec3) coordinates. \\
+\qkw{oiio:ColorSpace} & string & Color space (see
+    Section~\ref{metadata:colorspace}). \\
+\qkw{oiio:Gamma} & float & the gamma correction value (if specified).
 \end{tabular}
 
 \subsubsection*{Limitations}
@@ -881,7 +1165,7 @@ developed at Wavefront.  RLA files commonly use the file extension {\cf .rla}.
 \index{SGI files}
 
 The SGI image format was a simple raster format used long ago on SGI
-machines.  SGI files use the file extensions {\cf sgi}, {\cf rgb}, 
+machines.  SGI files use the file extensions {\cf sgi}, {\cf rgb},
 {\cf rgba}, \qkw{bw}, \qkw{int}, and \qkw{inta}.
 
 The SGI format is sometimes used for legacy apps, but has little merit
@@ -895,7 +1179,7 @@ and 16-bit integer pixels (no floating point), only 1-4 channels.
 \ImageSpec Attribute & Type & SGI header data or explanation \\
 \hline
 \qkw{ImageDescription} & string & image name \\
-\qkw{Compression} & string & thee compression of the SGI file (\qkw{rle}, if
+\qkw{Compression} & string & the compression of the SGI file (\qkw{rle}, if
   RLE compression is used).
 \end{tabular}
 
@@ -958,8 +1242,11 @@ The official Targa format specification may be found at\\
 \qkw{targa:ImageID} & string & Image ID \\
 \qkw{PixelAspectRatio} & float & pixel aspect ratio \\
 \qkw{oiio:BitsPerSample} & int & the true (in the file) bits per sample. \\
+\qkw{oiio:ColorSpace} & string & Color space (see
+    Section~\ref{metadata:colorspace}). \\
+\qkw{oiio:Gamma} & float & the gamma correction value (if specified).
 \end{tabular}
-\\ 
+\\
 \vspace{.25in}
 
 If the TGA file contains a thumbnail, its dimensions will be
@@ -973,7 +1260,7 @@ If the TGA file contains a thumbnail, its dimensions will be
 
 \begin{itemize}
 \item The Targa reader reserves enough memory for the entire image.
-  Therefore it is not a good choice for high-performance image use such 
+  Therefore it is not a good choice for high-performance image use such
   as would be used for \ImageCache or \TextureSystem.
 \item Targa files only support 8- and 16-bit unsigned integers (no
   signed, floating point, or HDR capabilities); the \product TGA writer
@@ -1000,9 +1287,9 @@ Additionally, \product associates the following extensions with TIFF
 files by default: {\cf .tx}, {\cf .env}, {\cf .sm}, {\cf .vsm}.
 
 The official TIFF format specification may be found here:
-\url{http://partners.adobe.com/public/developer/tiff/index.html} 
+\url{http://partners.adobe.com/public/developer/tiff/index.html}
 ~ The most popular library for reading TIFF directly is {\cf libtiff},
-available here: 
+available here:
 \url{http://www.remotesensing.org/libtiff/} ~ \product uses {\cf libtiff}
 for its TIFF reading/writing.
 
@@ -1014,7 +1301,7 @@ format), and a rich set of metadata.
 
 \product supports the vast majority of TIFF features, including: tiled
 images (\qkw{tiled}) as well as scanline images; multiple subimages per
-file (\qkw{multiimage}); MIPmapping (using multi-subimage; that means 
+file (\qkw{multiimage}); MIPmapping (using multi-subimage; that means
 you can't use multiimage and MIPmaps simultaneously); data formats
 8- 16, and 32 bit integer (both signed and unsigned), and 32- and 64-bit
 floating point; palette images (will convert to RGB); ``miniswhite''
@@ -1038,6 +1325,10 @@ Configuration attribute & Type & Meaning \\
                                      (versus the default of premultiplying
                                      color channels by alpha if the alpha channel
                                      is unassociated). \\
+\qkws{oiio:RawColor} & int & If nonzero, reading images with non-RGB color models
+                        (such as CMYK or YCbCr) will return unaltered raw
+                        pixel values (versus the default OIIO behavior of
+                        automatically converting to RGB). \\
 \end{tabular}
 
 \subsubsection*{Configuration settings for TIFF output}
@@ -1051,9 +1342,11 @@ aspects of the writing itself:
 Output attribute & Type & Meaning \\
 \hline
 \qkws{oiio:UnassociatedAlpha} & int & If nonzero, any alpha channel is
-                                understood do be unassociated, and the
+                                understood to be unassociated, and the
                                 EXTRASAMPLES tag in the TIFF file will be
                                 set to reflect this). \\
+\qkws{oiio:BitsPerSample} & int & Requests a rescaling to a specific bits
+                                per sample (such as writing 12-bit TIFFs). \\
 \qkw{tiff:write_exif} & int & If zero, will not write any Exif data to the
                             TIFF file. (The default is 1.) \\
 \qkw{tiff:half} & int & If nonzero, allow writing TIFF files with `half'
@@ -1070,7 +1363,10 @@ Output attribute & Type & Meaning \\
         compression, ranging from 1--9 (default is 6). Higher means compress
         to less space, but taking longer to do so. It is strictly a time
         vs space tradeoff, the quality is identical (lossless) no matter
-        what the setting.
+        what the setting. \\
+\qkws{tiff:RowsPerStrip} & int & Overrides TIFF scanline rows per strip
+        with a specific request (if not supplied, OIIO will choose a
+        reasonable default). \\
 \end{tabular}
 
 \subsubsection*{TIFF compression modes}
@@ -1127,10 +1423,10 @@ aware of:
 \end{itemize}
 
 
-\newpage 
+\newpage
 \subsubsection*{TIFF Attributes}
 
-\noindent\begin{tabular}{p{2.0in}|p{0.5in}|p{2.75in}}
+\noindent\begin{longtable}{p{2.0in}|p{0.5in}|p{2.75in}}
 \ImageSpec Attribute & Type & TIFF header data or explanation \\
 \hline
 {\cf ImageSpec::x} & int & XPosition \\
@@ -1174,7 +1470,7 @@ aware of:
   differ from {\cf ImageSpec::format}).\\
 \qkw{oiio:UnassociatedAlpha} & int & Nonzero if the alpha channel
   contained ``unassociated'' alpha. \\
-\end{tabular}
+\end{longtable}
 
 \vspace{.25in}
 

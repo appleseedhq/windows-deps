@@ -28,6 +28,7 @@
   (This is the Modified BSD License)
 */
 
+// clang-format off
 
 /// \file
 ///
@@ -35,53 +36,112 @@
 /// of the compiler.
 ///
 
-#ifndef OPENIMAGEIO_HASH_H
-#define OPENIMAGEIO_HASH_H
+#pragma once
 
-#include <vector>
-#include <assert.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>   // for memcpy and memset
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
-#include "export.h"
-#include "oiioversion.h"
-#include "fmath.h"   /* for endian */
-#include "string_view.h"
-#include "array_view.h"
+#include <OpenImageIO/span.h>
+#include <OpenImageIO/export.h>
+#include <OpenImageIO/fmath.h>
+#include <OpenImageIO/oiioversion.h>
+#include <OpenImageIO/string_view.h>
 
-#if OIIO_CPLUSPLUS_VERSION >= 11 || OIIO_MSVS_AT_LEAST_2013
-#  include <unordered_map>
-#else /* FIXME(C++11): remove this after making C++11 the baseline */
-#  include <boost/unordered_map.hpp>
-#endif
 
 
 OIIO_NAMESPACE_BEGIN
 
-// Define OIIO::unordered_map and OIIO::hash as either std or boost.
-#if OIIO_CPLUSPLUS_VERSION >= 11 || OIIO_MSVS_AT_LEAST_2013
-using std::unordered_map;
 using std::hash;
-#else /* FIXME(C++11): remove this after making C++11 the baseline */
-using boost::unordered_map;
-using boost::hash;
-#endif
+using std::unordered_map;
+
+namespace fasthash {
+
+/* The MIT License
+   Copyright (C) 2012 Zilong Tan (eric.zltan@gmail.com)
+   Permission is hereby granted, free of charge, to any person
+   obtaining a copy of this software and associated documentation
+   files (the "Software"), to deal in the Software without
+   restriction, including without limitation the rights to use, copy,
+   modify, merge, publish, distribute, sublicense, and/or sell copies
+   of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+   The above copyright notice and this permission notice shall be
+   included in all copies or substantial portions of the Software.
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+   BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+*/
+
+// Compression function for Merkle-Damgard construction.
+// This function is generated using the framework provided.
+static inline uint64_t mix(uint64_t h) {
+	h ^= h >> 23;
+	h *= 0x2127599bf4325c37ULL;
+	h ^= h >> 47;
+	return h;
+}
+
+inline uint64_t fasthash64(const void *buf, size_t len, uint64_t seed)
+{
+	const uint64_t    m = 0x880355f21e6d1965ULL;
+	const uint64_t *pos = (const uint64_t *)buf;
+	const uint64_t *end = pos + (len / 8);
+	const unsigned char *pos2;
+	uint64_t h = seed ^ (len * m);
+	uint64_t v;
+
+	while (pos != end) {
+		v  = *pos++;
+		h ^= mix(v);
+		h *= m;
+	}
+
+	pos2 = (const unsigned char*)pos;
+	v = 0;
+
+	switch (len & 7) {
+        case 7: v ^= (uint64_t)pos2[6] << 48;
+        case 6: v ^= (uint64_t)pos2[5] << 40;
+        case 5: v ^= (uint64_t)pos2[4] << 32;
+        case 4: v ^= (uint64_t)pos2[3] << 24;
+        case 3: v ^= (uint64_t)pos2[2] << 16;
+        case 2: v ^= (uint64_t)pos2[1] << 8;
+        case 1: v ^= (uint64_t)pos2[0];
+                h ^= mix(v);
+                h *= m;
+	}
+
+	return mix(h);
+}
+
+// simplified version for hashing just a few ints
+inline uint64_t fasthash64(const std::initializer_list<uint64_t> buf) {
+	const uint64_t    m = 0x880355f21e6d1965ULL;
+	uint64_t h = (buf.size() * sizeof(uint64_t)) * m;
+	for (const uint64_t v : buf) {
+		h ^= mix(v);
+		h *= m;
+	}
+	return mix(h);
+}
+
+} // namespace fasthash
 
 
 namespace xxhash {
 
 // xxhash:  http://code.google.com/p/xxhash/
 // It's BSD licensed.
-
-OIIO_DEPRECATED("Use XXH32(). (Deprecated since 1.6.")
-unsigned int OIIO_API XXH_fast32 (const void* input, int len,
-                                  unsigned int seed=1771);
-
-OIIO_DEPRECATED("Use XXH32(). (Deprecated since 1.6.")
-unsigned int OIIO_API XXH_strong32 (const void* input, int len,
-                                    unsigned int seed=1771);
 
 unsigned int       OIIO_API XXH32 (const void* input, size_t length,
                                    unsigned seed=1771);
@@ -110,7 +170,7 @@ namespace bjhash {
 // It's in the public domain.
 
 // Mix up the bits of a, b, and c (changing their values in place).
-inline void bjmix (uint32_t &a, uint32_t &b, uint32_t &c)
+inline OIIO_HOSTDEVICE void bjmix (uint32_t &a, uint32_t &b, uint32_t &c)
 {
     a -= c;  a ^= rotl32(c, 4);  c += b;
     b -= a;  b ^= rotl32(a, 6);  a += c;
@@ -122,7 +182,7 @@ inline void bjmix (uint32_t &a, uint32_t &b, uint32_t &c)
 
 // Mix up and combine the bits of a, b, and c (doesn't change them, but
 // returns a hash of those three original values).  21 ops
-inline uint32_t bjfinal (uint32_t a, uint32_t b, uint32_t c=0xdeadbeef)
+inline OIIO_HOSTDEVICE uint32_t bjfinal (uint32_t a, uint32_t b, uint32_t c=0xdeadbeef)
 {
     c ^= b; c -= rotl32(b,14);
     a ^= c; a -= rotl32(c,11);
@@ -297,7 +357,7 @@ uint64_t OIIO_API Hash64WithSeed(const char* s, size_t len, uint64_t seed);
 // May change from time to time, may differ on different platforms, may differ
 // depending on NDEBUG.
 uint64_t OIIO_API Hash64WithSeeds(const char* s, size_t len,
-                       uint64_t seed0, uint64_t seed1);
+                                  uint64_t seed0, uint64_t seed1);
 
 // Hash function for a byte array.
 // May change from time to time, may differ on different platforms, may differ
@@ -493,13 +553,9 @@ public:
 
     /// Append more data
     void append (const void *data, size_t size);
-    /// Append more data from an array_view, without thinking about sizes.
-    template<class T> void append (array_view<T> v) {
-        append (v.data(), v.size()*sizeof(T));
-    }
 
-    template<class T> OIIO_DEPRECATED("Use append(). [1.6]")
-    void appendvec (array_view<T> v) {
+    /// Append more data from a span, without thinking about sizes.
+    template<class T> void append (span<T> v) {
         append (v.data(), v.size()*sizeof(T));
     }
 
@@ -530,5 +586,3 @@ private:
 
 
 OIIO_NAMESPACE_END
-
-#endif // OPENIMAGEIO_HASH_H
