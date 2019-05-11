@@ -28,41 +28,29 @@
   (This is the Modified BSD License)
 */
 
+// clang-format off
 
-#ifndef OPENIMAGEIO_IMAGEBUFALGO_UTIL_H
-#define OPENIMAGEIO_IMAGEBUFALGO_UTIL_H
+#pragma once
 
-#include <OpenImageIO/platform.h>
+#include <functional>
+
+#include <OpenImageIO/parallel.h>
 #include <OpenImageIO/imagebufalgo.h>
-#include <OpenImageIO/thread.h>
 
-#if OIIO_CPLUSPLUS_VERSION >= 11
-# include <functional>
-#else
-# include <boost/bind.hpp>
-#endif
 
 
 OIIO_NAMESPACE_BEGIN
 
-#if OIIO_CPLUSPLUS_VERSION >= 11
 using std::bind;
 using std::ref;
 using std::cref;
 using namespace std::placeholders;
 using std::placeholders::_1;
-#else
-using boost::bind;
-using boost::ref;
-using boost::cref;
-using boost::this_thread::get_id;
-#endif
-
 
 
 namespace ImageBufAlgo {
 
-enum SplitDir { Split_X, Split_Y, Split_Z, Split_Biggest };
+
 
 /// Helper template for generalized multithreading for image processing
 /// functions.  Some function/functor f is applied to every pixel the
@@ -79,67 +67,72 @@ enum SplitDir { Split_X, Split_Y, Split_Z, Split_Biggest };
 /// Most image operations will require additional arguments, including
 /// additional input and output images or other parameters.  The
 /// parallel_image template can still be used by employing the
-/// std::bind (or boost::bind, for C++ < 11).  For example, suppose you
-/// have an image operation defined as:
+/// std::bind. For example, suppose you have an image operation defined as:
 ///     void my_image_op (ImageBuf &out, const ImageBuf &in,
 ///                       float scale, ROI roi);
 /// Then you can parallelize it as follows:
 ///     ImageBuf R, A;   // result, input
 ///     ROI roi = get_roi (R.spec());
 ///     parallel_image (bind(my_image_op,ref(R), cref(A),3.14,_1), roi);
-///
-template <class Func>
-void
-parallel_image (Func f, ROI roi, int nthreads=0, SplitDir splitdir=Split_Y)
+inline void
+parallel_image (ROI roi, parallel_image_options opt,
+                std::function<void(ROI)> f)
 {
-    // Special case: threads <= 0 means to use the "threads" attribute
-    if (nthreads <= 0)
-        OIIO::getattribute ("threads", nthreads);
+    opt.resolve ();
     // Try not to assign a thread less than 16k pixels, or it's not worth
     // the thread startup/teardown cost.
-    nthreads = std::min (nthreads, 1 + int(roi.npixels() / size_t(16384)));
-    if (nthreads <= 1) {
-        // Just one thread, or a small image region: use this thread only
+    opt.maxthreads = std::min (opt.maxthreads, 1 + int(roi.npixels() / opt.minitems));
+    if (opt.singlethread()) {
+        // Just one thread, or a small image region, or if recursive use of
+        // parallel_image is disallowed: use this thread only
         f (roi);
         return;
     }
 
     // If splitdir was not explicit, find the longest edge.
-    if (splitdir >= Split_Biggest)
+    SplitDir splitdir = opt.splitdir;
+    if (splitdir == Split_Biggest)
         splitdir = roi.width() > roi.height() ? Split_X : Split_Y;
-    int minmax[6] = { roi.xbegin, roi.xend, roi.ybegin, roi.yend,
-                      roi.zbegin, roi.zend };
-    int roi_begin = minmax[2*int(splitdir)];
-    int roi_end = minmax[2*int(splitdir)+1];
-    int splitlen = roi_end - roi_begin;
-    nthreads = std::min (nthreads, splitlen);
 
-    // Spawn threads by dividing the region into bands.
-    OIIO::thread_group threads;
-    int blocksize = std::max (1, (splitlen + nthreads - 1) / nthreads);
-    for (int i = 0;  i < nthreads;  i++) {
-        if (splitdir == Split_Y) {
-            roi.ybegin = roi_begin + i * blocksize;
-            roi.yend = std::min (roi.ybegin + blocksize, roi_end);
-            if (roi.ybegin >= roi.yend)
-                break;   // no more work to dole out
-        } else if (splitdir == Split_X) {
-            roi.xbegin = roi_begin + i * blocksize;
-            roi.xend = std::min (roi.xbegin + blocksize, roi_end);
-            if (roi.xbegin >= roi.xend)
-                break;   // no more work to dole out
-        } else { // if (splitdir == Split_Z)
-            roi.zbegin = roi_begin + i * blocksize;
-            roi.zend = std::min (roi.zbegin + blocksize, roi_end);
-            if (roi.zbegin >= roi.zend)
-                break;   // no more work to dole out
-        }
-        if (i < nthreads-1)
-            threads.add_thread (new OIIO::thread (f, roi));
-        else
-            f (roi);   // Run the last one in the calling thread
+    int64_t xchunk = 0, ychunk = 0;
+    if (splitdir == Split_Y) {
+        xchunk = roi.width();
+        // ychunk = std::max (64, minitems/xchunk);
+    } else if (splitdir == Split_X) {
+        ychunk = roi.height();
+        // ychunk = std::max (64, minitems/xchunk);
+    } else if (splitdir == Split_Tile) {
+        int64_t n = std::min<imagesize_t>(opt.minitems, roi.npixels());
+        xchunk = ychunk = std::max (1, int(std::sqrt(n))/4);
+    } else {
+        xchunk = ychunk = std::max (int64_t(1), int64_t(std::sqrt(opt.maxthreads))/2);
     }
-    threads.join_all ();
+
+    auto task = [&](int id, int64_t xbegin, int64_t xend,
+                    int64_t ybegin, int64_t yend) {
+        f (ROI (xbegin, xend, ybegin, yend, roi.zbegin, roi.zend,
+                roi.chbegin, roi.chend));
+    };
+    parallel_for_chunked_2D (roi.xbegin, roi.xend, xchunk,
+                             roi.ybegin, roi.yend, ychunk, task, opt);
+}
+
+
+inline void
+parallel_image (ROI roi, std::function<void(ROI)> f)
+{
+    parallel_image (roi, parallel_image_options(), f);
+}
+
+
+
+// DEPRECATED(1.8) -- eventually enable the OIIO_DEPRECATION
+template <class Func>
+// OIIO_DEPRECATED("switch to new parallel_image (1.8)")
+void
+parallel_image (Func f, ROI roi, int nthreads=0, SplitDir splitdir=Split_Y)
+{
+    parallel_image (roi, parallel_image_options (nthreads, splitdir), f);
 }
 
 
@@ -165,6 +158,10 @@ inline bool IBAprep (ROI &roi, ImageBuf *dst, const ImageBuf *A,
     return IBAprep (roi, dst, A, B, NULL, force_spec, prepflags);
 }
 inline bool IBAprep (ROI &roi, ImageBuf *dst,
+                     const ImageBuf *A, const ImageBuf *B, int prepflags) {
+    return IBAprep (roi, dst, A, B, NULL, NULL, prepflags);
+}
+inline bool IBAprep (ROI &roi, ImageBuf *dst,
                      const ImageBuf *A, int prepflags) {
     return IBAprep (roi, dst, A, NULL, NULL, NULL, prepflags);
 }
@@ -178,11 +175,12 @@ enum IBAprep_flags {
     IBAprep_NO_SUPPORT_VOLUME = 1<<4,   // Don't know how to do volumes
     IBAprep_NO_COPY_METADATA = 1<<8,    // N.B. default copies all metadata
     IBAprep_COPY_ALL_METADATA = 1<<9,   // Even unsafe things
-    IBAprep_CLAMP_MUTUAL_NCHANNELS = 1<<10, // Clamp roi.chend to max of inputs
+    IBAprep_CLAMP_MUTUAL_NCHANNELS = 1<<10, // Clamp roi.chend to min of inputs
     IBAprep_SUPPORT_DEEP = 1<<11,       // Operation allows deep images
     IBAprep_DEEP_MIXED = 1<<12,         // Allow deep & non-deep combinations
     IBAprep_DST_FLOAT_PIXELS = 1<<13,   // If dst is uninit, make it float
     IBAprep_MINIMIZE_NCHANNELS = 1<<14, // Multi-inputs get min(nchannels)
+    IBAprep_REQUIRE_MATCHING_CHANNELS = 1<<15, // Channel names must match
 };
 
 
@@ -341,8 +339,68 @@ inline TypeDesc type_merge (TypeDesc a, TypeDesc b, TypeDesc c)
     }
 
 // Macro to call a type-specialzed version func<Rtype,Atype>(R,A,...) for
-// the most common types, will auto-convert the rest to float.
+// the most common types, and even for uncommon types when src and dst types
+// are identical. It will auto-convert remaining rare cases to float.
 #define OIIO_DISPATCH_COMMON_TYPES2(ret,name,func,Rtype,Atype,R,A,...)  \
+    if (Rtype == Atype) {                                               \
+        /* All data types, when Rtype == Atype */                       \
+        switch (Atype.basetype) {                                       \
+        case TypeDesc::FLOAT :                                          \
+            ret = func<float,float> (R, A, __VA_ARGS__); break;         \
+        case TypeDesc::UINT8 :                                          \
+            ret = func<uint8_t,uint8_t> (R, A, __VA_ARGS__); break;     \
+        case TypeDesc::UINT16:                                          \
+            ret = func<uint16_t,uint16_t> (R, A, __VA_ARGS__); break;   \
+        case TypeDesc::HALF  :                                          \
+            ret = func<half,half> (R, A, __VA_ARGS__); break;           \
+        case TypeDesc::INT8 :                                           \
+            ret = func<char,char> (R, A, __VA_ARGS__); break;           \
+        case TypeDesc::INT16 :                                          \
+            ret = func<short,short> (R, A, __VA_ARGS__); break;         \
+        case TypeDesc::UINT :                                           \
+            ret = func<uint32_t,uint32_t> (R, A, __VA_ARGS__); break;   \
+        case TypeDesc::INT :                                            \
+            ret = func<int,int> (R, A, __VA_ARGS__); break;             \
+        case TypeDesc::DOUBLE :                                         \
+            ret = func<double,double> (R, A, __VA_ARGS__); break;       \
+        default:                                                        \
+            (R).error ("%s: Unsupported pixel data format '%s'", name, Atype); \
+            ret = false;                                                \
+        }                                                               \
+    } else {                                                            \
+        /* When Rtype != Atype, handle the common pairs */              \
+        switch (Rtype.basetype) {                                       \
+        case TypeDesc::FLOAT :                                          \
+            OIIO_DISPATCH_COMMON_TYPES2_HELP(ret,name,func,float,Atype,R,A,__VA_ARGS__); \
+            break;                                                      \
+        case TypeDesc::UINT8 :                                          \
+            OIIO_DISPATCH_COMMON_TYPES2_HELP(ret,name,func,uint8_t,Atype,R,A,__VA_ARGS__); \
+            break;                                                      \
+        case TypeDesc::HALF  :                                          \
+            OIIO_DISPATCH_COMMON_TYPES2_HELP(ret,name,func,half,Atype,R,A,__VA_ARGS__); \
+            break;                                                      \
+        case TypeDesc::UINT16:                                          \
+            OIIO_DISPATCH_COMMON_TYPES2_HELP(ret,name,func,uint16_t,Atype,R,A,__VA_ARGS__); \
+            break;                                                      \
+        default: {                                                      \
+            /* other combinationd: convert to float, then copy back */  \
+            ImageBuf Rtmp;                                              \
+            if ((R).initialized())                                      \
+                Rtmp.copy (R, TypeDesc::FLOAT);                         \
+            OIIO_DISPATCH_COMMON_TYPES2_HELP(ret,name,func,float,Atype,Rtmp,A,__VA_ARGS__); \
+            if (ret)                                                    \
+                (R).copy (Rtmp);                                        \
+            else                                                        \
+                (R).error ("%s", Rtmp.geterror());                      \
+            }                                                           \
+        }                                                               \
+    }
+
+
+// Macro to call a type-specialzed version func<Rtype,Atype>(R,A,...) for
+// the most common types. It will auto-convert other cases to/from float.
+// This is the case for when we don't actually write to the read-only R image.
+#define OIIO_DISPATCH_COMMON_TYPES2_CONST(ret,name,func,Rtype,Atype,R,A,...)  \
     switch (Rtype.basetype) {                                           \
     case TypeDesc::FLOAT :                                              \
         OIIO_DISPATCH_COMMON_TYPES2_HELP(ret,name,func,float,Atype,R,A,__VA_ARGS__); \
@@ -362,12 +420,7 @@ inline TypeDesc type_merge (TypeDesc a, TypeDesc b, TypeDesc c)
         if ((R).initialized())                                          \
             Rtmp.copy (R, TypeDesc::FLOAT);                             \
         OIIO_DISPATCH_COMMON_TYPES2_HELP(ret,name,func,float,Atype,Rtmp,A,__VA_ARGS__); \
-        if (ret)                                                        \
-            (R).copy (Rtmp);                                            \
-        else                                                            \
-            (R).error ("%s", Rtmp.geterror());                          \
-        }                                                               \
-    }
+    } }
 
 
 // Helper, do not call from the outside world.
@@ -418,33 +471,78 @@ inline TypeDesc type_merge (TypeDesc a, TypeDesc b, TypeDesc c)
     }
 
 // Macro to call a type-specialzed version func<Rtype,Atype,Btype>(R,A,B,...)
-// the most common types, will auto-convert the rest to float.
+// the most common types, and for all types when all three images have
+// the same type. Remaining rare cases will auto-convert to float.
 #define OIIO_DISPATCH_COMMON_TYPES3(ret,name,func,Rtype,Atype,Btype,R,A,B,...)  \
-    switch (Atype.basetype) {                                           \
-    case TypeDesc::FLOAT :                                              \
-        OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,float,Btype,R,A,B,__VA_ARGS__); \
-        break;                                                          \
-    case TypeDesc::UINT8 :                                              \
-        OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,unsigned char,Btype,R,A,B,__VA_ARGS__); \
-        break;                                                          \
-    case TypeDesc::HALF  :                                              \
-        OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,half,Btype,R,A,B,__VA_ARGS__); \
-        break;                                                          \
-    case TypeDesc::UINT16:                                              \
-        OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,unsigned short,Btype,R,A,B,__VA_ARGS__); \
-        break;                                                          \
-    default:                                                            \
-        /* other types: punt and convert to float */                    \
-        ImageBuf Atmp;                                                  \
-        Atmp.copy (A, TypeDesc::FLOAT);                                 \
-        OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,float,Btype,R,Atmp,B,__VA_ARGS__); \
+    if (Rtype == Atype && Rtype == Btype) {                             \
+        /* All data types, when Rtype == Atype */                       \
+        switch (Atype.basetype) {                                       \
+        case TypeDesc::FLOAT :                                          \
+            ret = func<float,float,float> (R, A, B, __VA_ARGS__); break;\
+        case TypeDesc::UINT8 :                                          \
+            ret = func<uint8_t,uint8_t,uint8_t> (R, A, B, __VA_ARGS__); break; \
+        case TypeDesc::UINT16:                                          \
+            ret = func<uint16_t,uint16_t,uint16_t> (R, A, B, __VA_ARGS__); break; \
+        case TypeDesc::HALF  :                                          \
+            ret = func<half,half,half> (R, A, B, __VA_ARGS__); break;   \
+        case TypeDesc::INT8 :                                           \
+            ret = func<char,char,char> (R, A, B, __VA_ARGS__); break;   \
+        case TypeDesc::INT16 :                                          \
+            ret = func<int16_t,int16_t,int16_t> (R, A, B, __VA_ARGS__); break; \
+        case TypeDesc::UINT :                                           \
+            ret = func<uint32_t,uint32_t,uint32_t> (R, A, B, __VA_ARGS__); break; \
+        case TypeDesc::INT :                                            \
+            ret = func<int,int,int> (R, A, B, __VA_ARGS__); break;      \
+        case TypeDesc::DOUBLE :                                         \
+            ret = func<double,double,double> (R, A, B, __VA_ARGS__); break; \
+        default:                                                        \
+            (R).error ("%s: Unsupported pixel data format '%s'", name, Atype); \
+            ret = false;                                                \
+        }                                                               \
+    } else {                                                            \
+        switch (Atype.basetype) {                                       \
+        case TypeDesc::FLOAT :                                          \
+            OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,float,Btype,R,A,B,__VA_ARGS__); \
+            break;                                                      \
+        case TypeDesc::UINT8 :                                          \
+            OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,unsigned char,Btype,R,A,B,__VA_ARGS__); \
+            break;                                                      \
+        case TypeDesc::HALF  :                                          \
+            OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,half,Btype,R,A,B,__VA_ARGS__); \
+            break;                                                      \
+        case TypeDesc::UINT16:                                          \
+            OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,unsigned short,Btype,R,A,B,__VA_ARGS__); \
+            break;                                                      \
+        default:                                                        \
+            /* other types: punt and convert to float */                \
+            ImageBuf Atmp;                                              \
+            Atmp.copy (A, TypeDesc::FLOAT);                             \
+            OIIO_DISPATCH_COMMON_TYPES3_HELP(ret,name,func,Rtype,float,Btype,R,Atmp,B,__VA_ARGS__); \
+        }                                                               \
     }
 
+
+// Utility: for span av, if it had fewer elements than len, alloca a new
+// copy that's the right length. Use the `missing` value for missing entries
+// (one or more supplied, but not all), and `zdef` default to use if there
+// were no entries at all. This is used in many IBA functions that take
+// constant per-channel values.
+#define IBA_FIX_PERCHAN_LEN(av,len,missing,zdef)                        \
+    if (av.size() < len) {                                              \
+        int nc = len;                                                   \
+        float *vals = ALLOCA (float, nc);                               \
+        for (int i = 0;  i < nc;  ++i)                                  \
+            vals[i] = i < av.size() ? av[i] : (i ? vals[i-1] : zdef);   \
+        av = cspan<float>(vals, nc);                                    \
+    }
+
+// Default IBA_FIX_PERCHAN_LEN, with zdef=0.0 and missing = the last value
+// that was supplied.
+#define IBA_FIX_PERCHAN_LEN_DEF(av,len)                                 \
+    IBA_FIX_PERCHAN_LEN (av, len, 0.0f, av.size() ? av.back() : 0.0f);
 
 
 }  // end namespace ImageBufAlgo
 
 
 OIIO_NAMESPACE_END
-
-#endif // OPENIMAGEIO_IMAGEBUFALGO_UTIL_H

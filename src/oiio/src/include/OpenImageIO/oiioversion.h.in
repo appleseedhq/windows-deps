@@ -34,13 +34,10 @@
 
 
 // Versioning of the OpenImageIO software
-
-#define OIIO_NAMESPACE @OIIO_NAMESPACE@
 #define OIIO_VERSION_MAJOR @OIIO_VERSION_MAJOR@
 #define OIIO_VERSION_MINOR @OIIO_VERSION_MINOR@
 #define OIIO_VERSION_PATCH @OIIO_VERSION_PATCH@
 #define OIIO_VERSION_RELEASE_TYPE @OIIO_VERSION_RELEASE_TYPE@
-#define OIIO_VERSION_NS @OIIO_VERSION_NS@
 
 #define OIIO_VERSION (10000 * OIIO_VERSION_MAJOR + \
                         100 * OIIO_VERSION_MINOR + \
@@ -58,27 +55,16 @@
 #define OIIO_INTRO_STRING "OpenImageIO " OIIO_VERSION_STRING " http://www.openimageio.org"
 
 
-#ifndef NAMESPACE_BEGIN
-#  define NAMESPACE_BEGIN(name) namespace name {
-#endif
-#ifndef NAMESPACE_END
-#  define NAMESPACE_END(name) }
-#endif
+// Establish the name spaces
+namespace @PROJ_NAMESPACE_V@ { }
+namespace @PROJ_NAME@ = @PROJ_NAMESPACE_V@;
 
 // Macros to use in each file to enter and exit the right name spaces.
-#define OIIO_NAMESPACE_BEGIN \
-            NAMESPACE_BEGIN(OIIO_NAMESPACE) \
-            NAMESPACE_BEGIN(OIIO_VERSION_NS)
-#define OIIO_NAMESPACE_END \
-            NAMESPACE_END(OIIO_VERSION_NS) \
-            using namespace OIIO_VERSION_NS;\
-            NAMESPACE_END(OIIO_NAMESPACE)
-#define OIIO_NAMESPACE_USING using namespace OIIO_NAMESPACE;
-
-// Establish the name spaces and make an alias 'OIIO' that gives us what
-// everybody really wants.
-namespace OIIO_NAMESPACE { namespace OIIO_VERSION_NS { } }
-namespace OIIO = OIIO_NAMESPACE::OIIO_VERSION_NS;
+#define @PROJ_NAME@_NAMESPACE @PROJ_NAMESPACE_V@
+#define @PROJ_NAME@_NAMESPACE_STRING "@PROJ_NAMESPACE_V@"
+#define @PROJ_NAME@_NAMESPACE_BEGIN namespace @PROJ_NAMESPACE_V@ {
+#define @PROJ_NAME@_NAMESPACE_END }
+#define @PROJ_NAME@_NAMESPACE_USING using namespace @PROJ_NAME@;
 
 
 /// Each imageio DSO/DLL should include this statement:
@@ -108,8 +94,15 @@ namespace OIIO = OIIO_NAMESPACE::OIIO_VERSION_NS;
 /// Version 18 changed to add an m_threads member to ImageInput/Output.
 /// Version 19 changed the definition of DeepData.
 /// Version 20 added FMT_imageio_library_version() to plugins. (OIIO 1.7)
+/// Version 21 changed the signatures of ImageInput methods: added
+///     subimage,miplevel params to many read_*() methods; changed thread
+///     safety expectations; removed newspec param from seek_subimage;
+///     added spec(subimage,miplevel) and spec_dimensions(subimage,miplevel).
+///     (OIIO 1.9)
+/// Version 22 changed the signatures of ImageInput/ImageOutput create()
+///     to return unique_ptr. (OIIO 1.9)
 
-#define OIIO_PLUGIN_VERSION 20
+#define OIIO_PLUGIN_VERSION 22
 
 #define OIIO_PLUGIN_NAMESPACE_BEGIN OIIO_NAMESPACE_BEGIN
 #define OIIO_PLUGIN_NAMESPACE_END OIIO_NAMESPACE_END
@@ -122,10 +115,13 @@ namespace OIIO = OIIO_NAMESPACE::OIIO_VERSION_NS;
 #define OIIO_PLUGIN_EXPORTS_END }
 #endif
 
-// OIIO_BUILD_CPP11 will be 1 if this OIIO was built using C++11
-#cmakedefine01 OIIO_BUILD_CPP11
-// OIIO_BUILD_CPP14 will be 1 if this OIIO was built using C++14
+#define OIIO_BUILD_CPP11 1 /* Always build for C++ >= 11 */
+// OIIO_BUILD_CPP14 will be 1 if this OIIO was built using C++14 or higher
 #cmakedefine01 OIIO_BUILD_CPP14
+// OIIO_BUILD_CPP17 will be 1 if this OIIO was built using C++17 or higher
+#cmakedefine01 OIIO_BUILD_CPP17
+// OIIO_BUILD_CPP20 will be 1 if this OIIO was built using C++20 or higher
+#cmakedefine01 OIIO_BUILD_CPP20
 
 #endif
 

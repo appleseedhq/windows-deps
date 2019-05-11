@@ -31,7 +31,9 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "OpenImageIO/timer.h"
+#include <OpenImageIO/strutil.h>
+#include <OpenImageIO/thread.h>
+#include <OpenImageIO/timer.h>
 
 
 OIIO_NAMESPACE_BEGIN
@@ -41,11 +43,12 @@ double Timer::seconds_per_tick = 1.0e-6;
 
 class TimerSetupOnce {
 public:
-    TimerSetupOnce () {
+    TimerSetupOnce()
+    {
 #ifdef _WIN32
         // From MSDN web site
         LARGE_INTEGER freq;
-        QueryPerformanceFrequency (&freq);
+        QueryPerformanceFrequency(&freq);
         Timer::seconds_per_tick = 1.0 / (double)freq.QuadPart;
 #elif defined(__APPLE__)
         // NOTE(boulos): Both this value and that of the windows
@@ -56,12 +59,14 @@ public:
         // Leopard, Apple returns 1 for both numer and denom.
         mach_timebase_info_data_t time_info;
         mach_timebase_info(&time_info);
-        Timer::seconds_per_tick = (1e-9*static_cast<double>(time_info.numer))/
-                                       static_cast<double>(time_info.denom);
+        Timer::seconds_per_tick = (1e-9 * static_cast<double>(time_info.numer))
+                                  / static_cast<double>(time_info.denom);
 #endif
     }
 };
 
 static TimerSetupOnce once;
+
+
 
 OIIO_NAMESPACE_END

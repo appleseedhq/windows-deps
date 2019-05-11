@@ -7,9 +7,9 @@
 #
 macro (oiio_install_targets)
     install (TARGETS ${ARGN}
-             RUNTIME DESTINATION "${BIN_INSTALL_DIR}" COMPONENT user
-             LIBRARY DESTINATION "${LIB_INSTALL_DIR}" COMPONENT user
-             ARCHIVE DESTINATION "${LIB_INSTALL_DIR}" COMPONENT developer)
+             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT user
+             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT user
+             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT developer)
 endmacro ()
 
 # Macro to add a build target for an IO plugin.
@@ -39,14 +39,8 @@ endmacro ()
 # be handed off too the setup of the later OpenImageIO target.
 #
 macro (add_oiio_plugin)
-    if (CMAKE_VERSION VERSION_LESS 2.8.3)
-        parse_arguments (_plugin "LINK_LIBRARIES;INCLUDE_DIRS;DEFINITIONS" "" ${ARGN})
-        set (_plugin_UNPARSED_ARGUMENTS ${_plugin_DEFAULT_ARGS})
-    else ()
-        # Modern cmake has this functionality built-in
-        cmake_parse_arguments (_plugin "" "" "INCLUDE_DIRS;LINK_LIBRARIES;DEFINITIONS" ${ARGN})
-        # Arguments: <name> <options> <one_value_keywords> <multi_value_keywords>
-    endif ()
+    cmake_parse_arguments (_plugin "" "" "INCLUDE_DIRS;LINK_LIBRARIES;DEFINITIONS" ${ARGN})
+       # Arguments: <prefix> <options> <one_value_keywords> <multi_value_keywords> args...
     if (EMBEDPLUGINS)
         set (_target_name OpenImageIO)
         # Add each source file to the libOpenImageIO_srcs, but it takes some
@@ -73,6 +67,27 @@ macro (add_oiio_plugin)
 endmacro ()
 
 
+# oiio_set_testenv() - add environment variables to a test
+#
+# Usage:
+#   oiio_set_testenv ( testname
+#                      testsuite  - The root of all tests ${CMAKE_SOURCE_DIR}/testsuite
+#                      testsrcdir - Current test directory in ${CMAKE_SOURCE_DIR}
+#                      testdir    - Current test sandbox in ${CMAKE_BINARY_DIR}
+#                      IMAGEDIR   - Optional path to image reference/compare directory)
+#
+macro (oiio_set_testenv testname testsuite testsrcdir testdir IMAGEDIR)
+    set_property(TEST ${testname} PROPERTY ENVIRONMENT
+                "OIIO_TESTSUITE_ROOT=${testsuite}"
+                ";OIIO_TESTSUITE_SRC=${testsrcdir}"
+                ";OIIO_TESTSUITE_CUR=${testdir}")
+    if (NOT ${IMAGEDIR} STREQUAL "")
+        set_property(TEST ${testname} APPEND PROPERTY ENVIRONMENT
+                     "OIIO_TESTSUITE_IMAGEDIR=${IMAGEDIR}")
+    endif()
+endmacro ()
+
+
 # oiio_add_tests() - add a set of test cases.
 #
 # Usage:
@@ -86,8 +101,9 @@ endmacro ()
 # the user where to find such tests.
 #
 macro (oiio_add_tests)
-    parse_arguments (_ats "URL;IMAGEDIR;LABEL;FOUNDVAR" "" ${ARGN})
-    set (_ats_testdir "${PROJECT_SOURCE_DIR}/../${_ats_IMAGEDIR}")
+    cmake_parse_arguments (_ats "" "" "URL;IMAGEDIR;LABEL;FOUNDVAR;TESTNAME" ${ARGN})
+       # Arguments: <prefix> <options> <one_value_keywords> <multi_value_keywords> args...
+    set (_ats_testdir "${OIIO_TESTSUITE_IMAGEDIR}/${_ats_IMAGEDIR}")
     # If there was a FOUNDVAR param specified and that variable name is
     # not defined, mark the test as broken.
     if (_ats_FOUNDVAR AND NOT ${_ats_FOUNDVAR})
@@ -97,44 +113,53 @@ macro (oiio_add_tests)
         # If the directory containig reference data (images) for the test
         # isn't found, point the user at the URL.
         message (STATUS "\n\nDid not find ${_ats_testdir}")
-        message (STATUS "  -> Will not run tests ${_ats_DEFAULT_ARGS}")
+        message (STATUS "  -> Will not run tests ${_ats_UNPARSED_ARGUMENTS}")
         message (STATUS "  -> You can find it at ${_ats_URL}\n")
     else ()
         # Add the tests if all is well.
-        if (DEFINED CMAKE_VERSION AND NOT CMAKE_VERSION VERSION_LESS 2.8)
-            set (_has_generator_expr TRUE)
-        endif ()
-        foreach (_testname ${_ats_DEFAULT_ARGS})
-            set (_testsrcdir "${CMAKE_SOURCE_DIR}/testsuite/${_testname}")
+        set (_has_generator_expr TRUE)
+        foreach (_testname ${_ats_UNPARSED_ARGUMENTS})
+            set (_testsuite "${CMAKE_SOURCE_DIR}/testsuite")
+            set (_testsrcdir "${_testsuite}/${_testname}")
             set (_testdir "${CMAKE_BINARY_DIR}/testsuite/${_testname}")
+            if (_ats_TESTNAME)
+                set (_testname "${_ats_TESTNAME}")
+            endif ()
             if (_ats_LABEL MATCHES "broken")
                 set (_testname "${_testname}-broken")
             endif ()
-            if (_has_generator_expr)
-                set (_add_test_args NAME ${_testname} 
-#                                    WORKING_DIRECTORY ${_testdir}
-                                    COMMAND python)
-                if (MSVC_IDE)
-                    set (_extra_test_args
-                        --devenv-config $<CONFIGURATION>
-                        --solution-path "${PROJECT_BINARY_DIR}" )
-                else ()
-                    set (_extra_test_args "")
-                endif ()
-            else ()
-                set (_add_test_args ${_testname} python)
-                set (_extra_test_args "")
+
+            set (_runtest python "${CMAKE_SOURCE_DIR}/testsuite/runtest.py" ${_testdir})
+            if (MSVC_IDE)
+                set (_runtest ${_runtest} --devenv-config $<CONFIGURATION>
+                                          --solution-path "${CMAKE_BINARY_DIR}" )
             endif ()
-            if (VERBOSE)
-                message (STATUS "TEST ${_testname}: ${CMAKE_BINARY_DIR}/testsuite/runtest.py ${_testdir} ${_extra_test_args}")
-            endif ()
-            # Make the build test directory and copy
+
             file (MAKE_DIRECTORY "${_testdir}")
-            add_test (${_add_test_args}
-                      "${CMAKE_SOURCE_DIR}/testsuite/runtest.py"
-                      ${_testdir}
-                      ${_extra_test_args})
+
+            add_test ( NAME ${_testname}
+                       COMMAND ${_runtest} )
+
+            oiio_set_testenv("${_testname}" "${_testsuite}"
+                             "${_testsrcdir}" "${_testdir}" "${_ats_testdir}")
+
+            # For texture tests, add a second test using batch mode as well.
+            if (_testname MATCHES "texture")
+                add_test ( NAME "${_testname}.batch"
+                           COMMAND env TESTTEX_BATCH=1 ${_runtest} )
+
+                oiio_set_testenv("${_testname}.batch" "${_testsuite}"
+                                 "${_testsrcdir}" "${_testdir}" "${_ats_testdir}")
+            endif ()
+
+            #if (VERBOSE)
+            #    message (STATUS "TEST ${_testname}: ${_runtest}")
+            #    # message (STATUS "TEST ${_testname}: ${_runtest}")
+            #endif ()
         endforeach ()
+        if (VERBOSE)
+           message (STATUS "TESTS: ${_ats_UNPARSED_ARGUMENTS}")
+        endif ()
     endif ()
 endmacro ()
 

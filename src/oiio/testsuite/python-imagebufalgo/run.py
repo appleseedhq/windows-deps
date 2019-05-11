@@ -1,22 +1,19 @@
 #!/usr/bin/env python
 
-import os.path
-
-imagedir = parent + "oiio-images"
-
 refdirlist = [
-    "../../../../testsuite/oiiotool/ref/",
-    "../../../../testsuite/oiiotool-composite/ref/",
-    "../../../../testsuite/oiiotool-fixnan/ref/",
-    "../../../../testsuite/oiiotool-deep/ref/",
-    "../../../../testsuite/oiiotool-pattern/ref/",
-    "../../../../testsuite/oiiotool-text/ref/",
+    OIIO_TESTSUITE_ROOT + "/oiiotool/ref/",
+    OIIO_TESTSUITE_ROOT + "/oiiotool-color/ref/",
+    OIIO_TESTSUITE_ROOT + "/oiiotool-composite/ref/",
+    OIIO_TESTSUITE_ROOT + "/oiiotool-fixnan/ref/",
+    OIIO_TESTSUITE_ROOT + "/oiiotool-deep/ref/",
+    OIIO_TESTSUITE_ROOT + "/oiiotool-pattern/ref/",
+    OIIO_TESTSUITE_ROOT + "/oiiotool-text/ref/",
+    OIIO_TESTSUITE_ROOT + "/oiiotool-xform/ref/",
     refdir
 ]
 
-
 # Run the script
-command += "python src/test_imagebufalgo.py > out.txt ;"
+command += pythonbin + " src/test_imagebufalgo.py > out.txt ;"
 
 # Checkout outputs -- some of the refs are in the oiiotool test dir
 outputs = ["black.tif", "filled.tif", "checker.tif",
@@ -33,13 +30,16 @@ outputs = ["black.tif", "filled.tif", "checker.tif",
            "cshift.tif", "cadd1.exr", "cadd2.exr", "add.exr", "sub.exr",
            "abs.exr", "absdiff.exr",
            "mul.exr", "cmul1.exr", "cmul2.exr",
-           "mad.exr",
+           "mad.exr", "mad2.exr", "mad3.exr",
            "cpow1.exr", "cpow2.exr",
            "div.exr", "divc1.exr", "divc2.exr",
            "invert.tif",
-           "chsum.tif", "grid-clamped.tif",
+           "chsum.tif", "colormap-inferno.tif", "colormap-custom.tif",
+           "grid-clamped.tif",
            "rangecompress.tif", "rangeexpand.tif",
-           "resize.tif", "resample.tif",
+           "contrast-stretch.tif", "contrast-shrink.tif",
+           "contrast-sigmoid5.tif",
+           "resize.tif", "resample.tif", "fit.tif",
            "bsplinekernel.exr", "bspline-blur.tif", "tahoe-median.tif",
            "dilate.tif", "erode.tif",
            "unsharp.tif", "unsharp-median.tif", "tahoe-laplacian.tif",
@@ -48,7 +48,8 @@ outputs = ["black.tif", "filled.tif", "checker.tif",
            "box3.exr",
            "a_over_b.exr",
            "tahoe-small.tx",
-           "text.tif"
+           "text.tif", "textcentered.tif",
+           "out.txt"
          ]
     # command += checkref (f)
 

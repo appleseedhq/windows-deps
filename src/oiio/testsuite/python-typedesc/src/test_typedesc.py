@@ -1,5 +1,6 @@
-#!/usr/bin/env python 
+#!/usr/bin/env python
 
+from __future__ import print_function
 import OpenImageIO as oiio
 
 
@@ -30,9 +31,9 @@ def basetype_enum_test():
         oiio.STRING
         oiio.PTR
         oiio.LASTBASE
-        print "Passed BASETYPE"
+        print ("Passed BASETYPE")
     except:
-        print "Failed BASETYPE"
+        print ("Failed BASETYPE")
 
 
 # Test that every expected enum value of AGGREGATE exists
@@ -45,11 +46,9 @@ def aggregate_enum_test():
         oiio.VEC4
         oiio.MATRIX33
         oiio.MATRIX44
-        oiio.TIMECODE
-        oiio.KEYCODE
-        print "Passed AGGREGATE"
+        print ("Passed AGGREGATE")
     except:
-        print "Failed AGGREGATE"
+        print ("Failed AGGREGATE")
 
 
 # Test that every expected enum value of VECSEMANTICS exists
@@ -60,25 +59,29 @@ def vecsemantics_enum_test():
         oiio.POINT
         oiio.VECTOR
         oiio.NORMAL
-        print "Passed VECSEMANTICS"
+        oiio.TIMECODE
+        oiio.KEYCODE
+        oiio.RATIONAL
+        print ("Passed VECSEMANTICS")
     except:
-        print "Failed VECSEMANTICS"
+        print ("Failed VECSEMANTICS")
 
 # print the details of a type t
 def breakdown_test(t, name="", verbose=True):
-    print "type '%s'" % name
-    print "    c_str \"" + t.c_str() + "\""
+    print ("type '%s'" % name)
+    print ("    c_str \"" + t.c_str() + "\"")
     if verbose:
-        print "    basetype", t.basetype
-        print "    aggregate", t.aggregate
-        print "    vecsemantics", t.vecsemantics
-        print "    arraylen", t.arraylen
-        print "    str(t) = \"" + str(t) + "\""
-        print "    size =", t.size()
-        print "    elementtype =", t.elementtype()
-        print "    numelements =", t.numelements()
-        print "    elementsize =", t.elementsize()
-        print "    basesize =", t.basesize()
+        print ("    basetype", t.basetype)
+        print ("    aggregate", t.aggregate)
+        print ("    vecsemantics", t.vecsemantics)
+        print ("    arraylen", t.arraylen)
+        print ("    str(t) = \"" + str(t) + "\"")
+        print ("    size =", t.size())
+        print ("    elementtype =", t.elementtype())
+        print ("    numelements =", t.numelements())
+        print ("    basevalues =", t.basevalues())
+        print ("    elementsize =", t.elementsize())
+        print ("    basesize =", t.basesize())
 
 
 ######################################################################
@@ -89,7 +92,7 @@ try:
     basetype_enum_test()
     aggregate_enum_test()
     vecsemantics_enum_test()
-    print
+    print ("")
 
     # Exercise the different constructors, make sure they create the
     # correct TypeDesc (also exercises the individual fields, c_str(),
@@ -102,32 +105,32 @@ try:
                     "FLOAT, SCALAR, NOXFORM, array of 6")
     breakdown_test (oiio.TypeDesc(oiio.FLOAT, oiio.VEC3, oiio.POINT, 2),
                     "FLOAT, VEC3, POINT, array of 2")
-    print
+    print ("")
 
     # Test construction from a string descriptor
     breakdown_test (oiio.TypeDesc("float[2]"), "float[2]")
     breakdown_test (oiio.TypeDesc("normal"), "normal")
     breakdown_test (oiio.TypeDesc("uint16"), "uint16")
-    print
+    print ("")
 
     # Test equality, inequality, and equivalent
     t_uint8 = oiio.TypeDesc("uint8")
     t_uint16 = oiio.TypeDesc("uint16")
     t_uint8_b = oiio.TypeDesc("uint8")
-    print "uint8 == uint8?", (t_uint8 == t_uint8)
-    print "uint8 == uint8?", (t_uint8 == t_uint8_b)
-    print "uint8 == uint16", (t_uint8 == t_uint16)
-    print "uint8 != uint8?", (t_uint8 != t_uint8)
-    print "uint8 != uint8?", (t_uint8 != t_uint8_b)
-    print "uint8 != uint16", (t_uint8 != t_uint16)
-    print "vector == color", (oiio.TypeDesc("vector") == oiio.TypeDesc("color"))
-    print "vector.equivalent(color)", oiio.TypeDesc("vector").equivalent(oiio.TypeDesc("color"))
-    print "equivalent(vector,color)", oiio.TypeDesc.equivalent(oiio.TypeDesc("vector"), oiio.TypeDesc("color"))
-    print "vector.equivalent(float)", oiio.TypeDesc("vector").equivalent(oiio.TypeDesc("float"))
-    print "equivalent(vector,float)", oiio.TypeDesc.equivalent(oiio.TypeDesc("vector"), oiio.TypeDesc("float"))
-    print
+    print ("uint8 == uint8?", (t_uint8 == t_uint8))
+    print ("uint8 == uint8?", (t_uint8 == t_uint8_b))
+    print ("uint8 == uint16", (t_uint8 == t_uint16))
+    print ("uint8 != uint8?", (t_uint8 != t_uint8))
+    print ("uint8 != uint8?", (t_uint8 != t_uint8_b))
+    print ("uint8 != uint16", (t_uint8 != t_uint16))
+    print ("vector == color", (oiio.TypeDesc("vector") == oiio.TypeDesc("color")))
+    print ("vector.equivalent(color)", oiio.TypeDesc("vector").equivalent(oiio.TypeDesc("color")))
+    print ("equivalent(vector,color)", oiio.TypeDesc.equivalent(oiio.TypeDesc("vector"), oiio.TypeDesc("color")))
+    print ("vector.equivalent(float)", oiio.TypeDesc("vector").equivalent(oiio.TypeDesc("float")))
+    print ("equivalent(vector,float)", oiio.TypeDesc.equivalent(oiio.TypeDesc("vector"), oiio.TypeDesc("float")))
+    print ("")
 
-    # Test the static data member types of pre-constructed types
+    # DEPRECATED(1.8): Test the static data member types of pre-constructed types
     breakdown_test (oiio.TypeDesc.TypeFloat,    "TypeFloat",    verbose=False)
     breakdown_test (oiio.TypeDesc.TypeColor,    "TypeColor",    verbose=False)
     breakdown_test (oiio.TypeDesc.TypeString,   "TypeString",   verbose=False)
@@ -140,11 +143,38 @@ try:
     breakdown_test (oiio.TypeDesc.TypeMatrix44, "TypeMatrix44", verbose=False)
     breakdown_test (oiio.TypeDesc.TypeTimeCode, "TypeTimeCode", verbose=False)
     breakdown_test (oiio.TypeDesc.TypeKeyCode,  "TypeKeyCode",  verbose=False)
+    breakdown_test (oiio.TypeDesc.TypeRational, "TypeRational", verbose=False)
     breakdown_test (oiio.TypeDesc.TypeFloat4,   "TypeFloat4",   verbose=False)
     breakdown_test (oiio.TypeDesc.TypeHalf,     "TypeHalf",     verbose=False)
-    print
+    print ("")
 
-    print "Done."
+    # Test the pre-constructed types
+    breakdown_test (oiio.TypeFloat,    "TypeFloat",    verbose=False)
+    breakdown_test (oiio.TypeColor,    "TypeColor",    verbose=False)
+    breakdown_test (oiio.TypeString,   "TypeString",   verbose=False)
+    breakdown_test (oiio.TypeInt,      "TypeInt",      verbose=False)
+    breakdown_test (oiio.TypeUInt,     "TypeUInt",     verbose=False)
+    breakdown_test (oiio.TypeInt32,    "TypeInt32",    verbose=False)
+    breakdown_test (oiio.TypeUInt32,   "TypeUInt32",   verbose=False)
+    breakdown_test (oiio.TypeInt16,    "TypeInt16",    verbose=False)
+    breakdown_test (oiio.TypeUInt16,   "TypeUInt16",   verbose=False)
+    breakdown_test (oiio.TypeInt8,     "TypeInt8",     verbose=False)
+    breakdown_test (oiio.TypeUInt8,    "TypeUInt8",    verbose=False)
+    breakdown_test (oiio.TypePoint,    "TypePoint",    verbose=False)
+    breakdown_test (oiio.TypeVector,   "TypeVector",   verbose=False)
+    breakdown_test (oiio.TypeNormal,   "TypeNormal",   verbose=False)
+    breakdown_test (oiio.TypeMatrix,   "TypeMatrix",   verbose=False)
+    breakdown_test (oiio.TypeMatrix33, "TypeMatrix33", verbose=False)
+    breakdown_test (oiio.TypeMatrix44, "TypeMatrix44", verbose=False)
+    breakdown_test (oiio.TypeTimeCode, "TypeTimeCode", verbose=False)
+    breakdown_test (oiio.TypeKeyCode,  "TypeKeyCode",  verbose=False)
+    breakdown_test (oiio.TypeFloat4,   "TypeFloat4",   verbose=False)
+    breakdown_test (oiio.TypeHalf,     "TypeHalf",     verbose=False)
+    breakdown_test (oiio.TypeRational, "TypeRational", verbose=False)
+    breakdown_test (oiio.TypeUInt,     "TypeUInt",     verbose=False)
+    print ("")
+
+    print ("Done.")
 except Exception as detail:
-    print "Unknown exception:", detail
+    print ("Unknown exception:", detail)
 

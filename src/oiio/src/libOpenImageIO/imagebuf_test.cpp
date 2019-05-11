@@ -29,87 +29,92 @@
 */
 
 
-#include <OpenImageIO/imageio.h>
+#include <OpenImageIO/benchmark.h>
+#include <OpenImageIO/filesystem.h>
 #include <OpenImageIO/imagebuf.h>
 #include <OpenImageIO/imagebufalgo.h>
+#include <OpenImageIO/imageio.h>
 #include <OpenImageIO/unittest.h>
 
 #include <iostream>
 
-OIIO_NAMESPACE_USING;
+using namespace OIIO;
 
 
 
 inline int
-test_wrap (wrap_impl wrap, int coord, int origin, int width)
+test_wrap(wrap_impl wrap, int coord, int origin, int width)
 {
-    wrap (coord, origin, width);
+    wrap(coord, origin, width);
     return coord;
 }
 
 
 void
-test_wrapmodes ()
+test_wrapmodes()
 {
-    const int ori = 0;
-    const int w = 4;
-    static int
-        val[] = {-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -10},
-        cla[] = { 0,  0,  0,  0,  0,  0,  0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3},
-        per[] = { 1,  2,  3,  0,  1,  2,  3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1},
-        mir[] = { 1,  2,  3,  3,  2,  1,  0, 0, 1, 2, 3, 3, 2, 1, 0, 0, 1};
+    const int ori    = 0;
+    const int w      = 4;
+    static int val[] = { -7, -6, -5, -4, -3, -2, -1, 0, 1,
+                         2,  3,  4,  5,  6,  7,  8,  9, -10 },
+               cla[] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3 },
+               per[] = { 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1 },
+               mir[] = { 1, 2, 3, 3, 2, 1, 0, 0, 1, 2, 3, 3, 2, 1, 0, 0, 1 };
 
     for (int i = 0; val[i] > -10; ++i) {
-        OIIO_CHECK_EQUAL (test_wrap (wrap_clamp, val[i], ori, w), cla[i]);
-        OIIO_CHECK_EQUAL (test_wrap (wrap_periodic, val[i], ori, w), per[i]);
-        OIIO_CHECK_EQUAL (test_wrap (wrap_periodic_pow2, val[i], ori, w), per[i]);
-        OIIO_CHECK_EQUAL (test_wrap (wrap_mirror, val[i], ori, w), mir[i]);
+        OIIO_CHECK_EQUAL(test_wrap(wrap_clamp, val[i], ori, w), cla[i]);
+        OIIO_CHECK_EQUAL(test_wrap(wrap_periodic, val[i], ori, w), per[i]);
+        OIIO_CHECK_EQUAL(test_wrap(wrap_periodic_pow2, val[i], ori, w), per[i]);
+        OIIO_CHECK_EQUAL(test_wrap(wrap_mirror, val[i], ori, w), mir[i]);
     }
 }
 
 
 
 // Test iterators
-template <class ITERATOR>
-void iterator_read_test ()
+template<class ITERATOR>
+void
+iterator_read_test()
 {
     const int WIDTH = 4, HEIGHT = 4, CHANNELS = 3;
-    static float buf[HEIGHT][WIDTH][CHANNELS] = {
-        { {0,0,0},  {1,0,1},  {2,0,2},  {3,0,3} },
-        { {0,1,4},  {1,1,5},  {2,1,6},  {3,1,7} },
-        { {0,2,8},  {1,2,9},  {2,2,10}, {3,2,11} },
-        { {0,3,12}, {1,3,13}, {2,3,14}, {3,3,15} }
-    };
-    ImageSpec spec (WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
-    ImageBuf A (spec, buf);
+    static float buf[HEIGHT][WIDTH][CHANNELS]
+        = { { { 0, 0, 0 }, { 1, 0, 1 }, { 2, 0, 2 }, { 3, 0, 3 } },
+            { { 0, 1, 4 }, { 1, 1, 5 }, { 2, 1, 6 }, { 3, 1, 7 } },
+            { { 0, 2, 8 }, { 1, 2, 9 }, { 2, 2, 10 }, { 3, 2, 11 } },
+            { { 0, 3, 12 }, { 1, 3, 13 }, { 2, 3, 14 }, { 3, 3, 15 } } };
+    ImageSpec spec(WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
+    ImageBuf A(spec, buf);
 
-    ITERATOR p (A);
-    OIIO_CHECK_EQUAL (p[0], 0.0f);
-    OIIO_CHECK_EQUAL (p[1], 0.0f);
-    OIIO_CHECK_EQUAL (p[2], 0.0f);
+    ITERATOR p(A);
+    OIIO_CHECK_EQUAL(p[0], 0.0f);
+    OIIO_CHECK_EQUAL(p[1], 0.0f);
+    OIIO_CHECK_EQUAL(p[2], 0.0f);
 
     // Explicit position
-    p.pos (2, 1);
-    OIIO_CHECK_EQUAL (p.x(), 2); OIIO_CHECK_EQUAL (p.y(), 1);
-    OIIO_CHECK_EQUAL (p[0], 2.0f);
-    OIIO_CHECK_EQUAL (p[1], 1.0f);
-    OIIO_CHECK_EQUAL (p[2], 6.0f);
+    p.pos(2, 1);
+    OIIO_CHECK_EQUAL(p.x(), 2);
+    OIIO_CHECK_EQUAL(p.y(), 1);
+    OIIO_CHECK_EQUAL(p[0], 2.0f);
+    OIIO_CHECK_EQUAL(p[1], 1.0f);
+    OIIO_CHECK_EQUAL(p[2], 6.0f);
 
     // Iterate a few times
     ++p;
-    OIIO_CHECK_EQUAL (p.x(), 3); OIIO_CHECK_EQUAL (p.y(), 1);
-    OIIO_CHECK_EQUAL (p[0], 3.0f);
-    OIIO_CHECK_EQUAL (p[1], 1.0f);
-    OIIO_CHECK_EQUAL (p[2], 7.0f);
+    OIIO_CHECK_EQUAL(p.x(), 3);
+    OIIO_CHECK_EQUAL(p.y(), 1);
+    OIIO_CHECK_EQUAL(p[0], 3.0f);
+    OIIO_CHECK_EQUAL(p[1], 1.0f);
+    OIIO_CHECK_EQUAL(p[2], 7.0f);
     ++p;
-    OIIO_CHECK_EQUAL (p.x(), 0); OIIO_CHECK_EQUAL (p.y(), 2);
-    OIIO_CHECK_EQUAL (p[0], 0.0f);
-    OIIO_CHECK_EQUAL (p[1], 2.0f);
-    OIIO_CHECK_EQUAL (p[2], 8.0f);
+    OIIO_CHECK_EQUAL(p.x(), 0);
+    OIIO_CHECK_EQUAL(p.y(), 2);
+    OIIO_CHECK_EQUAL(p[0], 0.0f);
+    OIIO_CHECK_EQUAL(p[1], 2.0f);
+    OIIO_CHECK_EQUAL(p[2], 8.0f);
 
     std::cout << "iterator_read_test result:";
     int i = 0;
-    for (ITERATOR p (A);  !p.done();  ++p, ++i) {
+    for (ITERATOR p(A); !p.done(); ++p, ++i) {
         if ((i % 4) == 0)
             std::cout << "\n    ";
         std::cout << "   " << p[0] << ' ' << p[1] << ' ' << p[2];
@@ -120,180 +125,154 @@ void iterator_read_test ()
 
 
 // Test iterators
-template <class ITERATOR>
-void iterator_wrap_test (ImageBuf::WrapMode wrap, std::string wrapname)
+template<class ITERATOR>
+void
+iterator_wrap_test(ImageBuf::WrapMode wrap, std::string wrapname)
 {
     const int WIDTH = 4, HEIGHT = 4, CHANNELS = 3;
-    static float buf[HEIGHT][WIDTH][CHANNELS] = {
-        { {0,0,0},  {1,0,1},  {2,0,2},  {3,0,3} },
-        { {0,1,4},  {1,1,5},  {2,1,6},  {3,1,7} },
-        { {0,2,8},  {1,2,9},  {2,2,10}, {3,2,11} },
-        { {0,3,12}, {1,3,13}, {2,3,14}, {3,3,15} }
-    };
-    ImageSpec spec (WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
-    ImageBuf A (spec, buf);
+    static float buf[HEIGHT][WIDTH][CHANNELS]
+        = { { { 0, 0, 0 }, { 1, 0, 1 }, { 2, 0, 2 }, { 3, 0, 3 } },
+            { { 0, 1, 4 }, { 1, 1, 5 }, { 2, 1, 6 }, { 3, 1, 7 } },
+            { { 0, 2, 8 }, { 1, 2, 9 }, { 2, 2, 10 }, { 3, 2, 11 } },
+            { { 0, 3, 12 }, { 1, 3, 13 }, { 2, 3, 14 }, { 3, 3, 15 } } };
+    ImageSpec spec(WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
+    ImageBuf A(spec, buf);
 
     std::cout << "iterator_wrap_test " << wrapname << ":";
-    int i = 0;
+    int i        = 0;
     int noutside = 0;
-    for (ITERATOR p (A, ROI(-2, WIDTH+2, -2, HEIGHT+2), wrap);
-         !p.done(); ++p, ++i) {
+    for (ITERATOR p(A, ROI(-2, WIDTH + 2, -2, HEIGHT + 2), wrap); !p.done();
+         ++p, ++i) {
         if ((i % 8) == 0)
             std::cout << "\n    ";
         std::cout << "   " << p[0] << ' ' << p[1] << ' ' << p[2];
         // Check wraps
-        if (! p.exists()) {
+        if (!p.exists()) {
             ++noutside;
             if (wrap == ImageBuf::WrapBlack) {
-                OIIO_CHECK_EQUAL (p[0], 0.0f);
-                OIIO_CHECK_EQUAL (p[1], 0.0f);
-                OIIO_CHECK_EQUAL (p[2], 0.0f);
+                OIIO_CHECK_EQUAL(p[0], 0.0f);
+                OIIO_CHECK_EQUAL(p[1], 0.0f);
+                OIIO_CHECK_EQUAL(p[2], 0.0f);
             } else if (wrap == ImageBuf::WrapClamp) {
                 ITERATOR q = p;
-                q.pos (clamp (p.x(), 0, WIDTH-1), clamp (p.y(), 0, HEIGHT-1));
-                OIIO_CHECK_EQUAL (p[0], q[0]);
-                OIIO_CHECK_EQUAL (p[1], q[1]);
-                OIIO_CHECK_EQUAL (p[2], q[2]);
+                q.pos(clamp(p.x(), 0, WIDTH - 1), clamp(p.y(), 0, HEIGHT - 1));
+                OIIO_CHECK_EQUAL(p[0], q[0]);
+                OIIO_CHECK_EQUAL(p[1], q[1]);
+                OIIO_CHECK_EQUAL(p[2], q[2]);
             } else if (wrap == ImageBuf::WrapPeriodic) {
                 ITERATOR q = p;
-                q.pos (p.x() % WIDTH, p.y() % HEIGHT);
-                OIIO_CHECK_EQUAL (p[0], q[0]);
-                OIIO_CHECK_EQUAL (p[1], q[1]);
-                OIIO_CHECK_EQUAL (p[2], q[2]);
+                q.pos(p.x() % WIDTH, p.y() % HEIGHT);
+                OIIO_CHECK_EQUAL(p[0], q[0]);
+                OIIO_CHECK_EQUAL(p[1], q[1]);
+                OIIO_CHECK_EQUAL(p[2], q[2]);
             } else if (wrap == ImageBuf::WrapMirror) {
                 ITERATOR q = p;
                 int x = p.x(), y = p.y();
-                wrap_mirror (x, 0, WIDTH);
-                wrap_mirror (y, 0, HEIGHT);
-                q.pos (x, y);
-                OIIO_CHECK_EQUAL (p[0], q[0]);
-                OIIO_CHECK_EQUAL (p[1], q[1]);
-                OIIO_CHECK_EQUAL (p[2], q[2]);
+                wrap_mirror(x, 0, WIDTH);
+                wrap_mirror(y, 0, HEIGHT);
+                q.pos(x, y);
+                OIIO_CHECK_EQUAL(p[0], q[0]);
+                OIIO_CHECK_EQUAL(p[1], q[1]);
+                OIIO_CHECK_EQUAL(p[2], q[2]);
             }
         }
     }
     std::cout << "\n";
-    OIIO_CHECK_EQUAL (noutside, 48);  // Should be 48 wrapped pixels
+    OIIO_CHECK_EQUAL(noutside, 48);  // Should be 48 wrapped pixels
 }
 
 
 
 // Tests ImageBuf construction from application buffer
-void ImageBuf_test_appbuffer ()
+void
+ImageBuf_test_appbuffer()
 {
-    const int WIDTH = 8;
-    const int HEIGHT = 8;
-    const int CHANNELS = 1;
-    static float buf[HEIGHT][WIDTH] = {
-        { 0, 0, 0, 0, 1, 0, 0, 0 }, 
-        { 0, 0, 0, 1, 0, 1, 0, 0 }, 
-        { 0, 0, 1, 0, 0, 0, 1, 0 }, 
-        { 0, 1, 0, 0, 0, 0, 0, 1 }, 
-        { 0, 0, 1, 0, 0, 0, 1, 0 }, 
-        { 0, 0, 0, 1, 0, 1, 0, 0 }, 
-        { 0, 0, 0, 0, 1, 0, 0, 0 }, 
-        { 0, 0, 0, 0, 0, 0, 0, 0 }
+    const int WIDTH    = 8;
+    const int HEIGHT   = 8;
+    const int CHANNELS = 3;
+    // clang-format off
+    float buf[HEIGHT][WIDTH][CHANNELS] = {
+        { {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {1,0,0}, {0,0,0}, {0,0,0}, {0,0,0} },
+        { {0,0,0}, {0,0,0}, {0,0,0}, {1,0,0}, {0,0,0}, {1,0,0}, {0,0,0}, {0,0,0} },
+        { {0,0,0}, {0,0,0}, {1,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {1,0,0}, {0,0,0} },
+        { {0,0,0}, {1,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {1,0,0} },
+        { {0,0,0}, {0,0,0}, {1,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {1,0,0}, {0,0,0} },
+        { {0,0,0}, {0,0,0}, {0,0,0}, {1,0,0}, {0,0,0}, {1,0,0}, {0,0,0}, {0,0,0} },
+        { {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {1,0,0}, {0,0,0}, {0,0,0}, {0,0,0} },
+        { {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0}, {0,0,0} }
     };
-    ImageSpec spec (WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
-    ImageBuf A (spec, buf);
+    // clang-format on
+    ImageSpec spec(WIDTH, HEIGHT, CHANNELS, TypeDesc::FLOAT);
+    ImageBuf A(spec, buf);
 
     // Make sure A now points to the buffer
-    OIIO_CHECK_EQUAL ((void *)A.pixeladdr (0, 0, 0), (void *)buf);
+    OIIO_CHECK_EQUAL((void*)A.pixeladdr(0, 0, 0), (void*)buf);
 
     // write it
-    A.write ("A.tif");
+    A.write("A_imagebuf_test.tif");
 
     // Read it back and make sure it matches the original
-    ImageBuf B ("A.tif");
-    for (int y = 0;  y < HEIGHT;  ++y)
-        for (int x = 0;  x < WIDTH;  ++x)
-            OIIO_CHECK_EQUAL (A.getchannel (x, y, 0, 0),
-                              B.getchannel (x, y, 0, 0));
+    ImageBuf B("A_imagebuf_test.tif");
+    for (int y = 0; y < HEIGHT; ++y)
+        for (int x = 0; x < WIDTH; ++x)
+            for (int c = 0; c < WIDTH; ++c)
+                OIIO_CHECK_EQUAL(A.getchannel(x, y, 0, c),
+                                 B.getchannel(x, y, 0, c));
+
+    // Make sure we can write to the buffer
+    float pix[CHANNELS] = { 0.0, 42.0, 0 };
+    A.setpixel(3, 2, 0, pix);
+    OIIO_CHECK_EQUAL(buf[2][3][1], 42.0);
+
+    // Make sure we can copy-construct the ImageBuf and it points to the
+    // same application buffer.
+    ImageBuf C(A);
+    OIIO_CHECK_EQUAL((void*)A.pixeladdr(0, 0, 0), (void*)C.pixeladdr(0, 0, 0));
+
+    // Test that channel and pixel strides work
+    OIIO_CHECK_EQUAL((float*)A.pixeladdr(0, 0, 0, 1),
+                     (float*)A.pixeladdr(0, 0, 0) + 1);
+    OIIO_CHECK_EQUAL(A.pixel_stride(), (stride_t)sizeof(float) * CHANNELS);
 }
 
 
 
-// Tests histogram computation.
-void histogram_computation_test ()
-{
-    const int INPUT_WIDTH   = 64;
-    const int INPUT_HEIGHT  = 64;
-    const int INPUT_CHANNEL = 0;
-
-    const int HISTOGRAM_BINS = 256;
-
-    const int SPIKE1 = 51;  // 0.2f in range 0->1 maps to 51 in range 0->255
-    const int SPIKE2 = 128; // 0.5f in range 0->1 maps to 128 in range 0->255
-    const int SPIKE3 = 204; // 0.8f in range 0->1 maps to 204 in range 0->255
-
-    const int SPIKE1_COUNT = INPUT_WIDTH * 8;
-    const int SPIKE2_COUNT = INPUT_WIDTH * 16;
-    const int SPIKE3_COUNT = INPUT_WIDTH * 40;
-
-    // Create input image with three regions with different pixel values.
-    ImageSpec spec (INPUT_WIDTH, INPUT_HEIGHT, 1, TypeDesc::FLOAT);
-    ImageBuf A (spec);
-
-    float value[] = {0.2f};
-    ImageBufAlgo::fill (A, value, ROI(0, INPUT_WIDTH, 0, 8));
-
-    value[0] = 0.5f;
-    ImageBufAlgo::fill (A, value, ROI(0, INPUT_WIDTH, 8, 24));
-
-    value[0] = 0.8f;
-    ImageBufAlgo::fill (A, value, ROI(0, INPUT_WIDTH, 24, 64));
-
-    // Compute A's histogram.
-    std::vector<imagesize_t> hist;
-    ImageBufAlgo::histogram (A, INPUT_CHANNEL, hist, HISTOGRAM_BINS);
-
-    // Does the histogram size equal the number of bins?
-    OIIO_CHECK_EQUAL (hist.size(), (imagesize_t)HISTOGRAM_BINS);
-
-    // Are the histogram values as expected?
-    OIIO_CHECK_EQUAL (hist[SPIKE1], (imagesize_t)SPIKE1_COUNT);
-    OIIO_CHECK_EQUAL (hist[SPIKE2], (imagesize_t)SPIKE2_COUNT);
-    OIIO_CHECK_EQUAL (hist[SPIKE3], (imagesize_t)SPIKE3_COUNT);
-    for (int i = 0; i < HISTOGRAM_BINS; i++)
-        if (i!=SPIKE1 && i!=SPIKE2 && i!=SPIKE3)
-            OIIO_CHECK_EQUAL (hist[i], 0);
-}
-
-
-
-void test_open_with_config ()
+void
+test_open_with_config()
 {
     // N.B. This function must run after ImageBuf_test_appbuffer, which
     // writes "A.tif".
-    ImageCache *ic = ImageCache::create(false);
+    ImageCache* ic = ImageCache::create(false);
     ImageSpec config;
-    config.attribute ("oiio:DebugOpenConfig!", 1);
-    ImageBuf A ("A.tif", 0, 0, ic, &config);
-    OIIO_CHECK_EQUAL (A.spec().get_int_attribute("oiio:DebugOpenConfig!",0), 42);
-    ic->destroy (ic);
+    config.attribute("oiio:DebugOpenConfig!", 1);
+    ImageBuf A("A_imagebuf_test.tif", 0, 0, ic, &config);
+    OIIO_CHECK_EQUAL(A.spec().get_int_attribute("oiio:DebugOpenConfig!", 0),
+                     42);
+    ic->destroy(ic);
 }
 
 
 
-void test_empty_iterator ()
+void
+test_empty_iterator()
 {
     // Ensure that ImageBuf iterators over empty ROIs immediately appear
     // done
-    ImageBuf A (ImageSpec (64, 64, 3, TypeDesc::FLOAT));
-    ROI roi (10, 10, 20, 40, 0, 1);
-    for (ImageBuf::Iterator<float> p (A, roi);  ! p.done();  ++p) {
+    ImageBuf A(ImageSpec(64, 64, 3, TypeDesc::FLOAT));
+    ROI roi(10, 10, 20, 40, 0, 1);
+    for (ImageBuf::Iterator<float> p(A, roi); !p.done(); ++p) {
         std::cout << "p is " << p.x() << ' ' << p.y() << ' ' << p.z() << "\n";
-        OIIO_CHECK_ASSERT (0 && "should never execute this loop body");
+        OIIO_CHECK_ASSERT(0 && "should never execute this loop body");
     }
 }
 
 
 
 void
-print (const ImageBuf &A)
+print(const ImageBuf& A)
 {
-    ASSERT (A.spec().format == TypeDesc::FLOAT);
-    for (ImageBuf::ConstIterator<float> p (A);  ! p.done();  ++p) {
+    ASSERT(A.spec().format == TypeDesc::FLOAT);
+    for (ImageBuf::ConstIterator<float> p(A); !p.done(); ++p) {
         std::cout << "   @" << p.x() << ',' << p.y() << "=(";
         for (int c = 0; c < A.nchannels(); ++c)
             std::cout << (c ? "," : "") << p[c];
@@ -305,46 +284,154 @@ print (const ImageBuf &A)
 
 
 void
-test_set_get_pixels ()
+test_set_get_pixels()
 {
     std::cout << "\nTesting set_pixels, get_pixels:\n";
     const int nchans = 3;
-    ImageBuf A (ImageSpec (4, 4, nchans, TypeDesc::FLOAT));
-    ImageBufAlgo::zero (A);
+    ImageBuf A(ImageSpec(4, 4, nchans, TypeDesc::FLOAT));
+    ImageBufAlgo::zero(A);
     std::cout << " Cleared:\n";
-    print (A);
-    float newdata[2*2*nchans] = { 1,2,3,  4,5,6,
-                                  7,8,9,  10,11,12 };
-    A.set_pixels (ROI(1,3,1,3), TypeDesc::FLOAT, newdata);
+    print(A);
+    float newdata[2 * 2 * nchans] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+    A.set_pixels(ROI(1, 3, 1, 3), TypeDesc::FLOAT, newdata);
     std::cout << " After set:\n";
-    print (A);
-    float retrieved[2*2*nchans] = { 9,9,9, 9,9,9, 9,9,9, 9,9,9 };
-    A.get_pixels (ROI(1, 3, 1, 3, 0, 1), TypeDesc::FLOAT, retrieved);
-    OIIO_CHECK_ASSERT (0 == memcmp (retrieved, newdata, 2*2*nchans));
+    print(A);
+    float retrieved[2 * 2 * nchans] = { 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9 };
+    A.get_pixels(ROI(1, 3, 1, 3, 0, 1), TypeDesc::FLOAT, retrieved);
+    OIIO_CHECK_ASSERT(0 == memcmp(retrieved, newdata, 2 * 2 * nchans));
+}
+
+
+
+void
+time_get_pixels()
+{
+    std::cout << "\nTesting set_pixels, get_pixels:\n";
+    Benchmarker bench;
+    const int nchans = 4;
+    const int xres = 2000, yres = 1000;
+    ImageBuf A(ImageSpec(xres, yres, nchans, TypeDesc::FLOAT));
+    ImageBufAlgo::zero(A);
+
+    // bench.work (size_t(xres*yres*nchans));
+    std::unique_ptr<float[]> fbuf(new float[xres * yres * nchans]);
+    bench("get_pixels 1Mpelx4 float[4]->float[4] ",
+          [&]() { A.get_pixels(A.roi(), TypeFloat, fbuf.get()); });
+    bench("get_pixels 1Mpelx4 float[4]->float[3] ", [&]() {
+        ROI roi3   = A.roi();
+        roi3.chend = 3;
+        A.get_pixels(roi3, TypeFloat, fbuf.get());
+    });
+
+    std::unique_ptr<uint8_t[]> ucbuf(new uint8_t[xres * yres * nchans]);
+    bench("get_pixels 1Mpelx4 float[4]->uint8[4] ",
+          [&]() { A.get_pixels(A.roi(), TypeUInt8, ucbuf.get()); });
+
+    std::unique_ptr<uint16_t[]> usbuf(new uint16_t[xres * yres * nchans]);
+    bench("get_pixels 1Mpelx4 float[4]->uint16[4] ",
+          [&]() { A.get_pixels(A.roi(), TypeUInt8, usbuf.get()); });
+}
+
+
+
+void
+test_read_channel_subset()
+{
+    std::cout << "\nTesting reading a channel subset\n";
+
+    // FIrst, write a test image with 6 channels
+    static float color6[] = { .6, .5, .4, .3, .2, .1 };
+    ImageBuf A(ImageSpec(2, 2, 6, TypeDesc::FLOAT));
+    ImageBufAlgo::fill(A, color6);
+    A.write("sixchans.tif");
+    std::cout << " Start with image:\n";
+    print(A);
+
+    // Now read it back using the "channel range" option.
+    ImageBuf B("sixchans.tif");
+    B.read(0 /*subimage*/, 0 /*mip*/, 2 /*chbegin*/, 5 /*chend*/,
+           true /*force*/, TypeDesc::FLOAT);
+    std::cout << " After reading channels [2,5), we have:\n";
+    print(B);
+    OIIO_CHECK_EQUAL(B.nativespec().nchannels, 6);
+    OIIO_CHECK_EQUAL(B.spec().nchannels, 3);
+    OIIO_CHECK_EQUAL(B.spec().format, TypeDesc::FLOAT);
+    OIIO_CHECK_EQUAL(B.spec().channelnames[0], "B");
+    OIIO_CHECK_EQUAL(B.spec().channelnames[1], "A");
+    OIIO_CHECK_EQUAL(B.spec().channelnames[2], "channel4");
+    for (ImageBuf::ConstIterator<float> p(B); !p.done(); ++p) {
+        OIIO_CHECK_EQUAL(p[0], 0.4f);
+        OIIO_CHECK_EQUAL(p[1], 0.3f);
+        OIIO_CHECK_EQUAL(p[2], 0.2f);
+    }
+}
+
+
+
+void
+test_roi()
+{
+    std::cout << "Testing ROI functions for ImageSpec and ImageBuf\n";
+    ROI datawin(10, 640, 20, 480, 0, 1, 0, 3);
+    ROI displaywin(0, 512, 30, 100, 0, 1, 0, 3);
+    ROI initroi(0, 256, 0, 300, 0, 1, 0, 3);
+
+    // Test roi set and retrieve on an ImageSpec
+    ImageSpec spec(256, 300, 3);
+    OIIO_CHECK_EQUAL(spec.roi(), initroi);
+    OIIO_CHECK_EQUAL(spec.roi_full(), initroi);
+    spec.set_roi(datawin);
+    spec.set_roi_full(displaywin);
+    OIIO_CHECK_EQUAL(spec.roi(), datawin);
+    OIIO_CHECK_EQUAL(spec.roi_full(), displaywin);
+
+    // Test roi set and retrieve on an ImageSBuf
+    ImageBuf buf((ImageSpec(datawin)));
+    OIIO_CHECK_EQUAL(buf.roi(), datawin);
+    OIIO_CHECK_EQUAL(buf.roi_full(), datawin);
+    buf.set_roi_full(displaywin);
+    OIIO_CHECK_EQUAL(buf.roi(), datawin);
+    OIIO_CHECK_EQUAL(buf.roi_full(), displaywin);
+
+    OIIO_CHECK_ASSERT(buf.contains_roi(datawin));
+    OIIO_CHECK_ASSERT(buf.contains_roi(ROI(100, 110, 100, 110, 0, 1, 0, 2)));
+    OIIO_CHECK_ASSERT(
+        !buf.contains_roi(ROI(0, 640, 0, 480, 0, 1, 0, 3)));  // outside xy
+    OIIO_CHECK_ASSERT(
+        !buf.contains_roi(ROI(10, 640, 20, 480, 1, 2, 0, 3)));  // outside z
+    OIIO_CHECK_ASSERT(
+        !buf.contains_roi(ROI(10, 640, 20, 480, 0, 1, 0, 4)));  // outside ch
 }
 
 
 
 int
-main (int argc, char **argv)
+main(int argc, char** argv)
 {
-    test_wrapmodes ();
+    test_wrapmodes();
+    test_roi();
 
     // Lots of tests related to ImageBuf::Iterator
-    test_empty_iterator ();
-    iterator_read_test<ImageBuf::ConstIterator<float> > ();
-    iterator_read_test<ImageBuf::Iterator<float> > ();
+    test_empty_iterator();
+    iterator_read_test<ImageBuf::ConstIterator<float>>();
+    iterator_read_test<ImageBuf::Iterator<float>>();
 
-    iterator_wrap_test<ImageBuf::ConstIterator<float> > (ImageBuf::WrapBlack, "black");
-    iterator_wrap_test<ImageBuf::ConstIterator<float> > (ImageBuf::WrapClamp, "clamp");
-    iterator_wrap_test<ImageBuf::ConstIterator<float> > (ImageBuf::WrapPeriodic, "periodic");
-    iterator_wrap_test<ImageBuf::ConstIterator<float> > (ImageBuf::WrapMirror, "mirror");
+    iterator_wrap_test<ImageBuf::ConstIterator<float>>(ImageBuf::WrapBlack,
+                                                       "black");
+    iterator_wrap_test<ImageBuf::ConstIterator<float>>(ImageBuf::WrapClamp,
+                                                       "clamp");
+    iterator_wrap_test<ImageBuf::ConstIterator<float>>(ImageBuf::WrapPeriodic,
+                                                       "periodic");
+    iterator_wrap_test<ImageBuf::ConstIterator<float>>(ImageBuf::WrapMirror,
+                                                       "mirror");
 
-    ImageBuf_test_appbuffer ();
-    histogram_computation_test ();
-    test_open_with_config ();
+    ImageBuf_test_appbuffer();
+    test_open_with_config();
+    test_read_channel_subset();
 
-    test_set_get_pixels ();
+    test_set_get_pixels();
+    time_get_pixels();
 
+    Filesystem::remove("A_imagebuf_test.tif");
     return unit_test_failures;
 }

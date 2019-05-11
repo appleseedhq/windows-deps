@@ -8,7 +8,6 @@
 %\setlength{\evensidemargin}{0.5in}
 
 % don't do this \usepackage{times}    % Better fonts than Computer Modern
-%\usepackage{times}
 \renewcommand{\sfdefault}{phv}
 \renewcommand{\rmdefault}{ptm}
 % don't replace tt -- old is better \renewcommand{\ttdefault}{pcr}
@@ -20,9 +19,11 @@
 \usepackage{moreverb}
 \usepackage{graphicx}
 \usepackage{xspace}
+\usepackage{needspace}
 %\usepackage{multicol}
 %\usepackage{color}
-\usepackage{html}
+%\usepackage{html}
+\usepackage{hyperref}
 \usepackage{array}
 \usepackage{multirow}
 \usepackage{longtable}
@@ -46,9 +47,9 @@
 
 \def\product{{\sffamily OpenImageIO}\xspace}
 \def\OpenImageIO{{\sffamily OpenImageIO}\xspace}
-\def\versionnumber{1.7}
+\def\versionnumber{2.0}
 \def\productver{\product\ {\sffamily \versionnumber}\xspace}
-\def\producthome{{\codefont \$IMAGEIOHOME}\xspace}
+\def\producthome{{\codefont \$OPENIMAGEIO\_ROOT\_DIR}\xspace}
 \def\ivbinary{{\codefont iv}\xspace}
 \def\maketx{{\codefont maketx}\xspace}
 \def\iconvert{{\codefont iconvert}\xspace}
@@ -79,7 +80,7 @@
 \def\readscanline{{\codefont read\_scanline()}\xspace}
 \def\readtile{{\codefont read\_tile()}\xspace}
 \def\AutoStride{{\codefont AutoStride}\xspace}
-\def\arrayview{{\codefont array\_view}\xspace}
+\def\cspan{{\codefont cspan}\xspace}
 \def\stringview{{\codefont string\_view}\xspace}
 \def\ustring{{\codefont ustring}\xspace}
 
@@ -87,15 +88,15 @@
 {\Huge{\bf \product}
 %\textregistered\ 
 {\bf\sffamily \versionnumber} \medskip \\ \huge Programmer Documentation
-% \large (in progress)
+% \\ \large (in progress)
 } \bigskip }
 \author{Editor: Larry Gritz \\
 \emph{lg@openimageio.org}
  \bigskip \\
 }
 \date{{\large
-Date: 1 Oct 2016
-\\ (with corrections, 6 Dec 2016)
+Date: 5 Jan 2019
+\\ (with corrections, 1 May 2019)
 }}
 
 

@@ -40,88 +40,6 @@ formats supported by OIIO.
   #include <OpenImageIO/imagebuf.h>
 \end{code}
 
-\subsection{Helper: \ROI}
-\label{sec:ROI}
-\indexapi{ROI}
-\index{region of interest}
-
-\ROI is a small helper struct that describes a rectangular region of
-pixels of an image (and a channel range).  An \ROI holds the following
-data members:
-
-\apiitem{int xbegin, xend, ybegin, yend, zbegin, zend; \\
-int chbegin, chend;}
-Describes the $x, y, z$ range of the region.  The {\cf end} values are
-\emph{exclusive}; that is, ({\cf xbegin, ybegin, zbegin}) is the first
-pixel included in the range, ({\cf xend-1, yend-1, zend-1}) is the last
-pixel included in the range, and ({\cf xend, yend, zend}) is \emph{one
-past the last pixel} in each dimension.
-
-Similarly, {\cf chbegin} and {\cf chend} describe a range of channels:
-{\cf chbegin} is the first channel, {\cf chend} is \emph{one past the last
-channel}.
-\apiend
-
-\smallskip
-
-\noindent \ROI has the following member functions and friends:
-
-\smallskip
-
-\apiitem{{\ce ROI} ()}
-A default-constructed \ROI has an \emph{undefined} region, which
-is interpreted to mean all valid pixels and all valid channels of
-an image.
-\apiend
-
-\apiitem{bool ROI::{\ce defined} () const}
-Returns {\cf true} if the \ROI is defined, having a specified region,
-or {\cf false} if the \ROI is undefined.
-\apiend
-
-\apiitem{static ROI ROI::{\ce All} ()}
-Returns an undefined \ROI, which is interpreted to mean all valid pixels
-and all valid channels of an image.
-\apiend
-
-\apiitem{int ROI::{\ce width} () const \\
-int ROI::{\ce height} () const \\
-int ROI::{\ce depth} () const}
-Returns the width, height, and depth, respectively, of a defined region.
-These do not return sensible values for an \ROI that is not {\cf defined()}.
-\apiend
-
-\apiitem{imagesize_t ROI::{\ce npixels} () const}
-For an \ROI that is {\cf defined()}, returns the total number of pixels
-included in the region, or {\cf 0} for an undefined \ROI.
-\apiend
-
-\apiitem{imagesize_t ROI::{\ce nchannels} () const}
-For an \ROI that is {\cf defined()}, returns the number of channels
-in the channel range.
-\apiend
-
-\apiitem{ROI {\ce roi_union} (const ROI \&A, const ROI \&B) \\
-ROI {\ce roi_intersection} (const ROI \&A, const ROI \&B)}
-Returns the union of two \ROI's (an \ROI that is exactly big enough
-to include all the pixels of both individual \ROI's) or intersection
-of two \ROI's (an \ROI that contains only the pixels that are contained
-in \emph{both} \ROI's).
-\apiend
-
-\apiitem{ROI {\ce get_roi} (const ImageSpec \&spec) \\
-ROI {\ce get_roi_full} (const ImageSpec \&spec)}
-Return the ROI describing {\cf spec}'s pixel data window (the {\cf x, y, z,
-width, height, depth} fields)
-or the full (display) window (the {\cf full_x, full_y, full_z,
-full_width, full_height, full_depth} fields), respectively.
-\apiend
-
-\apiitem{void {\ce set_roi} (const ImageSpec \&spec, const ROI \&newroi) \\
-void {\ce set_roi_full} (const ImageSpec \&spec, const ROI \&newroi)}
-Alters the {\cf spec} so to make its pixel data window 
-or the full (display) window match {\cf newroi}.
-\apiend
 
 
 
@@ -204,6 +122,10 @@ or special instructions to be passed on to the eventual
 \apiitem{bool {\ce read} (int subimage=0, int miplevel=0, bool force=false, \\
    \bigspc            TypeDesc convert=TypeDesc::UNKNOWN, \\
    \bigspc            ProgressCallback progress_callback=NULL, \\
+   \bigspc            void *progress_callback_data=NULL) \\
+bool {\ce read} (int subimage, int miplevel, \\
+   \bigspc            int chbegin, int chend, bool force, TypeDesc convert, \\
+   \bigspc            ProgressCallback progress_callback=NULL, \\
    \bigspc            void *progress_callback_data=NULL)}
 
 Explicitly reads the particular subimage and MIP level of the image.  Generally,
@@ -229,6 +151,12 @@ native file type and also is not one of the internal types supported by
 the {\cf ImageCache} (specifically, {\cf FLOAT} and {\cf UINT8});
 (c) if the \ImageBuf already has local pixel memory allocated, or
 ``wraps'' an application buffer.
+
+The variety of {\cf read()} that takes {\cf chbegin} and {\cf chend}
+parameters allows you to populate the \ImageBuf with a (contiguous) subset
+of channels from the file. This can be useful if you are only interested
+in a subset of channels and want to save the memory and I/O costs for the
+channels you won't want.
 
 If {\cf progress_callback} is non-NULL, the underlying read, if
 expensive, may make several calls to
@@ -285,13 +213,15 @@ resolution or data type.  Optionally, it names the \ImageBuf.
 \subsection*{Writing an \ImageBuf to a file}
 
 \apiitem{bool {\ce write} (string_view filename, \\
+  \bigspc               TypeDesc dtype = TypeUnknown, \\
   \bigspc               string_view fileformat = "", \\
   \bigspc               ProgressCallback progress_callback=NULL, \\
   \bigspc               void *progress_callback_data=NULL) const}
-Write the image to the named file in the named format
-(an empty format means to infer the type from the filename
-extension).  Return {\cf true} if all went ok, {\cf false} if there were
-errors writing.
+Write the image to the named file, converted to the specified pixel data
+type {\cf dtype} ({\cf TypeUnknown} signifies to use the data type of the
+buffer), in the named file format (an empty {\cf fileformat} means to infer
+the type from the filename extension).  Return {\cf true} if all went ok,
+{\cf false} if there were errors writing.
 
 By default, it will always write a scanline-oriented file, unless the
 {\cf set_write_tiles()} method has been used to override this.
@@ -420,8 +350,16 @@ The data type of the pixels stored in the buffer (equivalent to
 {\cf spec().format}).
 \apiend
 
+\apiitem{void {\ce set_origin} (int x, int y, int z=0)}
+\NEW % 1.9
+Alters the metadata of the spec in the \ImageBuf to reset the ``origin''
+of the pixel data window to be the specified coordinates.  This does not
+affect the size of the pixel data window, only its position.
+\apiend
+
 \apiitem{void {\ce set_full} (int xbegin, int xend, int ybegin, int yend, \\
-  \bigspc\spc       int zbegin, int zend)}
+  \bigspc\spc       int zbegin, int zend) \\
+  void {\ce set_roi_full} (const ROI \&newroi)}
 Alters the metadata of the spec in the \ImageBuf to reset the ``full''
 image size (a.k.a.\ ``display window'').  This does not affect the size
 of the pixel data window.
@@ -454,8 +392,19 @@ has already spawned multiple worker threads.
 
 \section{Copying \ImageBuf's and blocks of pixels}
 
-\apiitem{bool {\ce copy} (const ImageBuf \&src) \\
-bool {\ce copy} (const ImageBuf \&src, TypeDesc format)}
+\apiitem{const ImageBuf\& operator= (const ImageBuf \&src) \\
+const ImageBuf\& operator= (ImageBuf \&\&src)}
+\NEW % 1.9
+Copy and move assignment.
+\apiend
+
+\apiitem{ImageBuf {\ce copy} (TypeDesc format=TypeUnknown) const}
+\NEW % 1.9
+Returns a full copy of {\cf this} (pixels and metadata), with optional data
+format conversion.
+\apiend
+
+\apiitem{bool {\ce copy} (const ImageBuf \&src, TypeDesc format=TypeUnknown)}
 Copies {\cf src} to {\cf this} -- both pixel values and all metadata.
 If a {\cf format} is provided, {\cf this} will get the specified pixel
 data type rather than using the same pixel format as {\cf src}.
@@ -626,13 +575,11 @@ allocated, this is equivalent to inserting or erasing samples.
 \apiend
 
 \apiitem{void {\ce deep_insert_samples} (int x, int y, int z, int samplepos, int nsamples)}
-\NEW % 1.7
 Insert {\cf nsamples} new samples, starting at position {\cf samplepos} of
 pixel {\cf (x,y,z)}.
 \apiend
 
 \apiitem{void {\ce deep_erase_samples} (int x, int y, int z, int samplepos, int nsamples)}
-\NEW % 1.7
 Remove {\cf nsamples} new samples, starting at position {\cf samplepos} of
 pixel {\cf (x,y,z)}.
 \apiend
@@ -688,22 +635,28 @@ clears the error message for next time.
 \apiitem{void *{\ce localpixels} (); \\
     const void *{\ce localpixels} () const;}
 Returns a raw pointer to the ``local'' pixel memory, if they are fully
-in RAM and not backed by an \ImageCache (in which case, {\cf NULL} will
+in RAM and not backed by an \ImageCache (in which case, {\cf nullptr} will
 be returned).  You can also test it like a {\cf bool} to find out if
 pixels are local.
 \apiend
 
-\apiitem{const void *{\ce pixeladdr} (int x, int y, int z=0) const \\
-void *{\ce pixeladdr} (int x, int y, int z)}
-Return the address where pixel (x,y,z) is stored in the image buffer.
-Use with extreme caution!  Will return NULL if the pixel values
+\apiitem{const void *{\ce pixeladdr} (int x, int y, int z=0, int ch=0) const \\
+void *{\ce pixeladdr} (int x, int y, int z=0, int ch=0)}
+Return the address where pixel {\cf (x,y,z)}, channel {\cf ch} is stored in
+the local image buffer memory.
+Use with extreme caution!  Will return {\cf nullptr} if the pixel values
 aren't local (for example, if backed by an \ImageCache).
 \apiend
 
 \apiitem{int {\ce pixelindex} (int x, int y, int z, bool check_range=false) const}
-\NEW %1.7
 Return the index of pixel (x,y,z). If {\cf check_range} is {\cf true},
 return -1 for an invalid coordinate that is not within the data window.
+\apiend
+
+\apiitem{static WrapMode {\ce WrapMode_from_string} (string_view name)}
+Return the {\cf WrapMode} corresponding to the name (\qkw{default},
+\qkw{black}, \qkw{clamp}, \qkw{periodic}, \qkw{mirror}). For an unknown
+name, this will return {\cf WrapDefault}.
 \apiend
 
 
