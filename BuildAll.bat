@@ -118,7 +118,7 @@ echo %time% ^| [ 2/14] Building LLVM...
     mkdir %root%build\%platform%\llvm-debug 2>nul
     pushd %root%build\%platform%\llvm-debug
         echo === LLVM (Debug) ============================================================== > BUILDLOG.txt
-        cmake -Wno-dev -G %generator% -Thost=x64 -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_ENABLE_EH=ON -DLLVM_ENABLE_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\llvm-debug %src%\llvm %redirect%
+        cmake -Wno-dev -G %generator% -Thost=x64 -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_TEMPORARILY_ALLOW_OLD_TOOLCHAIN=ON -DLLVM_ENABLE_EH=ON -DLLVM_ENABLE_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\llvm-debug %src%\llvm %redirect%
         %devenv% llvm.sln /build Debug /project INSTALL %redirect%
         for /R lib\ %%f in (*.pdb) do @copy /Y "%%f" %root%stage\%platform%\llvm-debug\lib %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
@@ -127,7 +127,7 @@ echo %time% ^| [ 2/14] Building LLVM...
     mkdir %root%build\%platform%\llvm-release 2>nul
     pushd %root%build\%platform%\llvm-release
         echo === LLVM (Release) ============================================================ > BUILDLOG.txt
-        cmake -Wno-dev -G %generator% -Thost=x64 -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_ENABLE_EH=ON -DLLVM_ENABLE_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\llvm-release %src%\llvm %redirect%
+        cmake -Wno-dev -G %generator% -Thost=x64 -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_TEMPORARILY_ALLOW_OLD_TOOLCHAIN=ON -DLLVM_ENABLE_EH=ON -DLLVM_ENABLE_RTTI=ON -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\llvm-release %src%\llvm %redirect%
         %devenv% llvm.sln /build Release /project INSTALL %redirect%
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
