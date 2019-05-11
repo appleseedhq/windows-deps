@@ -176,7 +176,7 @@ add_subdirectory (src/osl.imageio)
 endif ()
 
 if (USE_QT AND Qt5_FOUND)
-add_subdirectory (src/osltoy)
+# add_subdirectory (src/osltoy)
 endif ()
 
 if (OSL_BUILD_SHADERS)
