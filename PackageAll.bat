@@ -27,8 +27,7 @@ REM OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 REM THE SOFTWARE.
 REM
 
-set zip="c:\Program Files\7-Zip\7z.exe"
+set zip="C:\Program Files\7-Zip\7z.exe"
 
-%zip% a appleseed-deps-stage-win64-vs110-vN.zip stage\vc11
-%zip% a appleseed-deps-stage-win64-vs140-vN.zip stage\vc14
-%zip% a appleseed-deps-stage-win64-vs141-vN.zip stage\vc141
+%zip% a appleseed-deps-stage-win64-vc140-vN.zip stage\vc140
+%zip% a appleseed-deps-stage-win64-vc141-vN.zip stage\vc141
