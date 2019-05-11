@@ -1,4 +1,4 @@
-; RUN: llc -verify-machineinstrs < %s -mtriple=aarch64-none-linux-gnu | FileCheck %s
+; RUN: llc -verify-machineinstrs -o - %s -mtriple=arm64-apple-ios7.0 | FileCheck %s
 
 define i32 @test_floattoi32(float %in) {
 ; CHECK-LABEL: test_floattoi32:
@@ -69,7 +69,7 @@ define float @test_i32tofloat(i32 %in) {
 ; CHECK-DAG: scvtf [[SIG:s[0-9]+]], {{w[0-9]+}}
 
   %res = fsub float %signed, %unsigned
-; CHECL: fsub {{s[0-9]+}}, [[SIG]], [[UNSIG]]
+; CHECK: fsub {{s[0-9]+}}, [[SIG]], [[UNSIG]]
   ret float %res
 ; CHECK: ret
 }
@@ -149,3 +149,28 @@ define double @test_bitcasti64todouble(i64 %in) {
    ret double %res
 
 }
+
+define double @bitcast_fabs(double %x) {
+; CHECK-LABEL: bitcast_fabs:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    fabs d0, d0
+; CHECK-NEXT:    ret
+;
+  %bc1 = bitcast double %x to i64
+  %and = and i64 %bc1, 9223372036854775807
+  %bc2 = bitcast i64 %and to double
+  ret double %bc2
+}
+
+define float @bitcast_fneg(float %x) {
+; CHECK-LABEL: bitcast_fneg:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    fneg s0, s0
+; CHECK-NEXT:    ret
+;
+  %bc1 = bitcast float %x to i32
+  %xor = xor i32 %bc1, 2147483648
+  %bc2 = bitcast i32 %xor to float
+  ret float %bc2
+}
+

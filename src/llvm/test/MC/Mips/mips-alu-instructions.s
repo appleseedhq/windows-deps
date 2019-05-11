@@ -91,7 +91,7 @@
 # CHECK:  addiu   $sp, $sp, -40  # encoding: [0xd8,0xff,0xbd,0x27]
 # CHECK:  neg     $6, $7         # encoding: [0x22,0x30,0x07,0x00]
 # CHECK:  negu    $6, $7         # encoding: [0x23,0x30,0x07,0x00]
-# CHECK:  move    $7, $8         # encoding: [0x21,0x38,0x00,0x01]
+# CHECK:  move    $7, $8         # encoding: [0x25,0x38,0x00,0x01]
 # CHECK:  .set    push
 # CHECK:  .set    mips32r2
 # CHECK:  rdhwr   $5, $29
@@ -118,3 +118,32 @@
     negu   $6,$7
     move   $7,$8
     rdhwr   $5, $29
+
+#------------------------------------------------------------------------------
+# Shortcuts for arithmetic instructions
+#------------------------------------------------------------------------------
+
+# CHECK:	add	$9, $9, $3	# encoding: [0x20,0x48,0x23,0x01]
+# CHECK:	addu	$9, $9, $3	# encoding: [0x21,0x48,0x23,0x01]
+# CHECK:	addi	$9, $9, 10	# encoding: [0x0a,0x00,0x29,0x21]
+# CHECK:	addiu	$9, $9, 10	# encoding: [0x0a,0x00,0x29,0x25]
+# CHECK:	and	$5, $5, $6	# encoding: [0x24,0x28,0xa6,0x00]
+# CHECK:	mul	$9, $9, $3	# encoding: [0x02,0x48,0x23,0x71]
+# CHECK:	or	$2, $2, $4	# encoding: [0x25,0x10,0x44,0x00]
+# CHECK:	sub	$9, $9, $3	# encoding: [0x22,0x48,0x23,0x01]
+# CHECK:	subu	$9, $9, $3	# encoding: [0x23,0x48,0x23,0x01]
+# CHECK:	addi	$9, $9, -10	# encoding: [0xf6,0xff,0x29,0x21]
+# CHECK:	addiu	$9, $9, -10	# encoding: [0xf6,0xff,0x29,0x25]
+# CHECK:	xor	$9, $9, $10	# encoding: [0x26,0x48,0x2a,0x01]
+	add	$9, $3
+	addu	$9, $3
+	add	$9, 10
+	addu	$9, 10
+	and	$5, $6
+	mul	$9, $3
+	or	$2, $4
+	sub	$9, $3
+	subu	$9, $3
+	sub	$9, 10
+	subu	$9, 10
+	xor	$9, $10

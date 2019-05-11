@@ -12,11 +12,11 @@ define fastcc void @foo(i32 %in) {
   %addr = alloca i8, i32 %in
 
 ; Normal frame setup stuff:
-; CHECK: sub sp, sp,
-; CHECK: stp x29, x30
+; CHECK: stp     x29, x30, [sp, #-16]!
+; CHECK: mov     x29, sp
 
 ; Reserve space for call-frame:
-; CHECK: sub sp, sp, #16
+; CHECK: str w{{[0-9]+}}, [sp, #-16]!
 
   call fastcc void @will_pop([8 x i32] undef, i32 42)
 ; CHECK: bl will_pop
@@ -26,8 +26,8 @@ define fastcc void @foo(i32 %in) {
 ; CHECK-NOT: sub sp, sp, #16
 ; CHECK-NOT: add sp, sp,
 
-; CHECK: ldp x29, x30
-; CHECK: add sp, sp,
+; CHECK: mov     sp, x29
+; CHECK: ldp     x29, x30, [sp], #16
   ret void
 }
 
@@ -38,11 +38,11 @@ define void @foo1(i32 %in) {
 
   %addr = alloca i8, i32 %in
 ; Normal frame setup again
-; CHECK: sub sp, sp,
-; CHECK: stp x29, x30
+; CHECK: stp     x29, x30, [sp, #-16]!
+; CHECK: mov     x29, sp
 
 ; Reserve space for call-frame
-; CHECK: sub sp, sp, #16
+; CHECK: str w{{[0-9]+}}, [sp, #-16]!
 
   call void @wont_pop([8 x i32] undef, i32 42)
 ; CHECK: bl wont_pop
@@ -52,7 +52,7 @@ define void @foo1(i32 %in) {
 
 ; Check for epilogue (primarily to make sure sp spotted above wasn't
 ; part of it).
-; CHECK: ldp x29, x30
-; CHECK: add sp, sp,
+; CHECK: mov     sp, x29
+; CHECK: ldp     x29, x30, [sp], #16
   ret void
 }

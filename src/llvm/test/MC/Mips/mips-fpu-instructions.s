@@ -1,5 +1,5 @@
-# RUN: llvm-mc  %s -triple=mipsel-unknown-linux -show-encoding -mcpu=mips32r2 | FileCheck %s
-# RUN: llvm-mc  %s -triple=mips64el-unknown-linux -show-encoding -mcpu=mips64r2 | FileCheck %s
+# RUN: llvm-mc  %s -triple=mipsel-unknown-linux -show-encoding -show-inst -mcpu=mips32r2 | FileCheck %s --check-prefixes=CHECK,CHECK-32
+# RUN: llvm-mc  %s -triple=mips64el-unknown-linux -show-encoding -show-inst -mcpu=mips64r2 | FileCheck %s --check-prefixes=CHECK,CHECK-64
 # Check that the assembler can handle the documented syntax
 # for FPU instructions.
 #------------------------------------------------------------------------------
@@ -123,6 +123,8 @@
 #------------------------------------------------------------------------------
 # CHECK:  cvt.d.s   $f6, $f7          # encoding: [0xa1,0x39,0x00,0x46]
 # CHECK:  cvt.d.w   $f12, $f14        # encoding: [0x21,0x73,0x80,0x46]
+# CHECK-32:                           # <MCInst #{{.*}} CVT_D32_W
+# CHECK-64:                           # <MCInst #{{.*}} CVT_D64_W
 # CHECK:  cvt.s.d   $f12, $f14        # encoding: [0x20,0x73,0x20,0x46]
 # CHECK:  cvt.s.w   $f6, $f7          # encoding: [0xa0,0x39,0x80,0x46]
 # CHECK:  cvt.w.d   $f12, $f14        # encoding: [0x24,0x73,0x20,0x46]
@@ -139,7 +141,7 @@
 # FP move instructions
 #------------------------------------------------------------------------------
 # CHECK: bc1f    $BB_1                 # encoding: [A,A,0x00,0x45]
-# CHECK: #   fixup A - offset: 0, value: ($BB_1), kind: fixup_Mips_PC16
+# CHECK: #   fixup A - offset: 0, value: ($BB_1)-4, kind: fixup_Mips_PC16
 
 # CHECK:  cfc1    $6, $0               # encoding: [0x00,0x00,0x46,0x44]
 # CHECK:  ctc1    $10, $31             # encoding: [0x00,0xf8,0xca,0x44]

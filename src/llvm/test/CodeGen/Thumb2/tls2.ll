@@ -8,11 +8,11 @@ entry:
 ; CHECK-NOT-PIC-LABEL: f:
 ; CHECK-NOT-PIC: add r0, pc
 ; CHECK-NOT-PIC: ldr r1, [r0]
-; CHECK-NOT-PIC: i(gottpoff)
+; CHECK-NOT-PIC: i(GOTTPOFF)
 
 ; CHECK-PIC-LABEL: f:
-; CHECK-PIC: bl __tls_get_addr(PLT)
-	%tmp1 = load i32* @i		; <i32> [#uses=1]
+; CHECK-PIC: bl __tls_get_addr
+	%tmp1 = load i32, i32* @i		; <i32> [#uses=1]
 	ret i32 %tmp1
 }
 
@@ -21,9 +21,9 @@ entry:
 ; CHECK-NOT-PIC-LABEL: g:
 ; CHECK-NOT-PIC: add r0, pc
 ; CHECK-NOT-PIC: ldr r1, [r0]
-; CHECK-NOT-PIC: i(gottpoff)
+; CHECK-NOT-PIC: i(GOTTPOFF)
 
 ; CHECK-PIC-LABEL: g:
-; CHECK-PIC: bl __tls_get_addr(PLT)
+; CHECK-PIC: bl __tls_get_addr
 	ret i32* @i
 }

@@ -1,4 +1,4 @@
 {
-  "project_id" : "llvm",
-  "conduit_uri" : "http://llvm-reviews.chandlerc.com/"
+  "repository.callsign" : "L",
+  "conduit_uri" : "https://reviews.llvm.org/"
 }

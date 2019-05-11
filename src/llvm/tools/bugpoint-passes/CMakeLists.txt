@@ -2,8 +2,22 @@ if( NOT LLVM_BUILD_TOOLS )
   set(EXCLUDE_FROM_ALL ON)
 endif()
 
-add_llvm_loadable_module( BugpointPasses
-  TestPasses.cpp
-  )
+# If we don't need RTTI or EH, there's no reason to export anything
+# from this plugin.
+if( NOT LLVM_REQUIRES_RTTI )
+  if( NOT LLVM_REQUIRES_EH )
+    set(LLVM_EXPORTED_SYMBOL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/bugpoint.exports)
+  endif()
+endif()
 
-add_dependencies(BugpointPasses bugpoint)
+if(WIN32 OR CYGWIN)
+  set(LLVM_LINK_COMPONENTS Core)
+endif()
+
+add_llvm_library( BugpointPasses MODULE BUILDTREE_ONLY
+  TestPasses.cpp
+
+  DEPENDS
+  intrinsics_gen
+  bugpoint
+  )

@@ -1,7 +1,6 @@
-; RUN: opt -indvars -loop-vectorize -force-vector-width=2 -force-vector-unroll=1 -S < %s | FileCheck %s
+; RUN: opt -indvars -loop-vectorize -force-vector-width=2 -force-vector-interleave=1 -S < %s | FileCheck %s
 
-target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64-S128"
-target triple = "x86_64-apple-macosx10.9.0"
+target datalayout = "e-m:o-i64:64-f80:128-n8:16:32:64-S128"
 
 ; We must not vectorize this loop. %add55 is not reduction. Its value is used
 ; multiple times.
@@ -16,10 +15,10 @@ entry:
   %n = alloca i32, align 4
   %k7 = alloca i32, align 4
   %nf = alloca i32, align 4
-  %0 = load i32* %k7, align 4
+  %0 = load i32, i32* %k7, align 4
   %.neg1 = sub i32 0, %0
-  %n.promoted = load i32* %n, align 4
-  %nf.promoted = load i32* %nf, align 4
+  %n.promoted = load i32, i32* %n, align 4
+  %nf.promoted = load i32, i32* %nf, align 4
   br label %for.body
 
 for.body:

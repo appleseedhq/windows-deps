@@ -61,7 +61,7 @@ define void @test_vsel32slt(i32 %lhs32, i32 %rhs32, float %a, float %b) {
   %val1 = select i1 %tst1, float %a, float %b
   store float %val1, float* @varfloat
 ; CHECK: cmp r0, r1
-; CHECK: vselgt.f32 s0, s1, s0
+; CHECK: vselge.f32 s0, s1, s0
   ret void
 }
 define void @test_vsel64slt(i32 %lhs32, i32 %rhs32, double %a, double %b) {
@@ -70,7 +70,7 @@ define void @test_vsel64slt(i32 %lhs32, i32 %rhs32, double %a, double %b) {
   %val1 = select i1 %tst1, double %a, double %b
   store double %val1, double* @vardouble
 ; CHECK: cmp r0, r1
-; CHECK: vselgt.f64 d16, d1, d0
+; CHECK: vselge.f64 d16, d1, d0
   ret void
 }
 define void @test_vsel32sle(i32 %lhs32, i32 %rhs32, float %a, float %b) {
@@ -79,7 +79,7 @@ define void @test_vsel32sle(i32 %lhs32, i32 %rhs32, float %a, float %b) {
   %val1 = select i1 %tst1, float %a, float %b
   store float %val1, float* @varfloat
 ; CHECK: cmp r0, r1
-; CHECK: vselge.f32 s0, s1, s0
+; CHECK: vselgt.f32 s0, s1, s0
   ret void
 }
 define void @test_vsel64sle(i32 %lhs32, i32 %rhs32, double %a, double %b) {
@@ -88,7 +88,7 @@ define void @test_vsel64sle(i32 %lhs32, i32 %rhs32, double %a, double %b) {
   %val1 = select i1 %tst1, double %a, double %b
   store double %val1, double* @vardouble
 ; CHECK: cmp r0, r1
-; CHECK: vselge.f64 d16, d1, d0
+; CHECK: vselgt.f64 d16, d1, d0
   ret void
 }
 define void @test_vsel32ogt(float %lhs32, float %rhs32, float %a, float %b) {
@@ -132,7 +132,7 @@ define void @test_vsel32oeq(float %lhs32, float %rhs32, float %a, float %b) {
   %tst1 = fcmp oeq float %lhs32, %rhs32
   %val1 = select i1 %tst1, float %a, float %b
   store float %val1, float* @varfloat
-; CHECK: vcmpe.f32 s0, s1
+; CHECK: vcmp.f32 s0, s1
 ; CHECK: vseleq.f32 s0, s2, s3
   ret void
 }
@@ -141,7 +141,7 @@ define void @test_vsel64oeq(float %lhs32, float %rhs32, double %a, double %b) {
   %tst1 = fcmp oeq float %lhs32, %rhs32
   %val1 = select i1 %tst1, double %a, double %b
   store double %val1, double* @vardouble
-; CHECK: vcmpe.f32 s0, s1
+; CHECK: vcmp.f32 s0, s1
 ; CHECK: vseleq.f64 d16, d1, d2
   ret void
 }
@@ -276,7 +276,7 @@ define void @test_vsel32une(float %lhs32, float %rhs32, float %a, float %b) {
   %tst1 = fcmp une float %lhs32, %rhs32
   %val1 = select i1 %tst1, float %a, float %b
   store float %val1, float* @varfloat
-; CHECK: vcmpe.f32 s0, s1
+; CHECK: vcmp.f32 s0, s1
 ; CHECK: vseleq.f32 s0, s3, s2
   ret void
 }
@@ -285,7 +285,7 @@ define void @test_vsel64une(float %lhs32, float %rhs32, double %a, double %b) {
   %tst1 = fcmp une float %lhs32, %rhs32
   %val1 = select i1 %tst1, double %a, double %b
   store double %val1, double* @vardouble
-; CHECK: vcmpe.f32 s0, s1
+; CHECK: vcmp.f32 s0, s1
 ; CHECK: vseleq.f64 d16, d2, d1
   ret void
 }

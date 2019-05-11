@@ -1,4 +1,5 @@
 ; RUN: opt -S -loop-rotate < %s -verify-loop-info -verify-dom-info | FileCheck %s
+; RUN: opt -S -loop-rotate < %s -verify-loop-info -verify-dom-info -enable-mssa-loop-dependency=true -verify-memoryssa | FileCheck %s
 
 target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64-S128"
 target triple = "x86_64-apple-macosx10.8.0"
@@ -21,8 +22,8 @@ for.cond1:                                        ; preds = %for.cond, %land.rhs
 
 land.rhs:                                         ; preds = %for.cond1
   %conv = zext i32 %i.1 to i64
-  %arrayidx = getelementptr inbounds [100 x i32]* %a, i64 0, i64 %conv
-  %0 = load i32* %arrayidx, align 4
+  %arrayidx = getelementptr inbounds [100 x i32], [100 x i32]* %a, i64 0, i64 %conv
+  %0 = load i32, i32* %arrayidx, align 4
   %add = add i32 %0, %sum.1
   %cmp4 = icmp ugt i32 %add, 1000
   %inc = add i32 %i.1, 1
@@ -87,7 +88,7 @@ declare i32 @bar(i32)
 @_ZTIi = external constant i8*
 
 ; Verify dominators.
-define void @test3(i32 %x) {
+define void @test3(i32 %x) personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 entry:
   %cmp2 = icmp eq i32 0, %x
   br i1 %cmp2, label %try.cont.loopexit, label %for.body.lr.ph
@@ -106,7 +107,7 @@ for.inc:                                          ; preds = %for.body
   br i1 %cmp, label %for.cond.try.cont.loopexit_crit_edge, label %for.body
 
 lpad:                                             ; preds = %for.body
-  %0 = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %0 = landingpad { i8*, i32 }
           catch i8* bitcast (i8** @_ZTIi to i8*)
   %1 = extractvalue { i8*, i32 } %0, 0
   %2 = extractvalue { i8*, i32 } %0, 1
@@ -132,7 +133,7 @@ for.inc.i:                                        ; preds = %for.body.i
   br i1 %cmp.i, label %for.cond.i.invoke.cont2.loopexit_crit_edge, label %for.body.i
 
 lpad.i:                                           ; preds = %for.body.i
-  %5 = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %5 = landingpad { i8*, i32 }
           catch i8* bitcast (i8** @_ZTIi to i8*)
   %6 = extractvalue { i8*, i32 } %5, 0
   %7 = extractvalue { i8*, i32 } %5, 1
@@ -149,7 +150,7 @@ invoke.cont2.i:                                   ; preds = %catch.i
   br label %invoke.cont2
 
 lpad1.i:                                          ; preds = %catch.i
-  %9 = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %9 = landingpad { i8*, i32 }
           cleanup
   %10 = extractvalue { i8*, i32 } %9, 0
   %11 = extractvalue { i8*, i32 } %9, 1

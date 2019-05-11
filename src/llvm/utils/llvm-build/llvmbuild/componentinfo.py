@@ -2,14 +2,14 @@
 Descriptor objects for entities that are part of the LLVM project.
 """
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function
 try:
     import configparser
 except:
     import ConfigParser as configparser
 import sys
 
-from llvmbuild.util import *
+from llvmbuild.util import fatal, warning
 
 class ParseError(Exception):
     pass
@@ -461,8 +461,8 @@ def _read_components_from_parser(parser, path, subpath):
             info = type_class.parse(subpath,
                                     IniFormatParser(parser.items(section)))
         except TypeError:
-            print >>sys.stderr, "error: invalid component %r in %r: %s" % (
-                section, path, "unable to instantiate: %r" % type_name)
+            print("error: invalid component %r in %r: %s" % (
+                section, path, "unable to instantiate: %r" % type_name), file=sys.stderr)
             import traceback
             traceback.print_exc()
             raise SystemExit(1)

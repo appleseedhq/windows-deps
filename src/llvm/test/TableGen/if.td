@@ -3,7 +3,7 @@
 
 // Support for an `!if' operator as part of a `let' statement.
 // CHECK:      class C
-// CHECK-NEXT: bits<16> n = { ?, ?, ?, ?, !if({ C:y{3} }, 1, !if({ C:y{2} }, { C:x{0} }, !if({ C:y{1} }, { C:x{1} }, !if({ C:y{0} }, { C:x{2} }, ?)))){0}, !if({ C:x{2} }, { C:y{3}, C:y{2} }, !if({ C:x{1} }, { C:y{2}, C:y{1} }, !if({ C:x{0} }, { C:y{1}, C:y{0} }, ?))){1}, !if({ C:x{2} }, { C:y{3}, C:y{2} }, !if({ C:x{1} }, { C:y{2}, C:y{1} }, !if({ C:x{0} }, { C:y{1}, C:y{0} }, ?))){0}, !if({ C:x{2} }, 2, 6){2}, !if({ C:x{2} }, 2, 6){1}, !if({ C:x{2} }, 2, 6){0}, !if({ C:x{1} }, { C:y{3}, C:y{2} }, { 0, 1 }){1}, !if({ C:x{1} }, { C:y{3}, C:y{2} }, { 0, 1 }){0}, !if({ C:x{0} }, { C:y{3}, C:y{2}, C:y{1}, C:y{0} }, { C:z, C:y{2}, C:y{1}, C:y{0} }){3}, !if({ C:x{0} }, { C:y{3}, C:y{2}, C:y{1}, C:y{0} }, { C:z, C:y{2}, C:y{1}, C:y{0} }){2}, !if({ C:x{0} }, { C:y{3}, C:y{2}, C:y{1}, C:y{0} }, { C:z, C:y{2}, C:y{1}, C:y{0} }){1}, !if({ C:x{0} }, { C:y{3}, C:y{2}, C:y{1}, C:y{0} }, { C:z, C:y{2}, C:y{1}, C:y{0} }){0} };
+// CHECK-NEXT: bits<16> n = { ?, ?, ?, ?, !if({ C:y{3} }, 1, !if({ C:y{2} }, { C:x{0} }, !if({ C:y{1} }, { C:x{1} }, !if({ C:y{0} }, { C:x{2} }, ?)))){0}, !if({ C:x{2} }, { C:y{3}, C:y{2} }, !if({ C:x{1} }, { C:y{2}, C:y{1} }, !if({ C:x{0} }, { C:y{1}, C:y{0} }, ?))){1}, !if({ C:x{2} }, { C:y{3}, C:y{2} }, !if({ C:x{1} }, { C:y{2}, C:y{1} }, !if({ C:x{0} }, { C:y{1}, C:y{0} }, ?))){0}, !if({ C:x{2} }, { 0, 1, 0 }, { 1, 1, 0 }){2}, !if({ C:x{2} }, { 0, 1, 0 }, { 1, 1, 0 }){1}, !if({ C:x{2} }, { 0, 1, 0 }, { 1, 1, 0 }){0}, !if({ C:x{1} }, { C:y{3}, C:y{2} }, { 0, 1 }){1}, !if({ C:x{1} }, { C:y{3}, C:y{2} }, { 0, 1 }){0}, !if({ C:x{0} }, { C:y{3}, C:y{2}, C:y{1}, C:y{0} }, { C:z, C:y{2}, C:y{1}, C:y{0} }){3}, !if({ C:x{0} }, { C:y{3}, C:y{2}, C:y{1}, C:y{0} }, { C:z, C:y{2}, C:y{1}, C:y{0} }){2}, !if({ C:x{0} }, { C:y{3}, C:y{2}, C:y{1}, C:y{0} }, { C:z, C:y{2}, C:y{1}, C:y{0} }){1}, !if({ C:x{0} }, { C:y{3}, C:y{2}, C:y{1}, C:y{0} }, { C:z, C:y{2}, C:y{1}, C:y{0} }){0} };
 class C<bits<3> x, bits<4> y, bit z> {
   bits<16> n;
 
@@ -55,6 +55,47 @@ def D128: S<128>;
 // CHECK-NEXT: bits<2> val = { 1, 1 };
 // CHECK: def D8
 // CHECK-NEXT: bits<2> val = { 0, 0 };
+
+// Make sure !if gets propagated across multiple layers of inheritance.
+class getInt<int c> {
+  int ret = !if(c, 0, 1);
+}
+class I1<int c> {
+  int i = getInt<c>.ret;
+}
+class I2<int c> : I1<c>;
+
+// CHECK: def DI1 {     // I1
+// CHECK-NEXT: int i = 0;
+def DI1: I1<1>;
+
+// CHECK: def DI2 {     // I1 I2
+// CHECK-NEXT: int i = 0;
+def DI2: I2<1>;
+
+// Check that !if with operands of different subtypes can initialize a
+// supertype variable.
+//
+// CHECK: def EXd1 {
+// CHECK:   E x = E1d;
+// CHECK: }
+//
+// CHECK: def EXd2 {
+// CHECK:   E x = E2d;
+// CHECK: }
+class E<int dummy> {}
+class E1<int dummy> : E<dummy> {}
+class E2<int dummy> : E<dummy> {}
+
+class EX<int cc, E1 b, E2 c> {
+  E x = !if(cc, b, c);
+}
+
+def E1d : E1<0>;
+def E2d : E2<0>;
+
+def EXd1 : EX<1, E1d, E2d>;
+def EXd2 : EX<0, E1d, E2d>;
 
 // CHECK:      def One
 // CHECK-NEXT: list<int> first = [1, 2, 3];

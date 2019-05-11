@@ -233,9 +233,11 @@ define i64 @f20(i64 %foo) {
 ; Now try an arithmetic right shift in which the sign bits aren't needed.
 ; Introduce a second use of %shr so that the ashr doesn't decompose to
 ; an lshr.
+; NOTE: the extra move to %r2 should not be needed (temporary FAIL)
 define i32 @f21(i32 %foo, i32 *%dest) {
 ; CHECK-LABEL: f21:
-; CHECK: risbg %r2, %r2, 60, 190, 36
+; CHECK: risbg %r0, %r2, 60, 190, 36
+; CHECK: lr %r2, %r0
 ; CHECK: br %r14
   %shr = ashr i32 %foo, 28
   store i32 %shr, i32 *%dest
@@ -269,12 +271,12 @@ define i64 @f23(i64 %foo) {
 ; mask and rotate.
 define i32 @f24(i32 %foo) {
 ; CHECK-LABEL: f24:
-; CHECK: nilf %r2, 14
-; CHECK: rll %r2, %r2, 3
+; CHECK: nilf %r2, 254
+; CHECK: rll %r2, %r2, 29
 ; CHECK: br %r14
-  %and = and i32 %foo, 14
-  %parta = shl i32 %and, 3
-  %partb = lshr i32 %and, 29
+  %and = and i32 %foo, 254
+  %parta = lshr i32 %and, 3
+  %partb = shl i32 %and, 29
   %rotl = or i32 %parta, %partb
   ret i32 %rotl
 }
@@ -295,7 +297,6 @@ define i64 @f25(i64 %foo) {
 ; This again needs a separate mask and rotate.
 define i32 @f26(i32 %foo) {
 ; CHECK-LABEL: f26:
-; CHECK: nill %r2, 65487
 ; CHECK: rll %r2, %r2, 5
 ; CHECK: br %r14
   %and = and i32 %foo, -49
@@ -457,16 +458,48 @@ define i64 @f40(i64 %foo, i64 *%dest) {
   ret i64 %and
 }
 
+; Check a case where the result is zero-extended.
+define i64 @f41(i32 %a) {
+; CHECK-LABEL: f41
+; CHECK: risbg %r2, %r2, 36, 191, 62
+; CHECK: br %r14
+  %shl = shl i32 %a, 2
+  %shr = lshr i32 %shl, 4
+  %ext = zext i32 %shr to i64
+  ret i64 %ext
+}
+
 ; In this case the sign extension is converted to a pair of 32-bit shifts,
 ; which is then extended to 64 bits.  We previously used the wrong bit size
 ; when testing whether the shifted-in bits of the shift right were significant.
-define i64 @f41(i1 %x) {
-; CHECK-LABEL: f41:
-; CHECK: sll %r2, 31
-; CHECK: sra %r2, 31
-; CHECK: llgcr %r2, %r2
+define i64 @f42(i1 %x) {
+; CHECK-LABEL: f42:
+; CHECK: nilf  %r2, 1
+; CHECK: lcr %r0, %r2
+; CHECK: llgcr %r2, %r0
 ; CHECK: br %r14
   %ext = sext i1 %x to i8
   %ext2 = zext i8 %ext to i64
   ret i64 %ext2
+}
+
+; Check that we get the case where a 64-bit shift is used by a 32-bit and.
+define signext i32 @f43(i64 %x) {
+; CHECK-LABEL: f43:
+; CHECK: risbg [[REG:%r[0-5]]], %r2, 32, 189, 52
+; CHECK: lgfr %r2, [[REG]]
+  %shr3 = lshr i64 %x, 12
+  %shr3.tr = trunc i64 %shr3 to i32
+  %conv = and i32 %shr3.tr, -4
+  ret i32 %conv
+}
+
+; Check that we don't get the case where the 32-bit and mask is not contiguous
+define signext i32 @f44(i64 %x) {
+; CHECK-LABEL: f44:
+; CHECK: srlg [[REG:%r[0-5]]], %r2, 12
+  %shr4 = lshr i64 %x, 12
+  %conv = trunc i64 %shr4 to i32
+  %and = and i32 %conv, 10
+  ret i32 %and
 }

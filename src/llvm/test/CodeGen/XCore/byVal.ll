@@ -20,7 +20,7 @@ entry:
 ; CHECK: ldaw r5, sp[1]
 ; CHECK: ldc r2, 40
 ; CHECK: mov r0, r5
-; CHECK: bl memcpy
+; CHECK: bl __memcpy_4
 ; CHECK: mov r0, r5
 ; CHECK: bl f1
 ; CHECK: mov r0, r4
@@ -38,13 +38,13 @@ entry:
 ; CHECK-LABEL: f2Test
 ; CHECK: extsp 4
 ; CHECK: stw lr, sp[1]
+; CHECK: mov r11, r1
 ; CHECK: stw r2, sp[3]
 ; CHECK: stw r3, sp[4]
 ; CHECK: ldw r0, r0[0]
 ; CHECK: stw r0, sp[2]
-; CHECK: ldaw r2, sp[2]
-; CHECK: mov r0, r1
-; CHECK: mov r1, r2
+; CHECK: ldaw r1, sp[2]
+; CHECK: mov r0, r11
 ; CHECK: bl f2
 ; CHECK: ldw lr, sp[1]
 ; CHECK: ldaw sp, sp[4]
