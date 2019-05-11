@@ -10,7 +10,7 @@ declare i32 @fn()
 
 
 ; CHECK-LABEL: @f1(
-define i8* @f1() nounwind uwtable ssp {
+define i8* @f1() nounwind uwtable ssp personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 entry:
 ; CHECK: call void @llvm.trap()
 ; CHECK: unreachable
@@ -21,7 +21,7 @@ invoke.cont:
   ret i8* %call
 
 lpad:
-  %0 = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %0 = landingpad { i8*, i32 }
           filter [0 x i8*] zeroinitializer
   %1 = extractvalue { i8*, i32 } %0, 0
   tail call void @__cxa_call_unexpected(i8* %1) noreturn nounwind
@@ -29,7 +29,7 @@ lpad:
 }
 
 ; CHECK-LABEL: @f2(
-define i8* @f2() nounwind uwtable ssp {
+define i8* @f2() nounwind uwtable ssp personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 entry:
 ; CHECK: call void @llvm.trap()
 ; CHECK: unreachable
@@ -40,15 +40,36 @@ invoke.cont:
   ret i8* %call
 
 lpad:
-  %0 = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %0 = landingpad { i8*, i32 }
           filter [0 x i8*] zeroinitializer
   %1 = extractvalue { i8*, i32 } %0, 0
   tail call void @__cxa_call_unexpected(i8* %1) noreturn nounwind
   unreachable
 }
 
+; CHECK-LABEL: @f2_no_null_opt(
+define i8* @f2_no_null_opt() nounwind uwtable ssp #0 personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
+entry:
+; CHECK: invoke noalias i8* null()
+  %call = invoke noalias i8* null()
+          to label %invoke.cont unwind label %lpad
+
+; CHECK: invoke.cont:
+; CHECK: ret i8* %call
+invoke.cont:
+  ret i8* %call
+
+lpad:
+  %0 = landingpad { i8*, i32 }
+          filter [0 x i8*] zeroinitializer
+  %1 = extractvalue { i8*, i32 } %0, 0
+  tail call void @__cxa_call_unexpected(i8* %1) noreturn nounwind
+; CHECK: unreachable
+  unreachable
+}
+
 ; CHECK-LABEL: @f3(
-define i32 @f3() nounwind uwtable ssp {
+define i32 @f3() nounwind uwtable ssp personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 ; CHECK-NEXT: entry
 entry:
 ; CHECK-NEXT: ret i32 3
@@ -59,7 +80,7 @@ invoke.cont:
   ret i32 3
 
 lpad:
-  %0 = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %0 = landingpad { i8*, i32 }
           filter [0 x i8*] zeroinitializer
   %1 = extractvalue { i8*, i32 } %0, 0
   tail call void @__cxa_call_unexpected(i8* %1) noreturn nounwind
@@ -67,7 +88,7 @@ lpad:
 }
 
 ; CHECK-LABEL: @f4(
-define i32 @f4() nounwind uwtable ssp {
+define i32 @f4() nounwind uwtable ssp personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 ; CHECK-NEXT: entry
 entry:
 ; CHECK-NEXT: call i32 @read_only()
@@ -79,7 +100,7 @@ invoke.cont:
   ret i32 %call
 
 lpad:
-  %0 = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %0 = landingpad { i8*, i32 }
           filter [0 x i8*] zeroinitializer
   %1 = extractvalue { i8*, i32 } %0, 0
   tail call void @__cxa_call_unexpected(i8* %1) noreturn nounwind
@@ -87,7 +108,7 @@ lpad:
 }
 
 ; CHECK-LABEL: @f5(
-define i32 @f5(i1 %cond, i8* %a, i8* %b) {
+define i32 @f5(i1 %cond, i8* %a, i8* %b) personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 entry:
   br i1 %cond, label %x, label %y
 
@@ -110,7 +131,7 @@ cont:
 lpad:
 ; CHECK-NOT: phi
   %phi2 = phi i8* [%a, %x], [%b, %y]
-  %0 = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %0 = landingpad { i8*, i32 }
           filter [0 x i8*] zeroinitializer
 ; CHECK: __cxa_call_unexpected(i8* %a)
   tail call void @__cxa_call_unexpected(i8* %phi2) noreturn nounwind
@@ -118,7 +139,7 @@ lpad:
 }
 
 ; CHECK-LABEL: @f6(
-define void @f6() {
+define void @f6() personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 entry:
   invoke void @purefn()
           to label %invoke.cont1 unwind label %lpad
@@ -133,7 +154,9 @@ invoke.cont2:
 lpad:
 ; CHECK-NOT: phi
   %tmp = phi i8* [ null, %invoke.cont1 ], [ null, %entry ]
-  landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  landingpad { i8*, i32 }
           cleanup
   ret void
 }
+
+attributes #0 = { "null-pointer-is-valid"="true" }

@@ -6,10 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+// Usage:
+//   not cmd
+//     Will return true if cmd doesn't crash and returns false.
+//   not --crash cmd
+//     Will return true if cmd crashes (e.g. for testing crash reporting).
 
-#include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
+#include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
 
 int main(int argc, const char **argv) {
@@ -27,12 +33,29 @@ int main(int argc, const char **argv) {
   if (argc == 0)
     return 1;
 
-  std::string Program = sys::FindProgramByName(argv[0]);
+  auto Program = sys::findProgramByName(argv[0]);
+  if (!Program) {
+    WithColor::error() << "unable to find `" << argv[0]
+                       << "' in PATH: " << Program.getError().message() << "\n";
+    return 1;
+  }
 
+  std::vector<StringRef> Argv;
+  Argv.reserve(argc);
+  for (int i = 0; i < argc; ++i)
+    Argv.push_back(argv[i]);
   std::string ErrMsg;
-  int Result = sys::ExecuteAndWait(Program, argv, 0, 0, 0, 0, &ErrMsg);
+  int Result = sys::ExecuteAndWait(*Program, Argv, None, {}, 0, 0, &ErrMsg);
+#ifdef _WIN32
+  // Handle abort() in msvcrt -- It has exit code as 3.  abort(), aka
+  // unreachable, should be recognized as a crash.  However, some binaries use
+  // exit code 3 on non-crash failure paths, so only do this if we expect a
+  // crash.
+  if (ExpectCrash && Result == 3)
+    Result = -3;
+#endif
   if (Result < 0) {
-    errs() << "Error: " << ErrMsg << "\n";
+    WithColor::error() << ErrMsg << "\n";
     if (ExpectCrash)
       return 0;
     return 1;

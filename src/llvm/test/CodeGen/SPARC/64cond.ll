@@ -67,9 +67,10 @@ entry:
 }
 
 ; CHECK: selecti64_fcc
+; CHECK: mov %i3, %i0
 ; CHECK: fcmps %f1, %f3
-; CHECK: movul %fcc0, %i2, %i3
-; CHECK: restore %g0, %i3, %o0
+; CHECK: movul %fcc0, %i2, %i0
+; CHECK: restore
 define i64 @selecti64_fcc(float %x, float %y, i64 %a, i64 %b) {
 entry:
   %tobool = fcmp ult float %x, %y
@@ -78,9 +79,9 @@ entry:
 }
 
 ; CHECK: selectf32_xcc
+; CHECK: fmovs %f7, %f0
 ; CHECK: cmp %i0, %i1
-; CHECK: fmovsg %xcc, %f5, %f7
-; CHECK: fmovs %f7, %f1
+; CHECK: fmovsg %xcc, %f5, %f0
 define float @selectf32_xcc(i64 %x, i64 %y, float %a, float %b) {
 entry:
   %tobool = icmp sgt i64 %x, %y
@@ -89,9 +90,9 @@ entry:
 }
 
 ; CHECK: selectf64_xcc
-; CHECK: cmp %i0, %i1
-; CHECK: fmovdg %xcc, %f4, %f6
 ; CHECK: fmovd %f6, %f0
+; CHECK: cmp %i0, %i1
+; CHECK: fmovdg %xcc, %f4, %f0
 define double @selectf64_xcc(i64 %x, i64 %y, double %a, double %b) {
 entry:
   %tobool = icmp sgt i64 %x, %y
@@ -111,6 +112,11 @@ entry:
 }
 
 ; CHECK-LABEL: setcc_resultty
+; CHECK-DAG:       srax %i0, 63, %o0
+; CHECK-DAG:       mov %i0, %o1
+; CHECK-DAG:       mov 0, %o2
+; CHECK-DAG:       mov 32, %o3
+; CHECK-DAG:       call __multi3
 ; CHECK:       cmp
 ; CHECK:       movne %xcc, 1, [[R:%[gilo][0-7]]]
 ; CHECK:       or [[R]], %i1, %i0

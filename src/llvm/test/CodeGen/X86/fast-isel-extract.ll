@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple x86_64-apple-darwin11 -O0 -fast-isel-abort | FileCheck %s
+; RUN: llc < %s -mtriple x86_64-apple-darwin11 -O0 -fast-isel-abort=1 | FileCheck %s
 
 %struct.x = type { i64, i64 }
 %addovf = type { i32, i1 }
@@ -12,7 +12,8 @@ define void @test1(i64*) nounwind ssp {
   ret void
 ; CHECK-LABEL: test1:
 ; CHECK: callq _f
-; CHECK-NEXT: addq	$10, %rax
+; CHECK-NOT: %rax
+; CHECK: addq $10, %rax
 }
 
 define void @test2(i64*) nounwind ssp {
@@ -23,7 +24,8 @@ define void @test2(i64*) nounwind ssp {
   ret void
 ; CHECK-LABEL: test2:
 ; CHECK: callq _f
-; CHECK-NEXT: addq	$10, %rdx
+; CHECK-NOT: %rdx
+; CHECK: addq $10, %rdx
 }
 
 declare %addovf @llvm.sadd.with.overflow.i32(i32, i32) nounwind readnone

@@ -1,3 +1,4 @@
+; RUN: opt < %s -S -passes=msan 2>&1 | FileCheck %s
 ; RUN: opt < %s -msan -S | FileCheck %s
 target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
@@ -10,7 +11,7 @@ entry:
   br label %exit
 
 unreachable:
-  %x = load i32* %p
+  %x = load i32, i32* %p
   br label %exit
 
 exit:
@@ -18,7 +19,7 @@ exit:
   ret i32 %z
 }
 
-; CHECK: @Func
+; CHECK-LABEL: @Func
 ; CHECK: store i32 0, {{.*}} @__msan_retval_tls
 ; CHECK: ret i32 42
 
@@ -34,6 +35,6 @@ xxx:
   br label %zzz
 }
 
-; CHECK: @UnreachableLoop
+; CHECK-LABEL: @UnreachableLoop
 ; CHECK: store i32 0, {{.*}} @__msan_retval_tls
 ; CHECK: ret i32 0

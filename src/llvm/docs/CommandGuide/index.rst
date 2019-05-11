@@ -21,13 +21,19 @@ Basic Commands
    lli
    llvm-link
    llvm-ar
+   llvm-lib
    llvm-nm
-   llvm-prof
+   llvm-objdump
    llvm-config
+   llvm-cxxmap
    llvm-diff
    llvm-cov
+   llvm-profdata
    llvm-stress
    llvm-symbolizer
+   llvm-dwarfdump
+   dsymutil
+   llvm-mca
 
 Debugging Tools
 ~~~~~~~~~~~~~~~
@@ -49,4 +55,6 @@ Developer Tools
    tblgen
    lit
    llvm-build
+   llvm-exegesis
+   llvm-pdbutil
    llvm-readobj

@@ -9,7 +9,7 @@ f:
 
 // CHECK:        Section {
 // CHECK:          Name: .eh_frame
-// CHECK-NEXT:     Type: SHT_PROGBITS
+// CHECK-NEXT:     Type: SHT_X86_64_UNWIND
 // CHECK-NEXT:     Flags [
 // CHECK-NEXT:       SHF_ALLOC
 // CHECK-NEXT:     ]
@@ -35,10 +35,10 @@ f:
 // CHECK-NEXT:     Flags [
 // CHECK-NEXT:     ]
 // CHECK-NEXT:     Address: 0x0
-// CHECK-NEXT:     Offset: 0x390
+// CHECK-NEXT:     Offset:
 // CHECK-NEXT:     Size: 24
-// CHECK-NEXT:     Link: 7
-// CHECK-NEXT:     Info: 4
+// CHECK-NEXT:     Link:
+// CHECK-NEXT:     Info:
 // CHECK-NEXT:     AddressAlignment: 8
 // CHECK-NEXT:     EntrySize: 24
 // CHECK-NEXT:     Relocations [

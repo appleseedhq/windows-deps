@@ -1,8 +1,8 @@
-(* RUN: rm -rf %t.builddir
- * RUN: mkdir -p %t.builddir
- * RUN: cp %s %t.builddir
- * RUN: %ocamlopt -g -warn-error A llvm.cmxa llvm_irreader.cmxa %t.builddir/irreader.ml -o %t
- * RUN: %t
+(* RUN: rm -rf %t && mkdir -p %t && cp %s %t/irreader.ml
+ * RUN: %ocamlc -g -w +A -package llvm.irreader -linkpkg %t/irreader.ml -o %t/executable
+ * RUN: %t/executable
+ * RUN: %ocamlopt -g -w +A -package llvm.irreader -linkpkg %t/irreader.ml -o %t/executable
+ * RUN: %t/executable
  * XFAIL: vg_leak
  *)
 

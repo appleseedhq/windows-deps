@@ -1,7 +1,8 @@
 ; Test high-word operations, using "h" constraints to force a high
 ; register and "r" constraints to force a low register.
 ;
-; RUN: llc < %s -mtriple=s390x-linux-gnu -mcpu=z196 | FileCheck %s
+; RUN: llc < %s -verify-machineinstrs -mtriple=s390x-linux-gnu -mcpu=z196 \
+; RUN:   -no-integrated-as | FileCheck %s
 
 ; Test loads and stores involving mixtures of high and low registers.
 define void @f1(i32 *%ptr1, i32 *%ptr2) {
@@ -16,12 +17,12 @@ define void @f1(i32 *%ptr1, i32 *%ptr2) {
 ; CHECK-DAG: stfh [[REG3]], 4096(%r2)
 ; CHECK-DAG: sty [[REG4]], 524284(%r3)
 ; CHECK: br %r14
-  %ptr3 = getelementptr i32 *%ptr1, i64 1024
-  %ptr4 = getelementptr i32 *%ptr2, i64 131071
-  %old1 = load i32 *%ptr1
-  %old2 = load i32 *%ptr2
-  %old3 = load i32 *%ptr3
-  %old4 = load i32 *%ptr4
+  %ptr3 = getelementptr i32, i32 *%ptr1, i64 1024
+  %ptr4 = getelementptr i32, i32 *%ptr2, i64 131071
+  %old1 = load i32, i32 *%ptr1
+  %old2 = load i32, i32 *%ptr2
+  %old3 = load i32, i32 *%ptr3
+  %old4 = load i32, i32 *%ptr4
   %res = call { i32, i32, i32, i32 } asm "blah $0, $1, $2, $3",
               "=h,=r,=h,=r,0,1,2,3"(i32 %old1, i32 %old2, i32 %old3, i32 %old4)
   %new1 = extractvalue { i32, i32, i32, i32 } %res, 0
@@ -60,12 +61,12 @@ define void @f3(i8 *%ptr1, i8 *%ptr2) {
 ; CHECK-DAG: lb [[REG4:%r[0-5]]], 524287(%r3)
 ; CHECK: blah [[REG1]], [[REG2]]
 ; CHECK: br %r14
-  %ptr3 = getelementptr i8 *%ptr1, i64 4096
-  %ptr4 = getelementptr i8 *%ptr2, i64 524287
-  %val1 = load i8 *%ptr1
-  %val2 = load i8 *%ptr2
-  %val3 = load i8 *%ptr3
-  %val4 = load i8 *%ptr4
+  %ptr3 = getelementptr i8, i8 *%ptr1, i64 4096
+  %ptr4 = getelementptr i8, i8 *%ptr2, i64 524287
+  %val1 = load i8, i8 *%ptr1
+  %val2 = load i8, i8 *%ptr2
+  %val3 = load i8, i8 *%ptr3
+  %val4 = load i8, i8 *%ptr4
   %ext1 = sext i8 %val1 to i32
   %ext2 = sext i8 %val2 to i32
   %ext3 = sext i8 %val3 to i32
@@ -84,12 +85,12 @@ define void @f4(i16 *%ptr1, i16 *%ptr2) {
 ; CHECK-DAG: lhy [[REG4:%r[0-5]]], 524286(%r3)
 ; CHECK: blah [[REG1]], [[REG2]]
 ; CHECK: br %r14
-  %ptr3 = getelementptr i16 *%ptr1, i64 2048
-  %ptr4 = getelementptr i16 *%ptr2, i64 262143
-  %val1 = load i16 *%ptr1
-  %val2 = load i16 *%ptr2
-  %val3 = load i16 *%ptr3
-  %val4 = load i16 *%ptr4
+  %ptr3 = getelementptr i16, i16 *%ptr1, i64 2048
+  %ptr4 = getelementptr i16, i16 *%ptr2, i64 262143
+  %val1 = load i16, i16 *%ptr1
+  %val2 = load i16, i16 *%ptr2
+  %val3 = load i16, i16 *%ptr3
+  %val4 = load i16, i16 *%ptr4
   %ext1 = sext i16 %val1 to i32
   %ext2 = sext i16 %val2 to i32
   %ext3 = sext i16 %val3 to i32
@@ -108,12 +109,12 @@ define void @f5(i8 *%ptr1, i8 *%ptr2) {
 ; CHECK-DAG: llc [[REG4:%r[0-5]]], 524287(%r3)
 ; CHECK: blah [[REG1]], [[REG2]]
 ; CHECK: br %r14
-  %ptr3 = getelementptr i8 *%ptr1, i64 4096
-  %ptr4 = getelementptr i8 *%ptr2, i64 524287
-  %val1 = load i8 *%ptr1
-  %val2 = load i8 *%ptr2
-  %val3 = load i8 *%ptr3
-  %val4 = load i8 *%ptr4
+  %ptr3 = getelementptr i8, i8 *%ptr1, i64 4096
+  %ptr4 = getelementptr i8, i8 *%ptr2, i64 524287
+  %val1 = load i8, i8 *%ptr1
+  %val2 = load i8, i8 *%ptr2
+  %val3 = load i8, i8 *%ptr3
+  %val4 = load i8, i8 *%ptr4
   %ext1 = zext i8 %val1 to i32
   %ext2 = zext i8 %val2 to i32
   %ext3 = zext i8 %val3 to i32
@@ -132,12 +133,12 @@ define void @f6(i16 *%ptr1, i16 *%ptr2) {
 ; CHECK-DAG: llh [[REG4:%r[0-5]]], 524286(%r3)
 ; CHECK: blah [[REG1]], [[REG2]]
 ; CHECK: br %r14
-  %ptr3 = getelementptr i16 *%ptr1, i64 2048
-  %ptr4 = getelementptr i16 *%ptr2, i64 262143
-  %val1 = load i16 *%ptr1
-  %val2 = load i16 *%ptr2
-  %val3 = load i16 *%ptr3
-  %val4 = load i16 *%ptr4
+  %ptr3 = getelementptr i16, i16 *%ptr1, i64 2048
+  %ptr4 = getelementptr i16, i16 *%ptr2, i64 262143
+  %val1 = load i16, i16 *%ptr1
+  %val2 = load i16, i16 *%ptr2
+  %val3 = load i16, i16 *%ptr3
+  %val4 = load i16, i16 *%ptr4
   %ext1 = zext i16 %val1 to i32
   %ext2 = zext i16 %val2 to i32
   %ext3 = zext i16 %val3 to i32
@@ -161,8 +162,8 @@ define void @f7(i8 *%ptr1, i8 *%ptr2) {
   %res2 = extractvalue { i32, i32 } %res, 1
   %trunc1 = trunc i32 %res1 to i8
   %trunc2 = trunc i32 %res2 to i8
-  %ptr3 = getelementptr i8 *%ptr1, i64 4096
-  %ptr4 = getelementptr i8 *%ptr2, i64 524287
+  %ptr3 = getelementptr i8, i8 *%ptr1, i64 4096
+  %ptr4 = getelementptr i8, i8 *%ptr2, i64 524287
   store i8 %trunc1, i8 *%ptr1
   store i8 %trunc2, i8 *%ptr2
   store i8 %trunc1, i8 *%ptr3
@@ -184,8 +185,8 @@ define void @f8(i16 *%ptr1, i16 *%ptr2) {
   %res2 = extractvalue { i32, i32 } %res, 1
   %trunc1 = trunc i32 %res1 to i16
   %trunc2 = trunc i32 %res2 to i16
-  %ptr3 = getelementptr i16 *%ptr1, i64 2048
-  %ptr4 = getelementptr i16 *%ptr2, i64 262143
+  %ptr3 = getelementptr i16, i16 *%ptr1, i64 2048
+  %ptr4 = getelementptr i16, i16 *%ptr2, i64 262143
   store i16 %trunc1, i16 *%ptr1
   store i16 %trunc2, i16 *%ptr2
   store i16 %trunc1, i16 *%ptr3
@@ -289,11 +290,14 @@ define void @f12() {
 }
 
 ; Test selects involving high registers.
+; Note that we prefer to use a LOCR and move the result to a high register.
 define void @f13(i32 %x, i32 %y) {
 ; CHECK-LABEL: f13:
-; CHECK: llihl [[REG:%r[0-5]]], 0
-; CHECK: cije %r2, 0
-; CHECK: iihf [[REG]], 2102030405
+; CHECK-DAG: chi %r2, 0
+; CHECK-DAG: iilf [[REG1:%r[0-5]]], 2102030405
+; CHECK-DAG: lhi [[REG2:%r[0-5]]], 0
+; CHECK: locre [[REG1]], [[REG2]]
+; CHECK: risbhg [[REG:%r[0-5]]], [[REG1]], 0, 159, 32
 ; CHECK: blah [[REG]]
 ; CHECK: br %r14
   %cmp = icmp eq i32 %x, 0
@@ -305,9 +309,10 @@ define void @f13(i32 %x, i32 %y) {
 ; Test selects involving low registers.
 define void @f14(i32 %x, i32 %y) {
 ; CHECK-LABEL: f14:
-; CHECK: lhi [[REG:%r[0-5]]], 0
-; CHECK: cije %r2, 0
-; CHECK: iilf [[REG]], 2102030405
+; CHECK-DAG: chi %r2, 0
+; CHECK-DAG: iilf [[REG:%r[0-5]]], 2102030405
+; CHECK-DAG: lhi [[REG1:%r[0-5]]], 0
+; CHECK: locre [[REG]], [[REG1]]
 ; CHECK: blah [[REG]]
 ; CHECK: br %r14
   %cmp = icmp eq i32 %x, 0
@@ -713,11 +718,11 @@ define void @f33(i32 *%ptr1, i32 *%ptr2) {
 ; CHECK: clhf [[REG2]], 0(%r3)
 ; CHECK: br %r14
   %res1 = call i32 asm "stepa $0", "=h"()
-  %load1 = load i32 *%ptr1
+  %load1 = load i32, i32 *%ptr1
   %cmp1 = icmp sle i32 %res1, %load1
   %sel1 = select i1 %cmp1, i32 0, i32 1
   %res2 = call i32 asm "stepb $0, $1", "=h,r"(i32 %sel1)
-  %load2 = load i32 *%ptr2
+  %load2 = load i32, i32 *%ptr2
   %cmp2 = icmp ule i32 %res2, %load2
   %sel2 = select i1 %cmp2, i32 0, i32 1
   store i32 %sel2, i32 *%ptr1
@@ -733,13 +738,88 @@ define void @f34(i32 *%ptr1, i32 *%ptr2) {
 ; CHECK: cl [[REG2]], 0(%r3)
 ; CHECK: br %r14
   %res1 = call i32 asm "stepa $0", "=r"()
-  %load1 = load i32 *%ptr1
+  %load1 = load i32, i32 *%ptr1
   %cmp1 = icmp sle i32 %res1, %load1
   %sel1 = select i1 %cmp1, i32 0, i32 1
   %res2 = call i32 asm "stepb $0, $1", "=r,r"(i32 %sel1)
-  %load2 = load i32 *%ptr2
+  %load2 = load i32, i32 *%ptr2
   %cmp2 = icmp ule i32 %res2, %load2
   %sel2 = select i1 %cmp2, i32 0, i32 1
   store i32 %sel2, i32 *%ptr1
   ret void
 }
+
+; Test immediate addition with overflow involving high registers.
+define void @f35() {
+; CHECK-LABEL: f35:
+; CHECK: stepa [[REG:%r[0-5]]]
+; CHECK: aih [[REG]], -32768
+; CHECK: ipm [[REGCC:%r[0-5]]]
+; CHECK: afi [[REGCC]], 1342177280
+; CHECK: srl [[REGCC]], 31
+; CHECK: stepb [[REG]], [[REGCC]]
+; CHECK: aih [[REG]], 1
+; CHECK: ipm [[REGCC:%r[0-5]]]
+; CHECK: afi [[REGCC]], 1342177280
+; CHECK: srl [[REGCC]], 31
+; CHECK: stepc [[REG]], [[REGCC]]
+; CHECK: aih [[REG]], 32767
+; CHECK: ipm [[REGCC:%r[0-5]]]
+; CHECK: afi [[REGCC]], 1342177280
+; CHECK: srl [[REGCC]], 31
+; CHECK: stepd [[REG]], [[REGCC]]
+; CHECK: br %r14
+  %res1 = call i32 asm "stepa $0", "=h"()
+  %t1 = call {i32, i1} @llvm.sadd.with.overflow.i32(i32 %res1, i32 -32768)
+  %val1 = extractvalue {i32, i1} %t1, 0
+  %obit1 = extractvalue {i32, i1} %t1, 1
+  %res2 = call i32 asm "stepb $0, $2", "=h,h,d"(i32 %val1, i1 %obit1)
+  %t2 = call {i32, i1} @llvm.sadd.with.overflow.i32(i32 %res2, i32 1)
+  %val2 = extractvalue {i32, i1} %t2, 0
+  %obit2 = extractvalue {i32, i1} %t2, 1
+  %res3 = call i32 asm "stepc $0, $2", "=h,h,d"(i32 %val2, i1 %obit2)
+  %t3 = call {i32, i1} @llvm.sadd.with.overflow.i32(i32 %res3, i32 32767)
+  %val3 = extractvalue {i32, i1} %t3, 0
+  %obit3 = extractvalue {i32, i1} %t3, 1
+  call void asm sideeffect "stepd $0, $1", "h,d"(i32 %val3, i1 %obit3)
+  ret void
+}
+
+; Test large immediate addition with overflow involving high registers.
+define void @f36() {
+; CHECK-LABEL: f36:
+; CHECK: stepa [[REG:%r[0-5]]]
+; CHECK: aih [[REG]], -2147483648
+; CHECK: ipm [[REGCC:%r[0-5]]]
+; CHECK: afi [[REGCC]], 1342177280
+; CHECK: srl [[REGCC]], 31
+; CHECK: stepb [[REG]], [[REGCC]]
+; CHECK: aih [[REG]], 1
+; CHECK: ipm [[REGCC:%r[0-5]]]
+; CHECK: afi [[REGCC]], 1342177280
+; CHECK: srl [[REGCC]], 31
+; CHECK: stepc [[REG]], [[REGCC]]
+; CHECK: aih [[REG]], 2147483647
+; CHECK: ipm [[REGCC:%r[0-5]]]
+; CHECK: afi [[REGCC]], 1342177280
+; CHECK: srl [[REGCC]], 31
+; CHECK: stepd [[REG]], [[REGCC]]
+; CHECK: br %r14
+  %res1 = call i32 asm "stepa $0", "=h"()
+  %t1 = call {i32, i1} @llvm.sadd.with.overflow.i32(i32 %res1, i32 -2147483648)
+  %val1 = extractvalue {i32, i1} %t1, 0
+  %obit1 = extractvalue {i32, i1} %t1, 1
+  %res2 = call i32 asm "stepb $0, $2", "=h,h,d"(i32 %val1, i1 %obit1)
+  %t2 = call {i32, i1} @llvm.sadd.with.overflow.i32(i32 %res2, i32 1)
+  %val2 = extractvalue {i32, i1} %t2, 0
+  %obit2 = extractvalue {i32, i1} %t2, 1
+  %res3 = call i32 asm "stepc $0, $2", "=h,h,d"(i32 %val2, i1 %obit2)
+  %t3 = call {i32, i1} @llvm.sadd.with.overflow.i32(i32 %res3, i32 2147483647)
+  %val3 = extractvalue {i32, i1} %t3, 0
+  %obit3 = extractvalue {i32, i1} %t3, 1
+  call void asm sideeffect "stepd $0, $1", "h,d"(i32 %val3, i1 %obit3)
+  ret void
+}
+
+declare {i32, i1} @llvm.sadd.with.overflow.i32(i32, i32) nounwind readnone
+

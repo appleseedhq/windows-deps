@@ -1,4 +1,4 @@
-; RUN: llc -march=hexagon -mcpu=hexagonv5  < %s | FileCheck %s
+; RUN: llc -march=hexagon < %s | FileCheck %s
 ; Make sure that the assembler mapped compare instructions are correctly generated.
 
 @c = common global i32 0, align 4
@@ -11,7 +11,7 @@ entry:
   br i1 %cmp, label %if.then, label %entry.if.end_crit_edge
 
 entry.if.end_crit_edge:
-  %.pre = load i32* @c, align 4
+  %.pre = load i32, i32* @c, align 4
   br label %if.end
 
 if.then:
@@ -32,7 +32,7 @@ entry:
   br i1 %cmp, label %entry.if.end_crit_edge, label %if.then
 
 entry.if.end_crit_edge:
-  %.pre = load i32* @c, align 4
+  %.pre = load i32, i32* @c, align 4
   br label %if.end
 
 if.then:
@@ -53,7 +53,7 @@ entry:
   br i1 %cmp, label %entry.if.end_crit_edge, label %if.then
 
 entry.if.end_crit_edge:
-  %.pre = load i32* @c, align 4
+  %.pre = load i32, i32* @c, align 4
   br label %if.end
 
 if.then:
@@ -73,7 +73,7 @@ entry:
   br i1 %cmp, label %if.then, label %entry.if.end_crit_edge
 
 entry.if.end_crit_edge:
-  %.pre = load i32* @c, align 4
+  %.pre = load i32, i32* @c, align 4
   br label %if.end
 
 if.then:

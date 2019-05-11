@@ -1,4 +1,4 @@
-//===- MCJITTest.cpp - Unit tests for the MCJIT ---------------------------===//
+//===- MCJITTest.cpp - Unit tests for the MCJIT -----------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ExecutionEngine/MCJIT.h"
 #include "MCJITTestBase.h"
+#include "llvm/Support/DynamicLibrary.h"
 #include "gtest/gtest.h"
 
 using namespace llvm;
@@ -22,7 +22,7 @@ namespace {
 
 class MCJITTest : public testing::Test, public MCJITTestBase {
 protected:
-  virtual void SetUp() { M.reset(createEmptyModule("<main>")); }
+  void SetUp() override { M.reset(createEmptyModule("<main>")); }
 };
 
 // FIXME: Ensure creating an execution engine does not crash when constructed
@@ -49,9 +49,9 @@ TEST_F(MCJITTest, global_variable) {
 
   int initialValue = 5;
   GlobalValue *Global = insertGlobalInt32(M.get(), "test_global", initialValue);
-  createJIT(M.take());
+  createJIT(std::move(M));
   void *globalPtr =  TheJIT->getPointerToGlobal(Global);
-  EXPECT_TRUE(0 != globalPtr)
+  EXPECT_TRUE(nullptr != globalPtr)
     << "Unable to get pointer to global value from JIT";
 
   EXPECT_EQ(initialValue, *(int32_t*)globalPtr)
@@ -62,7 +62,7 @@ TEST_F(MCJITTest, add_function) {
   SKIP_UNSUPPORTED_PLATFORM;
 
   Function *F = insertAddFunction(M.get());
-  createJIT(M.take());
+  createJIT(std::move(M));
   uint64_t addPtr = TheJIT->getFunctionAddress(F->getName().str());
   EXPECT_TRUE(0 != addPtr)
     << "Unable to get pointer to function from JIT";
@@ -83,12 +83,12 @@ TEST_F(MCJITTest, run_main) {
 
   int rc = 6;
   Function *Main = insertMainFunction(M.get(), 6);
-  createJIT(M.take());
+  createJIT(std::move(M));
   uint64_t ptr = TheJIT->getFunctionAddress(Main->getName().str());
   EXPECT_TRUE(0 != ptr)
     << "Unable to get pointer to main() from JIT";
 
-  int (*FuncPtr)(void) = (int(*)(void))ptr;
+  int (*FuncPtr)() = (int(*)())ptr;
   int returnCode = FuncPtr();
   EXPECT_EQ(returnCode, rc);
 }
@@ -99,16 +99,17 @@ TEST_F(MCJITTest, return_global) {
   int32_t initialNum = 7;
   GlobalVariable *GV = insertGlobalInt32(M.get(), "myglob", initialNum);
 
-  Function *ReturnGlobal = startFunction<int32_t(void)>(M.get(),
-                                                        "ReturnGlobal");
+  Function *ReturnGlobal =
+      startFunction(M.get(), FunctionType::get(Builder.getInt32Ty(), {}, false),
+                    "ReturnGlobal");
   Value *ReadGlobal = Builder.CreateLoad(GV);
   endFunctionWithRet(ReturnGlobal, ReadGlobal);
 
-  createJIT(M.take());
+  createJIT(std::move(M));
   uint64_t rgvPtr = TheJIT->getFunctionAddress(ReturnGlobal->getName().str());
   EXPECT_TRUE(0 != rgvPtr);
 
-  int32_t(*FuncPtr)(void) = (int32_t(*)(void))rgvPtr;
+  int32_t(*FuncPtr)() = (int32_t(*)())rgvPtr;
   EXPECT_EQ(initialNum, FuncPtr())
     << "Invalid value for global returned from JITted function";
 }
@@ -126,7 +127,10 @@ TEST_F(MCJITTest, increment_global) {
   SKIP_UNSUPPORTED_PLATFORM;
 
   int32_t initialNum = 5;
-  Function *IncrementGlobal = startFunction<int32_t(void)>(M.get(), "IncrementGlobal");
+  Function *IncrementGlobal = startFunction(
+      M.get(),
+      FunctionType::get(Builder.getInt32Ty(), {}, false),
+      "IncrementGlobal");
   GlobalVariable *GV = insertGlobalInt32(M.get(), "my_global", initialNum);
   Value *DerefGV = Builder.CreateLoad(GV);
   Value *AddResult = Builder.CreateAdd(DerefGV,
@@ -161,30 +165,131 @@ TEST_F(MCJITTest, multiple_functions) {
   unsigned int numLevels = 23;
   int32_t innerRetVal= 5;
 
-  Function *Inner = startFunction<int32_t(void)>(M.get(), "Inner");
+  Function *Inner = startFunction(
+      M.get(), FunctionType::get(Builder.getInt32Ty(), {}, false), "Inner");
   endFunctionWithRet(Inner, ConstantInt::get(Context, APInt(32, innerRetVal)));
 
   Function *Outer;
   for (unsigned int i = 0; i < numLevels; ++i) {
     std::stringstream funcName;
     funcName << "level_" << i;
-    Outer = startFunction<int32_t(void)>(M.get(), funcName.str());
-    Value *innerResult = Builder.CreateCall(Inner);
+    Outer = startFunction(M.get(),
+                          FunctionType::get(Builder.getInt32Ty(), {}, false),
+                          funcName.str());
+    Value *innerResult = Builder.CreateCall(Inner, {});
     endFunctionWithRet(Outer, innerResult);
 
     Inner = Outer;
   }
 
-  createJIT(M.take());
+  createJIT(std::move(M));
   uint64_t ptr = TheJIT->getFunctionAddress(Outer->getName().str());
   EXPECT_TRUE(0 != ptr)
     << "Unable to get pointer to outer function from JIT";
 
-  int32_t(*FuncPtr)(void) = (int32_t(*)(void))ptr;
+  int32_t(*FuncPtr)() = (int32_t(*)())ptr;
   EXPECT_EQ(innerRetVal, FuncPtr())
     << "Incorrect result returned from function";
 }
 
 #endif /*!defined(__arm__)*/
 
+TEST_F(MCJITTest, multiple_decl_lookups) {
+  SKIP_UNSUPPORTED_PLATFORM;
+
+  Function *Foo = insertExternalReferenceToFunction(
+      M.get(), FunctionType::get(Builder.getVoidTy(), {}, false), "_exit");
+  createJIT(std::move(M));
+  void *A = TheJIT->getPointerToFunction(Foo);
+  void *B = TheJIT->getPointerToFunction(Foo);
+
+  EXPECT_TRUE(A != nullptr) << "Failed lookup - test not correctly configured.";
+  EXPECT_EQ(A, B) << "Repeat calls to getPointerToFunction fail.";
 }
+
+typedef void * (*FunctionHandlerPtr)(const std::string &str);
+
+TEST_F(MCJITTest, lazy_function_creator_pointer) {
+  SKIP_UNSUPPORTED_PLATFORM;
+
+  Function *Foo = insertExternalReferenceToFunction(
+      M.get(), FunctionType::get(Builder.getInt32Ty(), {}, false),
+      "\1Foo");
+  startFunction(M.get(), FunctionType::get(Builder.getInt32Ty(), {}, false),
+                "Parent");
+  CallInst *Call = Builder.CreateCall(Foo, {});
+  Builder.CreateRet(Call);
+  
+  createJIT(std::move(M));
+  
+  // Set up the lazy function creator that records the name of the last
+  // unresolved external function found in the module. Using a function pointer
+  // prevents us from capturing local variables, which is why this is static.
+  static std::string UnresolvedExternal;
+  FunctionHandlerPtr UnresolvedHandler = [] (const std::string &str) {
+    // Try to resolve the function in the current process before marking it as
+    // unresolved. This solves an issue on ARM where '__aeabi_*' function names
+    // are passed to this handler.
+    void *symbol =
+        llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(str.c_str());
+    if (symbol) {
+      return symbol;
+    }
+    
+    UnresolvedExternal = str;
+    return (void *)(uintptr_t)-1;
+  };
+  TheJIT->InstallLazyFunctionCreator(UnresolvedHandler);
+  
+  // JIT the module.
+  TheJIT->finalizeObject();
+  
+  // Verify that our handler was called.
+  EXPECT_EQ(UnresolvedExternal, "Foo");
+}
+
+TEST_F(MCJITTest, lazy_function_creator_lambda) {
+  SKIP_UNSUPPORTED_PLATFORM;
+
+  FunctionType *Int32VoidFnTy =
+      FunctionType::get(Builder.getInt32Ty(), {}, false);
+  Function *Foo1 =
+      insertExternalReferenceToFunction(M.get(), Int32VoidFnTy, "\1Foo1");
+  Function *Foo2 =
+      insertExternalReferenceToFunction(M.get(), Int32VoidFnTy, "\1Foo2");
+  startFunction(M.get(), Int32VoidFnTy, "Parent");
+  CallInst *Call1 = Builder.CreateCall(Foo1, {});
+  CallInst *Call2 = Builder.CreateCall(Foo2, {});
+  Value *Result = Builder.CreateAdd(Call1, Call2);
+  Builder.CreateRet(Result);
+  
+  createJIT(std::move(M));
+  
+  // Set up the lazy function creator that records the name of unresolved
+  // external functions in the module.
+  std::vector<std::string> UnresolvedExternals;
+  auto UnresolvedHandler = [&UnresolvedExternals] (const std::string &str) {
+    // Try to resolve the function in the current process before marking it as
+    // unresolved. This solves an issue on ARM where '__aeabi_*' function names
+    // are passed to this handler.
+    void *symbol =
+        llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(str.c_str());
+    if (symbol) {
+      return symbol;
+    }
+    UnresolvedExternals.push_back(str);
+    return (void *)(uintptr_t)-1;
+  };
+  TheJIT->InstallLazyFunctionCreator(UnresolvedHandler);
+  
+  // JIT the module.
+  TheJIT->finalizeObject();
+  
+  // Verify that our handler was called for each unresolved function.
+  auto I = UnresolvedExternals.begin(), E = UnresolvedExternals.end();
+  EXPECT_EQ(UnresolvedExternals.size(), 2u);
+  EXPECT_FALSE(std::find(I, E, "Foo1") == E);
+  EXPECT_FALSE(std::find(I, E, "Foo2") == E);
+}
+
+} // end anonymous namespace

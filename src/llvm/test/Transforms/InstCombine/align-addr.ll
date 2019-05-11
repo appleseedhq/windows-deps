@@ -21,7 +21,7 @@ bb:
   %i = phi i64 [ %indvar.next, %bb ], [ 20, %entry ]
   %j = mul i64 %i, %v
   %h = add i64 %j, %z
-  %t8 = getelementptr double* %e, i64 %h
+  %t8 = getelementptr double, double* %e, i64 %h
   %p = bitcast double* %t8 to <2 x double>*
   store <2 x double><double 0.0, double 0.0>, <2 x double>* %p, align 8
   %indvar.next = add i64 %i, 1
@@ -43,7 +43,7 @@ return:
 
 define <16 x i8> @test1(<2 x i64> %x) {
 entry:
-	%tmp = load <16 x i8>* bitcast ([4 x i32]* @GLOBAL to <16 x i8>*), align 1
+	%tmp = load <16 x i8>, <16 x i8>* bitcast ([4 x i32]* @GLOBAL to <16 x i8>*), align 1
 	ret <16 x i8> %tmp
 }
 
@@ -53,7 +53,7 @@ define <16 x i8> @test1_as1(<2 x i64> %x) {
 ; CHECK-LABEL: @test1_as1(
 ; CHECK: tmp = load
 ; CHECK: GLOBAL_as1{{.*}}align 16
-  %tmp = load <16 x i8> addrspace(1)* bitcast ([4 x i32] addrspace(1)* @GLOBAL_as1 to <16 x i8> addrspace(1)*), align 1
+  %tmp = load <16 x i8>, <16 x i8> addrspace(1)* bitcast ([4 x i32] addrspace(1)* @GLOBAL_as1 to <16 x i8> addrspace(1)*), align 1
   ret <16 x i8> %tmp
 }
 
@@ -63,7 +63,7 @@ define <16 x i8> @test1_as1_gep(<2 x i64> %x) {
 ; CHECK-LABEL: @test1_as1_gep(
 ; CHECK: tmp = load
 ; CHECK: GLOBAL_as1_gep{{.*}}align 16
-  %tmp = load <16 x i8> addrspace(1)* bitcast (i32 addrspace(1)* getelementptr ([8 x i32] addrspace(1)* @GLOBAL_as1_gep, i16 0, i16 4) to <16 x i8> addrspace(1)*), align 1
+  %tmp = load <16 x i8>, <16 x i8> addrspace(1)* bitcast (i32 addrspace(1)* getelementptr ([8 x i32], [8 x i32] addrspace(1)* @GLOBAL_as1_gep, i16 0, i16 4) to <16 x i8> addrspace(1)*), align 1
   ret <16 x i8> %tmp
 }
 
@@ -71,16 +71,16 @@ define <16 x i8> @test1_as1_gep(<2 x i64> %x) {
 ; When a load or store lacks an explicit alignment, add one.
 
 ; CHECK-LABEL: @test2(
-; CHECK: load double* %p, align 8
+; CHECK: load double, double* %p, align 8
 ; CHECK: store double %n, double* %p, align 8
 
 define double @test2(double* %p, double %n) nounwind {
-  %t = load double* %p
+  %t = load double, double* %p
   store double %n, double* %p
   ret double %t
 }
 
-declare void @llvm.memset.p0i8.i64(i8* nocapture, i8, i64, i32, i1) nounwind
+declare void @llvm.memset.p0i8.i64(i8* nocapture, i8, i64, i1) nounwind
 
 declare void @use(i8*)
 
@@ -90,8 +90,8 @@ define void @test3(%struct.s* sret %a4) {
 ; Check that the alignment is bumped up the alignment of the sret type.
 ; CHECK-LABEL: @test3(
   %a4.cast = bitcast %struct.s* %a4 to i8*
-  call void @llvm.memset.p0i8.i64(i8* %a4.cast, i8 0, i64 16, i32 1, i1 false)
-; CHECK: call void @llvm.memset.p0i8.i64(i8* %a4.cast, i8 0, i64 16, i32 4, i1 false)
+  call void @llvm.memset.p0i8.i64(i8* %a4.cast, i8 0, i64 16, i1 false)
+; CHECK: call void @llvm.memset.p0i8.i64(i8* align 4 %a4.cast, i8 0, i64 16, i1 false)
   call void @use(i8* %a4.cast)
   ret void
 }
