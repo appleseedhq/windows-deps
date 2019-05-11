@@ -30,30 +30,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <cstdio>
 #include <cstdlib>
-#include <ctype.h>
-
-#include <boost/unordered_map.hpp>
-#include <boost/algorithm/string.hpp>
+#include <cctype>
+#include <unordered_map>
 
 #include <OpenImageIO/dassert.h>
+#include <OpenImageIO/strutil.h>
 
-#ifdef USE_EXTERNAL_PUGIXML
-# include <pugixml.hpp>
-#else
-# include <OpenImageIO/pugixml.hpp>
+#include <pugixml.hpp>
+
+#ifdef USING_OIIO_PUGI
+namespace pugi = OIIO::pugi;
 #endif
+
 
 #include "oslexec_pvt.h"
 
 OSL_NAMESPACE_ENTER
 
 namespace pvt {   // OSL::pvt
-
-
-#ifndef USE_EXTERNAL_PUGIXML
-namespace pugi = OIIO::pugi;
-#endif
-
 
 
 // Helper class to manage the dictionaries.
@@ -80,12 +74,12 @@ public:
     Dictionary (ShadingContext *ctx) : m_context(ctx)
     {
         // Create placeholder element 0 == 'not found'
-        m_nodes.push_back (Node(0, pugi::xml_node()));
+        m_nodes.emplace_back(0, pugi::xml_node());
     }
     ~Dictionary () {
         // Free all the documents.
-        for (size_t i = 0, e = m_documents.size(); i < e; ++i)
-            delete m_documents[i];
+        for (auto& doc : m_documents)
+            delete doc;
     }
 
     int dict_find (ustring dictionaryname, ustring query);
@@ -139,8 +133,8 @@ private:
             : document(d), node(n), next(0) { }
     };
 
-    typedef boost::unordered_map <Query, QueryResult, QueryHash> QueryMap;
-    typedef boost::unordered_map<ustring, int, ustringHash> DocMap;
+    typedef std::unordered_map <Query, QueryResult, QueryHash> QueryMap;
+    typedef std::unordered_map<ustring, int, ustringHash> DocMap;
 
     ShadingContext *m_context;  // back-pointer to shading context
 
@@ -179,7 +173,7 @@ Dictionary::get_document_index (ustring dictionaryname)
         pugi::xml_document *doc = new pugi::xml_document;
         m_documents.push_back (doc);
         pugi::xml_parse_result parse_result;
-        if (boost::ends_with (dictionaryname.string(), ".xml")) {
+        if (Strutil::ends_with (dictionaryname.string(), ".xml")) {
             // xml file -- read it
             parse_result = doc->load_file (dictionaryname.c_str());
         } else {
@@ -238,8 +232,8 @@ Dictionary::dict_find (ustring dictionaryname, ustring query)
     }
     int firstmatch = (int) m_nodes.size();
     int last = -1;
-    for (int i = 0, e = (int)matches.size(); i < e;  ++i) {
-        m_nodes.push_back (Node (dindex, matches[i].node()));
+    for (auto&& m : matches) {
+        m_nodes.emplace_back(dindex, m.node());
         int nodeid = (int) m_nodes.size()-1;
         if (last < 0) {
             // If this is the first match, add a cache entry for it
@@ -285,8 +279,8 @@ Dictionary::dict_find (int nodeID, ustring query)
     }
     int firstmatch = (int) m_nodes.size();
     int last = -1;
-    for (int i = 0, e = (int)matches.size(); i < e;  ++i) {
-        m_nodes.push_back (Node (document, matches[i].node()));
+    for (auto&& m : matches) {
+        m_nodes.emplace_back(document, m.node());
         int nodeid = (int) m_nodes.size()-1;
         if (last < 0) {
             // If this is the first match, add a cache entry for it
@@ -373,10 +367,11 @@ Dictionary::dict_value (int nodeID, ustring attribname,
     }
     if (type.basetype == TypeDesc::INT) {
         r.valueoffset = (int) m_intdata.size();
+        string_view valstr (val);
         for (int i = 0;  i < n;  ++i) {
-            int v = (int) strtol (val, (char **)&val, 10);
-            while (isspace(*val) || *val == ',')
-                ++val;
+            int v;
+            OIIO::Strutil::parse_int (valstr, v);
+            OIIO::Strutil::parse_char (valstr, ',');
             m_intdata.push_back (v);
             ((int *)data)[i] = v;
         }
@@ -385,10 +380,11 @@ Dictionary::dict_value (int nodeID, ustring attribname,
     }
     if (type.basetype == TypeDesc::FLOAT) {
         r.valueoffset = (int) m_floatdata.size();
+        string_view valstr (val);
         for (int i = 0;  i < n;  ++i) {
-            float v = (float) strtod (val, (char **)&val);
-            while (isspace(*val) || *val == ',')
-                ++val;
+            float v;
+            OIIO::Strutil::parse_float (valstr, v);
+            OIIO::Strutil::parse_char (valstr, ',');
             m_floatdata.push_back (v);
             ((float *)data)[i] = v;
         }

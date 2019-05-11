@@ -43,31 +43,30 @@
 
 \def\langname{Open Shading Language\xspace}
 \def\product{{\sffamily Open Shading Language}\xspace}
-\def\versionnumber{1.8}
+\def\versionnumber{1.10}
 \def\productver{\product\ {\sffamily \versionnumber}\xspace}
 
 
-\title{ 
+\title{
 {\Huge{\bf \product}
-%\textregistered\ 
-{\bf\sffamily \versionnumber} \medskip \\ \huge 
+%\textregistered\
+{\bf\sffamily \versionnumber} \medskip \\ \huge
 Language Specification
-%\\ \large (CONFIDENTIAL --- draft in progress) 
 } \bigskip }
 \author{
-\copyright\ Copyright 2009-2017 Sony Pictures Imageworks Inc., et al. All rights reserved.
+\copyright\ Copyright 2009-2018 Sony Pictures Imageworks Inc., et al. All rights reserved.
  \bigskip \\
 \vspace{1in} \\
 Editor: Larry Gritz \\
 \emph{lg@imageworks.com}
 }
-\date{{\large Date: 6 Feb 2017 \\
- (with corrections, 30 Jun 2017)
+\date{{\large Date: 31 Mar 2018 \\
+ (with corrections, 12 Apr 2019)
 }
 \bigskip
 \bigskip
 \bigskip
- \bigskip 
+\bigskip
 }
 
 
@@ -539,6 +538,8 @@ source code:
 \item {\cf source} is a {\cf float} or {\cf int} and {\cf dest} is a
 \emph{triple} (the scalar value will be replicated for all three components
 of the triple).
+\item {\cf source} is a single component of an aggregate type (e.g. one
+channel of a {\cf color}) and {\cf dest} is a {\cf float} (or vice versa).
 \end{itemize}
 
 \subsection*{Geometric primitives}
@@ -586,13 +587,6 @@ point-by-point basis, and volume shaders that describe how light is
 scattered within a region of space.  A particular renderer may have
 additional shader types that it supports.
 
-%\subsection*{Shader types}
-%
-%There are several types of shaders: surface, displacement, light,
-%volume.  The type of shader determines what it's allowed to do (for
-%example, only displacement shaders can alter the surface position).
-%There is also a generic kind of shader that can be used for any of the
-%shader uses.
 
 \subsection*{Shader execution state: parameter binding and global variables}
 
@@ -614,7 +608,7 @@ information about the renderer as a whole (rendering options, etc.).
 
 Surface shaders (and volume shaders) do not by themselves compute the
 final color of light emanating from the surface (or along a volume).
-Rather, the compute a \emph{closure}, which is a symbolic representation
+Rather, they compute a \emph{closure}, which is a symbolic representation
 describing the appearance of the surface, that may be more fully
 evaluated later.  This is in effect a parameterized formula, in which
 some inputs have definite numeric values, but others may depend on
@@ -887,7 +881,7 @@ defined by the compiler:
 \end{tabular}
 
 
-\chapter{Gross syntax, shader types, parameters, functions}
+\chapter{Gross syntax, shader types, parameters}
 \label{chap:grosssyntax}
 
 The overall structure of a shader is as follows:
@@ -979,7 +973,7 @@ different behaviors or appearances when used on different objects.
 
 Shader parameters are specified in the shader declaration, in
 parentheses after the shader's name.  This is much like the parameters
-to a \languagename function (or a function in C or similar languages),
+to an OSL function (or a function in C or similar languages),
 except that shader parameters must have an \emph{initializer}, giving a
 default value for the parameter.  Shader parameter default initializers
 may be expressions (i.e., may be computed rather than restricted to
@@ -1337,48 +1331,6 @@ if a \qkw{degrees} variable is passed as the argument to {\cf cos}).
 
 
 \newpage
-\section{Functions}
-\label{sec:functions}
-\index{functions!declarations}
-
-You may define functions much like in C or C++.
-
-\begin{quote}
-\em
-return-type ~ function-name ~ {\rm\cf (} optional-parameters {\rm\cf )} \\
-\rm
-{\cf \{ } \\
-\em
-\spc statements
-
-{\cf \} }
-\end{quote}
-
-Parameters to functions are similar to shader parameters, except that
-they do not permit initializers.  A function call must pass values for
-all formal parameters.  Function parameters in \langname are all
-\emph{passed by reference}, and are read-only within the body of the
-function unless they are also designated as {\cf output} (in the same
-manner as output shader parameters).
-
-Like for shaders, statements inside functions may be actual executions
-(assignments, function call, etc.), local variable declarations (visible
-only from within the body of the function), or local function
-declarations (callable only from within the body of the function).
-
-The return type may be any simple data type, a {\cf struct}, or a {\cf
-  closure}.  Functions may not return arrays.  The return type may be
-{\cf void}, indicating that the function does not return a value (and
-should not contain a {\cf return} statement).  A {\cf return} statement
-inside the body of the function will halt execution of the function at
-that point, and designates the value that will be returned (if not a
-{\cf void} function).
-
-Functions may be \emph{overloaded}.  That is, multiple functions may be
-defined to have the same name, as long as they have differently-typed
-parameters, so that when the function is called the list of arguments
-can disambiguate which version of the function is desired.
-
 \section{Public methods}
 \label{sec:publicmethods}
 \indexapi{public}
@@ -1491,7 +1443,7 @@ operation & result & ~ \\
 {\ce ++} \inttype & \inttype & pre-increment by 1 \\[0.5ex]
 {\ce --} \inttype & \inttype & pre-decrement by 1 \\[0.5ex]
 {\cf {\bfseries -} int} & \inttype & unary negation \\[0.5ex]
-\verb|~| {\cf int} & \inttype & bitwise complement (1 and 0 bits flipped) \\[0.5ex]
+{\ce \textasciitilde} {\cf int} & \inttype & bitwise complement (1 and 0 bits flipped) \\[0.5ex]
 {\cf {\bfseries !} int} & \inttype & boolean `not' (1 if operand is zero, otherwise 0) \\[0.5ex]
 \hline
 {\cf int {\bfseries *} int} & \inttype & multiplication \\[0.5ex]
@@ -1520,7 +1472,7 @@ else 0 \\[0.5ex]
 \hline
 {\cf int {\bfseries \&} int} & \inttype & bitwise and \\[0.5ex]
 \hline
-{\cf int {\bfseries \verb|^|} int} & \inttype & bitwise exclusive or \\[0.5ex]
+{\cf int {\bfseries \textasciicircum} int} & \inttype & bitwise exclusive or \\[0.5ex]
 \hline
 {\cf int {\bfseries |} int} & \inttype & bitwise or \\[0.5ex]
 \hline
@@ -1907,7 +1859,7 @@ reference to a named space:
 \end{code}
 
 \noindent The first form creates the matrix that transforms points from
-\commonspace to \shaderspace.  Transforming points by this matrix
+\shaderspace to \commonspace.  Transforming points by this matrix
 is identical to calling {\cf transform("shader",...)}.
 The second form prepends the current-to-world transformation matrix
 onto the $4 \times 4$ matrix with components $m_{0,0} ... m_{3,3}$.
@@ -2069,35 +2021,72 @@ using the `dot' operator.  The syntax for declaring and using structures
 is similar to C or C++:
 
 \begin{code}
-    struct ray {                   // Define a structure type
-        point pos;
-        vector dir;
+    struct RGBA {                    // Define a structure type
+        color rgb;
+        float alpha;
     };
 
-    ray r;                         // Declare a structure
-    r.pos = point (1, 0, 0);       // Assign to one field
-    point p = r.pos;               // Read from a structure field
+    RGBA col;                        // Declare a structure
+    r.rgb = color (1, 0, 0);         // Assign to one field
+    color c = r.rgb;                 // Read from a structure field
+
+    RGBA b = { color(.1,.2,.3), 1 }; // Member-by-member initialization
 \end{code}
 
-It is permitted to have a structure field that is an array, as well as
-to have an array of structures.  But it is not permitted for one
-structure to have a field that is another structure.  For example:
+You can use ``constructor expressions'' for a your struct types much like
+you can construct built-in types like \color or \point:
+
+\vspace{10pt}
+\hspace{0.25in} \emph{struct\_name ( first\_member\_value, ... )}
+\vspace{10pt}
+
+\noindent For example,
+
+\begin{code}
+    RGBA c = RGBA(col,alpha);        // Constructor syntax
+
+    RGBA add (RGBA a, RGBA b)
+    {
+        return RGBA (a.rgb+b.rgb, a.a+b.a);   // return expression
+    }
+
+    // pass constructor expression as a parameter:
+    RGBA d = add (c, RGBA(color(.3,.4,.5), 0));
+\end{code}
+
+\NEW % 1.10
+You may also use the \emph{compound initializer list} syntax to construct a
+type when it can be deduced from context which compound type is required.
+For example, this is equivalent to the preceding example:
+
+\begin{code}
+    RGBA c = {col,alpha};    // deduce by what is being assigned to
+
+    RGBA add (RGBA a, RGBA b)
+    {
+        return { a.rgb+b.rgb, a.a+b.a }; // deduce by func return type
+    }
+
+    RGBA d = add (c, {{.3,.4,.5}, 0}); // deduce by expected arg type
+\end{code}
+
+It is permitted to have a structure field that is an array, as well as to
+have an array of structures.  But it is not currently permitted to ``nest''
+arrays (that is, to have an array of structs which contain members that are
+arrays).
 
 \begin{code}
     struct A {
         color a;
-        float b[4];       // struct may contain an array
+        float b[4];       // Ok: struct may contain an array
     };
 
-    A d[5];               // Array of structures
-    color e = d[0].a;     // Field of one element of array of struct
-    d[2].b[4] = 0.25;     // Element of a field of a struct in an array
+    RGBA vals[4];         // Ok: Array of structures
+    vals[0].a = 0;
+
+    A d[5];               // NO: Array of structures that contain arrays
 \end{code}
 
-%\begin{annotate}
-%\QUESTION Is this restriction (no ``structure recursion'') acceptable?
-%It certainly makes the implementation of the language easier.
-%\end{annotate}
 
 \index{types|)}   % end of chapter
 
@@ -2126,7 +2115,7 @@ At present, the only type of \closure supported by \langname is the
 form a linear combination of \colorclosure's.  Additional closure types
 and operations are reserved for future use.
 
-Allowable operations on \colorclosure's include:
+Allowable operations on \colorclosure include:
 
 \medskip
 \noindent \begin{tabular}{|p{2.25in}|p{1.25in}|p{1.75in}|}
@@ -2369,7 +2358,7 @@ variable, then return the new value.
 
 \begin{tabbing}
 \hspace{0.25in} {\cf -} \emph{expr} \hspace{1in} \= (negation) \\
-\hspace{0.25in} \verb|~| \emph{expr} \> (bitwise complement) \\
+\hspace{0.25in} {\cf \textasciitilde} \emph{expr} \> (bitwise complement) \\
 \hspace{0.25in} \emph{expr} {\cf *} \emph{expr} \> (multiplication) \\
 \hspace{0.25in} \emph{expr} {\cf /} \emph{expr} \> (division) \\
 \hspace{0.25in} \emph{expr} {\cf +} \emph{expr} \> (addition) \\
@@ -2379,7 +2368,7 @@ variable, then return the new value.
 \hspace{0.25in} \emph{expr} {\cf >>} \emph{expr} \> (integer shift right) \\
 \hspace{0.25in} \emph{expr} {\cf \&} \emph{expr} \> (bitwise and) \\
 \hspace{0.25in} \emph{expr} {\cf |} \emph{expr} \> (bitwise or) \\
-\hspace{0.25in} \emph{expr} \verb|^| \emph{expr} \> (bitwise exclusive or) \\
+\hspace{0.25in} \emph{expr} {\cf \textasciicircum} \emph{expr} \> (bitwise exclusive or) \\
 \end{tabbing}
 
 The operators {\cf +}, {\cf -}, {\cf *}, {\cf /}, and the unary {\cf -}
@@ -2392,7 +2381,7 @@ multiplication and matrix multiplication by the inverse of another
 matrix.
 
 The integer and bit-wise operators {\cf \%}, {\cf <<}, {\cf >>},
-{\cf \&}, {\cf |}, {\cf \verb|^|}, and {\cf \verb|~|} may only be 
+{\cf \&}, {\cf |}, {\cf \textasciicircum}, and {\cf \textasciitilde} may only be 
 used with expressions of type \inttype.
 
 For details on which operators are allowed, please consult the operator
@@ -2612,7 +2601,10 @@ altogether, and the {\cf continue} statement skip to the end of the body
 and proceeds to the next iteration of the loop.
 
 \section{Functions}
-\label{sec:syntax:functions}
+\label{sec:functions}
+
+\subsection{Function calls}
+\label{sec:syntax:functioncalls}
 \index{function calls}
 
 Function calls are very similar to C and related programming languages:
@@ -2631,8 +2623,116 @@ will not be noticeably different from C-style ``pass by value''
 semantics, except if you pass the same variable as two separate
 arguments to a function that modifies an argument's value.
 
-Function definitions are described in detail in Section~\ref{sec:functions}.
 
+\subsection{Function definitions}
+\label{sec:syntax:functiondefinitions}
+\index{functions!definitions}
+
+You may define functions much like in C or C++.
+
+\begin{quote}
+\em
+return-type ~ function-name ~ {\rm\cf (} optional-parameters {\rm\cf )} \\
+\rm
+{\cf \{ } \\
+\em
+\spc statements
+
+{\cf \} }
+\end{quote}
+
+Parameters to functions are similar to shader parameters, except that
+they do not permit initializers.  A function call must pass values for
+all formal parameters.  Function parameters in \langname are all
+\emph{passed by reference}, and are read-only within the body of the
+function unless they are also designated as {\cf output} (in the same
+manner as output shader parameters).
+
+Like for shaders, statements inside functions may be actual executions
+(assignments, function call, etc.), local variable declarations (visible
+only from within the body of the function), or local function
+declarations (callable only from within the body of the function).
+
+The return type may be any simple data type, a {\cf struct}, or a {\cf
+  closure}.  Functions may not return arrays.  The return type may be
+{\cf void}, indicating that the function does not return a value (and
+should not contain a {\cf return} statement).  A {\cf return} statement
+inside the body of the function will halt execution of the function at
+that point, and designates the value that will be returned (if not a
+{\cf void} function).
+
+Functions may be \emph{overloaded}.  That is, multiple functions may be
+defined to have the same name, as long as they have differently-typed
+parameters, so that when the function is called the list of arguments can
+select which version of the function is desired. When there are multiple
+potential matches, function versions whose argument types match exactly are
+favored, followed by those that match with type coercion (for example,
+passing an {\cf int} when the function expects a {\cf float}, or passing a
+{\cf float} when the function expects a \color), and finally by trying to
+match the return value to the type of variable the result is assigned to.
+
+\subsection{Operator overloading}
+\label{sec:syntax:operatoroverloading}
+\index{operator overloading}
+
+\NEW  % 1.9
+OSL permits \emph{operator overloading}, which is the practice of providing
+a function that will be called when you use an operator like {\cf +} or
+{\cf *}. This is especially handy when you use {\cf struct} to define
+mathematical types and wish for the usual math operators to work with them.
+Here is a typical example, which also shows the special naming convention
+that allows operator overloading:
+
+\begin{code}
+    struct vector4 {
+        float x, y, z, w;
+    };
+
+    vector4 __operator__add__ (vector4 a, vector4 b) {
+        return vector4 (a.x+b.x, a.y+b.y, a.z+b.z, a.w+b.w);
+    }
+
+    shader test ()
+    {
+        vector4 a = vector4 (.2, .3, .4, .5);
+        vector4 b = vector4 (1, 2, 3, 4);
+
+        vector4 c = a + b;   // Will call __operator__add__(vector4,vector4)
+        printf ("a+b = %g %g %g %g\n", c.x, c.y, c.z, c.w);
+    }
+\end{code}
+
+\noindent The full list of these special function names is as follows (in
+order of decreasing operator precedence):
+
+\smallskip
+
+\begin{tabular}{ p{0.5in} p{2in} p{1.75in}}
+%op & overload function name & ~ \\
+%\hline
+{\cf \bfseries -} & {\cf __operator__neg__} & unary negation \\
+{\cf \bfseries \textasciitilde} & {\cf __operator__compl__} & unary bitwise complement \\
+{\cf \bfseries !} & {\cf __operator__not__} & unary boolean `not' \\[1.5ex]
+{\cf \bfseries *} & {\cf __operator__mul__} &  \\
+{\cf \bfseries /} & {\cf __operator__div__} &  \\
+{\cf \bfseries \%} & {\cf __operator__mod__} &  \\
+{\cf \bfseries +} & {\cf __operator__add__} &  \\
+{\cf \bfseries -} & {\cf __operator__sub__} &  \\[1.5ex]
+{\cf \bfseries <<} & {\cf __operator__shl__} & \\
+{\cf \bfseries >>} & {\cf __operator__shr__} & \\[1.5ex]
+{\cf \bfseries <} & {\cf __operator__lt__} &  \\
+{\cf \bfseries <=} & {\cf __operator__le__} &  \\
+{\cf \bfseries >} & {\cf __operator__gt__} &  \\
+{\cf \bfseries >=} & {\cf __operator__ge__} & \\
+{\cf \bfseries ==} & {\cf __operator__eq__} & \\
+{\cf \bfseries !=} & {\cf __operator__ne__} & \\[1.5ex]
+{\cf \bfseries \&} & {\cf __operator__bitand__} & \\
+{\cf \bfseries \textasciicircum} & {\cf __operator__xor__} & \\
+{\cf \bfseries |} & {\cf __operator__bitor__} & \\
+%{\cf \bfseries \&\&} & {\cf __operator__and__} & boolean and \\
+%{\cf \bfseries ||} & {\cf __operator__or__} & boolean or \\
+%\hline
+\end{tabular}
 
 
 \section{Global variables}
@@ -2982,21 +3082,10 @@ The {\cf mix} function returns a linear blending :
 $ x*(1-\alpha) + y*(\alpha) $
 \apiend
 
-\apiitem{int {\ce isnan} (float x) \\
-int {\ce isinf} (float x) \\
-int {\ce isfinite} (float x)}
-\indexapi{isnan()} \indexapi{isinf()} \indexapi{isfinite()}
-The {\cf isnan()} function returns 1 if $x$ is a not-a-number (NaN)
-value, 0 otherwise.  The {\cf isinf()} function returns 1 if $x$ is an
-infinite (Inf or --Inf) value, 0 otherwise.  The {\cf isfinite()}
-function returns 1 if $x$ is an ordinary number (neither infinite nor
-NaN), 0 otherwise.  \apiend
-
 \apiitem{\emph{type} {\ce select} (\emph{type} x, \emph{type} y, \emph{type} cond) \\
 \emph{type} {\ce select} (\emph{type} x, \emph{type} y, float cond) \\
 \emph{type} {\ce select} (\emph{type} x, \emph{type} y, int cond)}
 \indexapi{mix()}
-\NEW  % 1.8
 The {\cf select} function returns {\cf x} if {\cf cond} is zero, or {\cf y}
 if {\cf cond} is nonzero. This is roughly equivalent to {\cf (cond ? y : x)},
 except that if {\cf cond} is a component-based type (such as {\cf color}),
@@ -3158,10 +3247,12 @@ and {\cf eta} is the ratio of refractive index of the medium
 containing {\cf I} to that on the opposite side of the surface.
 \apiend
 
-\apiitem{point {\ce rotate} (point Q, float angle, point P0, point P1)}
+\apiitem{point {\ce rotate} (point Q, float angle, point P0, point P1) \\
+point {\ce rotate} (point Q, float angle, vector axis)}
 \indexapi{rotate()}
-Returns the point computed by rotating point {\cf Q} by {\cf angle} 
-radians about the axis that passes from point {\cf P0} to {\cf P1}.
+Returns the point computed by rotating point {\cf Q} by {\cf angle}
+radians about the axis that passes from point {\cf P0} to {\cf P1},
+or about the {\cf axis} vector centered on the origin.
 \apiend
 
 \apiitem{\emph{ptype} {\ce transform} (string tospace, \emph{ptype} p) \\
@@ -3357,11 +3448,15 @@ The \emph{type} may be any of of \float, \color, \point, \vector, or
 performed component-by-component (separately for $x$, $y$, and $z$).
 \apiend
 
-\apiitem{float {\ce linearstep} (float edge0, float edge1, float x)}
+\apiitem{float {\ce linearstep} (float edge0, float edge1, float x) \\
+\emph{type} {\ce linearstep} (\emph{type} edge0, \emph{type} edge1, \emph{type} x)}
 \indexapi{linearstep()}
 Returns 0 if $x \le {\mathit edge0}$, and 1 if $x \ge {\mathit edge1}$,
 and performs a linear
 interpolation between 0 and 1 when ${\mathit edge0} < x < {\mathit edge1}$.
+This is equivalent to {\cf step(edge0, x)} when {\cf edge0 == edge1}.
+For \color and \point-like types, the computations are
+performed component-by-component (separately for $x$, $y$, and $z$).
 \apiend
 
 \apiitem{float {\ce smoothstep} (float edge0, float edge1, float x) \\
@@ -3375,10 +3470,11 @@ with a smooth transition.
 
 The \emph{type} may be any of of \float, \color, \point, \vector, or
 \normal.  For \color and \point-like types, the computations are
-performed component-by-component (separately for $x$, $y$, and $z$).
+performed component-by-component.
 \apiend
 
-\apiitem{float {\ce smooth_linearstep} (float edge0, float edge1, float x, float eps)}
+\apiitem{float {\ce smooth_linearstep} (float edge0, float edge1, float x, float eps) \\
+\emph{type} {\ce smooth_linearstep} (\emph{type} edge0, \emph{type} edge1, \emph{type} x, \emph{type} eps)}
 \indexapi{smooth_linearstep()}
 This function is strictly linear between ${\mathit edge0}+{\mathit eps}$ and ${\mathit edge1}-{\mathit eps}$
 but smoothly ramps to 0 between ${\mathit edge0}-{\mathit eps}$ and ${\mathit edge0}+{\mathit eps}$
@@ -3386,6 +3482,8 @@ and smoothly ramps to 1 between ${\mathit edge1}-{\mathit eps}$ and ${\mathit ed
 It is 0 when $x \le {\mathit edge0}-{\mathit eps}$, and 1 if $x \ge {\mathit edge1}+{\mathit eps}$,
 and performs a linear
 interpolation between 0 and 1 when ${\mathit edge0} < x < {\mathit edge1}$.
+For \color and \point-like types, the computations are
+performed component-by-component.
 \apiend
 
 
@@ -3604,7 +3702,7 @@ animation (provided its input is \emph{precisely} identical).
 int {\ce hash} (float u, float v) \\
 int {\ce hash} (point p) \\
 int {\ce hash} (point p, float t) \\
-int {\ce hash) (int i)}}
+int {\ce hash} (int i)}
 \indexapi{hash()}
 \NEW % 1.9
 Returns a deterministic, repeatable integer \emph{hash} of the 1-, 2-, 3-,
@@ -3947,7 +4045,7 @@ Identical to {\cf regex_search}, except that it must match the
 
 Perform a texture lookup of an image file, indexed by 2D coordinates
 $(s,t)$, antialiased over a region defined by the differentials
-\emph{dsdx, dtdx, dsty} and \emph{dtdy} (which are computed
+\emph{dsdx, dtdx, dsdy} and \emph{dtdy} (which are computed
 automatically from $s$ and $t$, if not supplied).  Whether the results
 are assigned to a \float or a \color (or type cast to one of those)
 determines whether the texture lookup is a single channel or three
@@ -4037,7 +4135,6 @@ variable specified.  This allows for RGBA lookups in a single call to
 
 \apiitem{"errormessage", <stringvariable>}
 \vspace{12pt}
-\NEW  % 1.8
 If this option is supplied, any error messages generated by the texture
 system will be stored in the specified variable rather than issuing error
 calls to the renderer, thus leaving it up to the shader to handle any
@@ -4118,6 +4215,14 @@ parameters, respectively.
 \apiitem{"firstchannel", <int>}
 \vspace{12pt}
 The first channel to look up from the texture map (default: 0).
+\apiend
+\vspace{-16pt}
+
+\apiitem{"subimage", <int> \\
+"subimage", <string>}
+\vspace{12pt}
+Specify the subimage (by numerical index, or name) of the subimage
+within a multi-image texture file (default: subimage 0).
 \apiend
 \vspace{-16pt}
 
@@ -4357,6 +4462,15 @@ Note that the named point cloud will be created, if it does not yet
 exist in memory, and that it will be initialized by reading a point
 cloud from disk, if there is one matching the name.
 
+Generally, the element type of the data arrays must match exactly the type
+of the point data attribute, or else you will get a runtime error. But there
+are two exceptions: (1) ``triple'' types (\color, \point, \vector, \normal)
+are considered interchangeable; and (2) it is legal to retrieve {\cf float}
+arrays (e.g., a point cloud attribute that is {\cf float[4]}) into a regular
+array of {\cf float}, and the results will simply be concatenated into the
+larger array (which must still be big enough, in total, to hold {\cf
+maxpoints} of the data type in the file).
+
 \noindent Example:
 
 \begin{code}
@@ -4390,10 +4504,20 @@ in the following example:
       int indices[10];
       int n = pointcloud_search ("particles.ptc", P, r, 10,
                                  "index", indices);
-      float temp[10];
+      float temp[10];         // presumed to be "float" attribute
+      float quaternions[40];  // presumed to be "float[4]" attribute
       int ok = pointcloud_get ("particles.ptc", indices, n,
-                               "temperature", temp);
+                               "temperature", temp,
+                               "quat", quaternions);
 \end{code}
+
+As with {\cf pointcloud_search}, the element type of the data array must
+either be equivalent to the point cloud attribute being retrieved, or else
+when retrieving {\cf float} arrays (e.g., a point cloud attribute
+that is {\cf float[4]}) into a regular array of {\cf float}, and the
+results will simply be concatenated into the larger array (which must
+still be big enough, in total, to hold {\cf maxpoints} of the data type
+in the file).
 \apiend
 
 
@@ -4820,7 +4944,7 @@ wish to make queryable.
 \apiend
 
 \begin{table}[htbp]
-\caption{Names of standard attributes that may be retrieved.}\label{tab:cameraattributes}
+\caption{Names of standard attributes that may be retrieved.}\label{tab:stdattributes}
 \begin{tabular}{|p{1.8in}|p{0.6in}|p{2.8in}|}
 \hline
 {\bf Name} & {\bf Type} & {\bf Description} \\
@@ -5333,6 +5457,7 @@ nothing (empty, no token).
 \alt <ternary-expression>
 \alt <typecast-expression>
 \alt <variable-ref>
+\alt <compound-initializer>
 
 <compound-expression> ::= <expression> \{ "," <expression> \}
 

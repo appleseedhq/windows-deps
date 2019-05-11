@@ -1,3 +1,642 @@
+Release 1.10.5 -- May 1, 2019 (compared to 1.10.4)
+--------------------------------------------------
+* Extend linearstep() and smooth_linearstep() to work with color, point,
+  vector, and normal types (previously restricted to float). #994
+* Improve oslc type error detection for variable declarations with init
+  expressions. Note that this may flag some warnings and errors that went
+  undetected before, involving initialization assignments of incompatible
+  types. #991, #993
+* Add a build-time option GLIBCXX_USE_CXX11_ABI to force the "new/old string
+  ABI" to something other than the default for your version of gcc. #995
+
+Release 1.10.4 -- Apr 1, 2019 (compared to 1.10.3)
+--------------------------------------------------
+* LPEs: forbid LPE repetitions inside groups. #972
+* Build process: build script finding of LLVM is now more robust to certain
+  library configurations of llvm, particularly where everything is bundled
+  in just one libLLVM without a separate libLLVMMCJIT. #976
+* oslc: Improve warnings about ill-advised use of the comma operator. #978
+* oslc: Fix an assertion/crash when passing initialization-lists as
+  parameters to a function, where the function argument expected was as
+  array. #983
+* oslc: Fix an assertion/crash for certain type constructors of structs,
+  where the struct name was not declared. (This is an incorrect shader,
+  but of course should have issued an error, not crashed.) #988
+* Note: The experimental OptiX path is not expected to work in this branch!
+  Development has continued in the 'master' branch. If you are interested in
+  testing the OptiX support while it's under development, please do so with
+  the master branch, because fixes and improvements to the OptiX support
+  are not being backported to the 1.10 branch.
+* Tested and verified that everything builds and works correctly with
+  Clang 8 and LLVM 8.0.
+
+Release 1.10.3 -- Feb 1, 2019 (compared to 1.10.2)
+--------------------------------------------------
+* oslc: Writing to function parameters not marked as `output` was only
+  recently properly recognized as an error (it was documented as illegal
+  all along). Now we demote to a warning, treating it as a full error was
+  too disruptive. #944 (1.10.3)
+* testshade: Check that no leftover errors are in the TextureSystem or
+  ImageCache at the end of the test (that would indicate that someplace in
+  OSL we are failing to check texture errors). #939 (1.10.3)
+* Improve oso output efficiency. #938 (1.10.3)
+* oslc: Fix bug related to counting the proper number of values used for
+  array default value initialization. #948 (1.10.3)
+* oslc: Slight modification to the formatting of floating point values in
+  the oso file to ensure full precision preservation for float values.
+  #949 (1.10.3)
+* oslc: Fix crash when encountering empty-expression `for (;;)`. #951 (1.10.3)
+* oslc: Fix bug in code generation of certain `while` loops that directly
+  tested a variable as a zero/nonzero test, such as:
+  ```
+      i = 3;
+      while (i)
+          --i;
+  ```
+  whereas the following had worked (they should have been identical):
+  ```
+      i = 3;
+      while (i != 0)
+          --i;
+  ```
+  #947 (1.10.3/1.11.0)
+* Fix bug in implementation of `splineinverse()` when computing with
+  Bezier interpolation. #954 (1.10.3)
+* Fix bug in implementation of `transformc` when relyin on OpenColorIO for
+  color transformation math, in cases were derivatives were needed (this
+  is a rare case probably nobody ran into). #960 (1.10.3)
+* Improve thread-safety of the OSLCompiler itself, in case an app wants
+  to be compiling several shaders to oso concurrently by different threads.
+  #953 (1.10.3)
+
+Release 1.10 -- Dec 1, 2018 (compared to 1.9)
+--------------------------------------------------
+Dependency and standards changes:
+* **LLVM 4.0 / 5.0 / 6.0 / 7.0**: Support has been removed for LLVM 3.x,
+  added for 6.0 and 7.0.
+* **OpenImageIO 1.8/2.0+**: This release of OSL should build properly against
+  OIIO 1.8 or 2.0. Support has been dropped for OIIO 1.7.
+
+New back-end targets:
+* **OptiX** Work in progress: Experimental back end for NVIDIA OptiX GPU ray
+  tracing toolkit. #861, #877, #902
+    - Build with `USE_OPTIX=1`
+    - Requires OptiX 5.1+, Cuda 8.0+, OpenImageIO 1.8.10+, LLVM >= 5.0 with
+      PTX target enabled.
+    - New utility **testoptix** is an example of a simple OptiX renderer
+      that uses OSL for shaders.
+    - Work is in progress to support the majority of OSL, but right now it
+      is restricted to a subset. All the basic math, most of the
+      standard library, noise functions, strings (aside from if you create
+      entirely new strings in the middle of a shader), and closures work.
+      The biggest thing not working yet is textures, but those are coming
+      soon.
+
+New tools:
+* **osltoy** : GUI tool for interactive shader editing and pattern
+  visualization (somewhat in the style of [Shadertoy](http://shadertoy.com).
+  #827, #914, #918, #926 (1.10.0)
+* **docdeep** : This Python script (in src/build-scripts/docdeep.py) is an
+  experimental tool to scrape comments from code and turn them into
+  beautiful Markdeep documentation. (A little like a VERY poor man's
+  Doxygen, but markdeep!) Experimental, caveat emptor. #842 (1.10.0)
+
+OSL Language and oslc compiler:
+* In OSL source code, we now encourage the use of the generic "shader" type
+  for all shaders, and it is no longer necessary or encouraged to mark
+  the OSL shader with a specific type, "surface", "displacement", etc.
+  From a source code and/or `oslc` perspective, all shaders are the same
+  generic type. A renderer may, however, have different "uses" or "contexts"
+  and may additional runtime perform error checking to ensure that the
+  shader group you have supplied for a particular "use" does not do things
+  or access globals that are not allowed for that use. #899
+* C++11 style Initializer lists. (#838) This lets you have constructs like
+
+        // pass a {} list as a triple, matrix, or struct
+        void func (point p);
+        func ({x, y, z});
+
+        // Assign {} to a struct if the types match up
+        struct vec2 { float x, y; };
+        vec2 v = {a,b};
+
+        // Compact 'return' notation, it knows to construct the return type
+        vec2 func (float a, float b)
+        {
+            return {a, b};
+        }
+
+* osl now warns when it detects duplicate declarations of functions with
+  the exact same argument list, in the same scope. #746
+* osl now correctly reports the error when you write to a user-function
+  parameter that was not declared as `output` (function params are by
+  default read-only, but a shortcoming in oslc has prevented that error
+  from being issued). #878 (1.10.0)
+* Fix oslc crash with invalid field selection syntax. #835 (1.10.0/1.9.6)
+* oslc fix to properly handle command line arguments if the shader file is
+  not the last argument on the command line. #841 (1.10.0/1.9.7)
+* oslc: when using boost.wave for preprocessing, fix whitespace insertion
+  #840 and windows path separators #849. #841 (1.10.0/1.9.7)
+* oslc: Fix bug/undefined behavior when trying to format/printf a struct.
+  #849 #841 (1.10.0/1.9.7)
+* New rules for how polymorphic function variants are chosen: Matches are
+  now ranked in an objective way that no longer depends on declaration
+  order. Type coercions are preferred in the following order of descending
+  score: exact match, int -> float, float -> triple, spatial triple ->
+  spatial triple, any triple -> triple. If there is a tie for passed
+  arguments, return types will break the tie. If there is still a tie or
+  truly ambiguous case, a warning will be printed explaining the choices and
+  which was chosen. #844 (1.10.0)
+* It is now a warning to define the same function twice in the same scope.
+  #853 (1.10.0)
+* A shader input parameter marked with metadata `[[ int allowconnect = 0 ]]`
+  will disallow runtime connections via `ConnectShaders()`, resulting in an
+  error. #857 (1.10.0)
+* oslc command-line argument `-Werror` will treat all warnings as hard
+  errors (failed compilation). #862 (1.10.0)
+* `#pragma osl nowarn` will suppress any warnings arising from code on the
+  immediately following line of that source file. #864 (1.10.0)
+* oslc error reporting is improved, many multi-line syntactic constructs
+  will report errors in a more intuitive, easy-to-understand line number.
+  #867 (1.10.0)
+* Faster parsing of very large constant initializer lists for arrays in OSL.
+  We found an inadvertent O(n^2) behavior when parsing initializer lists.
+  It used to be that a constant table in the form an array of 64k floats
+  took over 10s to compile, now it is 50x faster. #901
+* Resolution of ambiguous return type functions (such as noise) has been
+  improved when their results are used as arguments to type constructors.
+  #931 (1.10.1)
+
+OSL Standard library:
+* There has been a change in the appearance to Cell noise and Gabor noise.
+  This is to fix a bug that made an incorrect pattern for certain negative
+  exact-integer values for cellnoise, and in lots of places for Gabor noise.
+  The only way to fix it was to potentially change the appearance for some
+  shaders. Sorry. If this is a real problem, let us know, perhaps we can
+  make a build-time switch that will let you use the old buggy noise? But
+  since this is a "2.0" release, we figured it was as good a time as ever to
+  let it change to the correct results. #912 (1.10.0)
+
+Shaders:
+* Contributed shader library changes:
+    * mandelbrot.osl: computes Mandelbrot and Julia images. #827 (1.10.0)
+* MaterialX support:
+    * Improved support for MaterialX 1.36: add sin, cos, tan, atan2, ceil,
+      sqrt, exp, determinent, ln, transpose, sign, rotate, transforms,
+      rgb/hsv convert, extract, separate, tiledimage. Rename exponent ->
+      power, pack -> combine, hsvadjust -> hueshift. Add some color2/4
+      mutual conversion operators. Fixes to ramp4, clean up texture mapping
+      nodes, fixes to triplanarprojection weighting. Extend add/sub/mul/div
+      to include matrices. #903, #904, #905, #907, #909 (1.9.10/1.10.0)
+
+API changes, new options, new ShadingSystem features (for renderer writers):
+* ShadingSystem API:
+    * It is now permitted to ConnectShaders a single component of a
+      color/point/vector/normal to a float and vice versa. #801 (1.10.0)
+    * An older version of ShadingSystem::execute, which had been marked
+      as deprecated since OSL 1.6, has been fully removed. #832 (1.10.0)
+    * `ShadingSystem::Shader()` now has all three parameters required (none
+      are optional), though the "use" parameter no longer has any meaning.
+      (It will be deprecated and removed in a future release.) #899
+    * `ShadingSystem::optimize_group()` now takes an optional pointer to a
+      `ShadingContext`, which it will use if needed (if passed NULL, one
+      will be internally allocated, used, and freed, as before). #936
+* ShadingSystem attributes:
+    * New `"allow_shader_replacement"` (int) attribute, when nonzero, allows
+      shaders to be specified more than once, replacing their former
+      definitions. The default, 0, considers that an error, as it always
+      has. #816 (1.10.0).
+    * New developer option `"llvm_output_bitcode"` dumps the bitcode for each
+      group, even if other debug options aren't turned on, and also any
+      dumped bitcode will save as text as well as binary. #831 (1.10.0)
+    * New attribute `"error_repeats"`, if set to non-zero, turns off the
+      suppression of multiple identical errors and warnings. Setting it
+      (even to its existing value) also clears the "already seen" lists.
+      #880, #883 (1.10.0/1.9.9/1.8.14)
+* Shader group attributes:
+    * New attributes that can be queried with `getattribute()`:
+      `"globals_read"` and `"globals_write"` retrieve an integer bitfield
+      that can reveal which "globals" may be read or written by the shader
+      group. The meaning of the bits is given by the enum class `SGBits`
+      in `oslexec.h`. #899
+* RendererServices API:
+    * Older versions of RendererServices texture functions, the old ones
+      with no errormessage parameter, which were documented as deprecated
+      since 1.8, are now marked OSL_DEPRECATED. #832 (1.10.0)
+* OSLCompiler API:
+    * Improved error reporting when compiling from memory buffer. The
+      `OSLCompiler::compile_buffer()` method now takes an optional filename
+      parameter that will make error messages attribute the right "file"
+      (e.g., `Error: foo.osl:5...` rather than `<buffer>:5...`). #937 (1.10.2)
+* Miscellaneous:
+    * liboslnoise: Properly hide/export symbols. #849 (1.10.0/1.9.7)
+    * The behavior of the "searchpath:shader" attribute, used for finding
+      `.oso` files when shaders is requested, has been modified. If no
+      search path is specified, the current working directory (".") will
+      be searched. But if there is a search path attribute specified, only
+      those directories will be searched, with "." only searched if it is
+      explicitly included in the search path value. #925 (1.10.0)
+
+Bug fixes and other improvements (internals):
+* The context's `texture_thread_info` is now properly passed to the
+  RenderServices callbacks instead of passing NULL. (1.10.0)
+* Symbols are enbled in the JIT, allowing Intel Vtune profiler to correctly
+  report which JITed OSL code is being executed. #830 (1.10.0)
+* ASTNode and OSLCompilerImpl -- add info() and message() methods to
+  complement the existing error and warning. #854 (1.10.0)
+* Fix incorrect array length on unbounded arrays specified by relaxed
+  parameter type checking. #900 (1.9.10/1.10.0)
+* oslc bug fix: the `regex_search()`/`regex_match()` functions did not properly
+  mark their `results` output parameter as write-only. This was never
+  noticed by anyone, but could have resulted in incorrect optimizations.
+  #922 (1.10.0)
+* When reading `.oso` files, the parser is now more robust for certain ways
+  that the oso file might be corrupted (it's more forgiving, fewer possible
+  ways for it to abort or assert). #923 (1.10.0)
+* Bug fixes related to incorrect reliance on OIIO's `ustring::operator int()`.
+  It's being removed from OIIO, so wean ourselves off it. #929 (1.10.0)
+* Certain texture3d lookups with derivatives could crash. #932 (1.10.1)
+* Fix oslc assertion crash when a struct parameter was initialized with
+  a function call. #934 (1.10.1)
+
+Build & test system improvements:
+* Appveyor CI testing for Windows. #849,852,855 (1.10.0/1.9.7)
+* Our new policy is to disable `STOP_ON_WARNING` for release branches, to
+  minimize build breaks for users when a new compiler warning is hit. We
+  still enable it in development/master branches as well as any CI build
+  in any branch. #850 (1.10.0/1.9.7)
+* Testsuite is now Python 2/3 agnostic. #873 (1.10.0)
+* Build the version into the shared library .so names. #876
+  (1.8.13/1.9.8/1.10.0)
+* Update to fix with OpenImageIO 1.9. #882,#889
+* Flex/bison fixes on Windows. #891
+* Fix Windows build break with iso646.h macros. #892
+* Fix warnings on gcc 6. #896
+* Fix errors building with MSVC. #898
+* Fixes to build with clang 7, and to use LLVM 7. #910, #921 (1.10.0)
+* Fix warnings on gcc 8. #921 (1.10.0)
+* Build system: the variables containing hints for where to find IlmBase
+  and OpenEXR have been changed to `ILMBASE_ROOT_DIR` and `OPENEXR_ROOT_DIR`
+  (no longer `ILMBASE_HOME`/`OPENEXR_HOME`). Similarly, `OPENIMAGEIO_ROOT_DIR`
+  is the hint for custom OIIO location (no longer OPENIMAGEIOHOME). #928
+* Eliminated some in-progress MaterialX tests, they weren't in good order,
+  we will do it differently if we want to add MX tests in the future. #928
+* Build options `OSL_BUILD_SHADERS` and `OSL_BUILD_MATERIALX` (both default
+  to ON) can be used to disable building of all shaders or MX shaders,
+  respectively. #935 (1.10.1)
+
+Documentation:
+* `osltoy` documentations in `doc/osltoy.md.html` (1.10.0).
+
+
+
+Release 1.9.13 -- 1 Dec 2018 (compared to 1.9.12)
+------------------------------------------------
+* Fix crash with texture3d lookups with derivatives. #932
+* Fix oslc crash when a struct parameter is initialized with a function call
+  that returns a structure. #934
+
+Release 1.9.12 -- 1 Nov 2018 (compared to 1.9.11)
+------------------------------------------------
+* Fix oslc read/write error for `regex_search`/`regex_match` #922
+* Make oso reading more robust to certain broken inputs. #923
+* Internals: make safe for some changes coming to ustring API in OIIO
+  master. #929
+* Several docs fixes.
+
+Release 1.9.11 -- 1 Oct 2018 (compared to 1.9.10)
+------------------------------------------------
+* Full support for using LLVM 6.0 and 7.0. #913, #919
+* Support for building with gcc 8. #921
+* Fix testrender bug with undefined order of operations (only was a problem
+  with gcc5 and clang7). #916
+
+Release 1.9.10 -- 1 Sep 2018 (compared to 1.9.9)
+------------------------------------------------
+* Fix Windows compile of the flex/bison compiler components. #891
+* Fix for compatibility with OIIO 1.9.
+* Fix incorrect array length on unbounded arrays specified by relaxed
+  parameter type checking. #900
+* Speed up oslc parsing of long constant initializer lists. #901
+* Add more functions to color2.h, color4.h, vector2.h, vector4.h: ceil,
+  sqrt, exp, log2, log, sign, sin, cos, tan, asin, acos, atan2. #903, #904
+* Improved support for MaterialX 1.36: add sin, cos, tan, atan2, ceil, sqrt,
+  exp, determinent, ln, transpose, sign, rotate, transforms, rgb/hsv convert,
+  extract, separate, tiledimage. Rename exponent -> power, pack -> combine,
+  hsvadjust -> hueshift. Add some color2/4 mutual conversion operators.
+  Fixes to ramp4, clean up texture mapping nodes, fixes to triplanarprojection
+  weighting. Extend add/sub/muldiv to include matrices. #903, #904, #905
+
+Release 1.9.9 -- 1 May 2018 (compared to 1.9.8)
+-----------------------------------------------
+* New SS attribute `"error_repeats"`, if set to non-zero, turns off the
+  suppression of multiple identical errors and warnings. Setting it (even to
+  its existing value) also clears the "already seen" lists. #880
+  (1.8.14/1.9.9)
+* Update to fix with some changes in OpenImageIO 1.9. #882
+
+Release 1.9.8 -- 1 Apr 2018 (compared to 1.9.7)
+-----------------------------------------------
+* Build the version into the shared library .so names. #876 (1.8.13/1.9.8)
+
+Release 1.9.7 -- 1 Feb 2018 (compared to 1.9.6)
+-----------------------------------------------
+* oslc fix to properly handle command line arguments if the shader file is
+  not the last argument on the command line. #841
+* oslc: when using boost.wave for preprocessing, fix whitespace insertion
+  #840 and windows path separators #849.
+* oslc: Fix bug/undefined behavior when trying to format/printf a struct.
+  #849
+* liboslnoise: Fix symbol export/hiding. #849
+* Misc build issue cleanup on Windows. #849
+* For release branches, we no longer have builds consider every compiler
+  warning to be an error (except in master or for CI builds).
+
+Release 1.9.6 -- 1 Jan 2018 (compared to 1.9.5)
+-----------------------------------------------
+* Fix oslc crash with invalid field selection syntax. #835
+* Certain texture calls were inadvertently not passing in thread data,
+  forcing the texture system to look it up again redundantly. #829
+
+
+Release 1.9 -- 4 December 2017 (compared to 1.8)
+--------------------------------------------------
+
+Dependency and standards changes:
+* **C++11 required**: OSL 1.9 requires a minimum standard of C++11. It
+  should also build against C++14 and C++17.
+* **LLVM 3.5 / 3.9 / 4.0 / 5.0**: Support has been added for LLVM 3.9, 4.0,
+  and 5.0. Support has been removed for for LLVM 3.4.
+* **OpenImageIO 1.7+**: This release of OSL should build properly against
+  OIIO 1.7 or newer. You may find that 1.6 is still ok, but we are not doing
+  any work to ensure that.
+* **CMake >= 3.2.2**
+* **Boost >= 1.55**
+* **OpenEXR/IlmBase >= 2.0** (recommended: 2.2)
+
+Language features:
+* New preprocessor symbols: `OSL_VERSION_MAJOR`, `OSL_VERSION_MINOR`,
+  `OSL_VERSION_PATCH`, and `OSL_VERSION` (e.g. 10900 for 1.9.0) reveal the
+  OSL release at shader compile time. #747 (1.9.0)
+* Structure constructors: If you have a struct `S` comprising fields with
+  types T1, T2, ..., you may now have an expression `S(T1 v2, T2 v2,...)`
+  that constructs and returns an `S` with those field values, much in the
+  same way that you can say `color(a,b,c)` to construct a color out of
+  components a, b, c.  #751 (1.9.0)
+* User-defined operator overloading: If you make a new (struct) type, it
+  is possible to define overloaded operators, like this:
+
+      struct vec2 { float x; float y; };
+
+      vec2 __operator__add__ (vec2 a, vec2 b) { return vec2(a.x+b.x, ay+b.y); }
+
+      vec2 a, b, c;
+      a = b + c;   // chooses __operator__add__()
+
+  This can be done with any of the operators, see the OSL Language Spec PDF
+  for details. #753 (1.9.0)
+
+Standard library additions/changes:
+* `getattribute ("osl:version", intvar)` at runtime can reveal the OSL
+  version on which the shader is being executed. #747 (1.9.0)
+* `pointcloud_search()/pointcloud_get()` have more flexibility in what type
+  of data it may retrieve: you can now retrieve arrays, if that is what is
+  stored per-point in the point cloud (for example, a `float[4]`).
+  #752 (1.9.0)
+* `smoothstep()` has been extended to `T smoothstep(T edge0, T edge1, T x)`
+  for T of any the `triple` types (previously, `smoothstep` only came in
+  the `float` variety). #765 (1.9.0/1.8.10)
+* `mix()` has been extenended to support
+      `color closure mix (color closure A, color closure B, color x)`
+  #766 (1.9.0/1.8.10)
+* `hashnoise()` is like cellnoise (1D, 2D, 3D, or 4D input, 1D or 4D output
+  on [0,1]), but is discontinuous everywhere (versus cellnoise, which is
+  constant within each unit cube and discontinuous at at integer coordinates).
+  #775 (1.9.0/1.8.10)
+* `int hash (...)` has been extended to take arguments that are int, float,
+  2 floats, point, or point+float. #775 (1.9.0/1.8.10)
+* `transformc()` can now perform any color transformations understood by
+  OpenColorIO (assuming OCIO support was enabled when OSL was build, and that
+  a valid OCIO configuration is found at runtime). #796 (1.9.1) Also,
+  `transformc()` now fully supports derivatives in all cases. #798 (1.9.1)
+
+Contributed shader library changes:
+* New headers: color2.h, color4.h, vector2.h, vector4.h. Technically these
+  are not part of the OSL specification and standard library, but are
+  "contributed" code that you may find handy. They implement 2- and 4-
+  component colors (RA and RGBA) and 2D and 4D vectors. #777 (1.9.1)
+* A full complement of MaterialX shaders is now included in the OSL
+  distribution. #777 (1.9.1)
+
+API changes, new options, new ShadingSystem features (for renderer writers):
+* ShadingSystem API changes:
+    * New `set_raytypes()` call sets the known raytypes (on and off) for
+      a shader group for subsequent optimization. This lets you combine ray
+      specialization with lazy compilation. #733 (1.9.0)
+    * `Parameter()` is now less strict about type checking when setting
+      parameter instance values. In particular, it's now ok to pass a
+      `float` value to a "triple" (color, point, etc.) parameter, and to
+      pass one kind of triple when a different kind of triple was the
+      declared parameter type. In this respect, the rules now more closely
+      resample what we always allowed for `ConnectShaders`. #750 (1.9.0)
+    * More optional `Parameter()` type checking relaxation: if the
+      ShadingSystem attribute `"relaxed_param_typecheck"` is nonzero, an
+      array of floats may be passed for float aggregates (e.g. color) or
+      arrays of float aggregates, as long as the total number of floats
+      matches. For example, with this attribute turned on, a `float[3]`
+      may be passed as a parameter that expected a `vector`. Also, an `int`
+      may be passed to a `float` parameter, and an `int[1]` may be passed
+      to an `int` parameter. #794,#797 (1.9.1)
+    * A new, optional, slightly relaxed policy for type checking what is
+      passed via `Parameter()`
+    * `Shader()` will now accept the name of the shader as if it were the
+      filename, with trailing `.oso`, and it will be automatically stripped
+      off. #741 (1.9.0)
+    * `convert_value()` now allows conversions between `float[3]` and triple
+      values. #754 (1.9.0)
+* ShadingSystem attribute additions/changes:
+    * `"relaxed_param_typecheck"` (default=0) enables more relaxed type
+      checking of `Parameter()` calls: arrays of float may be passed to
+      parameters expecting a float-aggregate or array thereof, and an `int`
+      may be passed to a parameter expecting a `float`, and an `int[1]` may
+      be passed to an `int` parameter. #794,#797 (1.9.1)
+* Fixed `ClosureComponent` to work with SSE alignment requirements. #810
+  (1.9.3)
+
+Performance improvements:
+* Shader JIT time is improved by about 10% as a result of pre-declaring
+  certain function addresses instead of relying on LLVM to use dlsym() calls
+  to find them within the executable. #732 (1.9.0)
+* The runtime cost of range checking array accesses has been reduced by
+  about 50%. #739 (1.9.0)
+* Runtime optimization: Constant folding of `%` operation. #787 (1.9.1)
+
+Bug fixes and other improvements (internals):
+* Avoid division by 0 when computing derivatives in pointcloud_search.
+  #710 (1.9.0/1.8.7)
+* Avoid subtle use-after-free memory error in dictionary_find().
+  #718 (1.9.0/1.8.6)
+* Fix minor inconsistency in the behavior of `normalize()` when the input
+  has derivatives versus when it does not. #720 (1.9.0/1.8.7)
+* Fix an optimization bug where calls to `trace()` could accidentally get
+  elided if the results of the function call were unused in the shader.
+  This is incorrect! Because `trace()` has side effects upon subsequent
+  calls to `getmessage("trace",...)`. #722 (1.9.0/1.8.7)
+* Runtime optimizer is sped up by avoiding some string operations related
+  to searching for render outputs when none are registered. (1.9.0)
+* Searching for stdosl.h now works uniformly whether it's oslc itself, or
+  apps that use OSLCompiler, and in all cases are better about guessing
+  where the header is located even when `$OSLHOME` environment variable is
+  not set. #737 (1.9.0)
+* Internals: Fix the handling of alignment for closure structs. #740 (1.9.0)
+* oslc: fix internal memory leak of ASTNode's. #743 (1.9.0)
+* testshade improvements:
+    * New option `--texoptions` lets you directly set extra TextureSystem
+      options for tests. #744 (1.9.0)
+    * Fix that allows you to set a parameters that is an array-of-strings.
+      #745 (1.9.0)
+    * Rename `--scalest/--offsetst` to `--scaleuv/--offsetuv` to properly
+      reflect that they alter u and v (there is no s, t). #757 (1.9.0)
+    * `--print` prints the value of all saved outputs. #757 (1.9.0)
+    * Automatically convert to sRGB when saving outputs to JPEG, PNG, or GIF
+      images, to make them more "web ready." #757 (1.9.0)
+    * `--runstats` is more careful about not including the time to write
+      output images in the main shader run time statistic. #757 (1.9.0)
+    * Rename `-od` option to `-d` to match oiiotool and maketx. #757 (1.9.0)
+* testrender: Automatically convert to sRGB when saving outputs to JPEG,
+  PNG, or GIF images, to make them more "web ready." #757 (1.9.0)
+* Slight efficiency improvement when you call texture functions with the
+  optional `"subimage"` parameter and pass the empty string (which means
+  the first subimage, equivalent to not passing `"subimage"` at all).
+  #749 (1.9.0)
+* oslc bug fixes where in some circumstances polymorphic overloaded
+  functions or operators could not be properly distinguished if their
+  parameters were differing `struct` types. #755 (1.9.0)
+* Fix minor numerical precision problems with `inversespline()`. #772 (1.9.0)
+* `testshade` gives better error messages for the common mistake of using
+  `-param` after the shader is set up. #773 (1.9.0)
+* Fix bug with transitive assignment for arrays, like `a[0] = a[1] = 0;`
+  #774 (1.9.0)
+* The standard OSL library function fprintf() was not properly implemented.
+  #780 (1.9.1)
+* Fix subtle bugs related to our ignorance of "locales" -- we now are very
+  careful when parsing `.osl` source (and other places) to be always use
+  the `'.'` (dot) character as decimal separator in floating point number,
+  even when running on a computer system configured to use a foreign locale
+  where the comma is traditionally used as the decimal separator. #795 (1.9.1)
+* Fix param analysis bug for texture or pointcloud functions with optional
+  token/value parameters where the token name wasn't a string literal -- it
+  could fail to recognize that certain parameters would be written to by the
+  call. #812 (1.9.3)
+* ShadingSystem statistics are now printed if any shaders were
+  declared/loaded, even if no shaders were executed. #815 (1.9.3)
+* Minor OSLQuery implementation improvements: add move/copy constructors
+  for OSLQuery::Parameter, make the ShadingSystem side of OSLQuery correctly
+  report default parameter values. #821 (1.9.4)
+
+Build & test system improvements:
+* C++11 is the new language baseline. #704, #707
+* Many uses of Boost have been switched to use C++11 features, including
+  prior uses of boost::shared_ptr, bind, ref, unordered_map, unordered_set
+  now using the std:: equivalents; BOOST_FOREACH -> C++11 "range for"; Boost
+  string algorithms replaced by OIIO::Strutil functions; Boost filesystem
+  replaced by OIIO::Filesystem functions; Boost scoped_ptr replaced by
+  std::unique_ptr; boost::random replaced by std::random;
+  boost::intrusive_ptr replaced by OIIO::intrusive_ptr; boost thread
+  replaced by std::thread and various OIIO::thread utilities. #707 (1.9.0)
+* CMake 3.2.2 or higher is now required. The CMake build scripts have been
+  refactored substantially and cleaned up with this requirement in mind.
+  #705 (1.9.0)
+* Boost 1.55 or higher is now required (per VFXPlatform guidelines).
+* Big refactor of the CMake scripts for how we find LLVM, now also broken
+  out into a separate FindLLVM.cmake. #711 (1.9.0)
+* Remove direct references to tinyformat in lieu of C++11 variadic
+  templates and use of OIIO::Strutil::format. #713 (1.9.0)
+* Use std::regex rather than boost::regex any time the former is available.
+  (Note: gcc 4.8 will automatically still fall back to boost, since correct
+  implementation of std::regex did not happen until gcc 4.9.) #714 (1.9.0)
+* When available (and with the right compiler version combinations), OSL
+  will rely on Clang library internals to "preprocess" oso input, rather
+  than Boost Wave. This solves problems particularly on OSX and FreeBSD
+  where clang/C++11-compiled OSL was having trouble using Boost Wave if
+  Boost was not compiled in C++11 mode (which is difficult to ensure if
+  you don't control the machine or build boost yourself). #715 (1.8.5/1.9.0)
+  #719 #721 (1.9.0/1.8.7)
+* Tweaks to FindOpenImageIO.cmake. (1.9.0)
+* Fixed linkage problems where some of our unit test programs were unwisely
+  linking against both liboslcomp and liboslexec (not necessary, and caused
+  problems for certain LLVM components that appeared statically in both).
+  #727 (1.9.0/1.8.7)
+* Added an easy way to invoke clang-tidy on all the files. #728
+* All internal references to our public headers have been changed to the
+  form #include <OSL/foo.h>, and not "OSL/foo.h" or "foo.h". #728
+* The namespace has been changed somewhat, is now only one level deep and
+  contains the version, eliminating version clashes within the same
+  executable. You still refer to namespace "OSL", it's an alias for the
+  real versioned (and potentially customized) one. #732 (1.9.0)
+* Symbol visibility is now properly restricted for certain "C" linkage
+  functions needed for availability by the LLVM-generated code. And overall,
+  the HIDE_SYMBOLS build mode is now on by default. #732 (1.9.0)
+* More robust finding of external PugiXML headers. (1.9.0)
+* Fix ilmbase linker warning with LINKSTATIC on Windows. #768 (1.9.0)
+* Fix osl_range_check not found error when USE_LLVM_BITCODE=OFF. #767 (1.9.0)
+* Windows fixes where BUILDSTATIC incorrectly set /MT flag. #769 (1.9.0)
+* Some preliminary work to make OSL safe to compile with C++17. (1.9.1)
+* C++11 modernization: use range-for loops in many places. #785 (1.9.1)
+* Make OSL build with clang 5.0 and against LLVM 5.0. #787 (1.9.1)
+* Removed support for building against LLVM 3.4. #792 (1.9.1)
+* Use GNUInstallDirs to simplify build scripts and more properly conform to
+  widely established standards for layout of installation directory files.
+  #788 (1.9.1)
+* Improved proper rebuilding of the LLVM bitcode for llvm_ops.cpp when only
+  certain headers change. #802 (1.9.1)
+* Fix gcc7 warnings about signed vs unsigned compares. #807 (1.9.2)
+* Simplify the build logic for finding PugiXML and prefer a system install
+  when found, rather than looking to OIIO to supply it. #809 (1.9.2)
+* MSVS 2015 x64 compilation fixes. #820 (1.9.4)
+* Fix debug compile against OIIO 1.7. #822 (1.9.4)
+
+Developer goodies:
+* The `dual.h` implementation has been completely overhauled. The primary
+  implementation of dual arithmetic is now the template `Dual<T,PARTIALS>`
+  where `PARTIALS` lets it specialize on the number of partial derivatives.
+  This lets you use the `Dual` templates for automatic differentiation of
+  of ordinary 1D functions (e.g., `Dual<float,1>`) or 3D volumetric
+  computations (e.g., `Dual<float,3>`). Most of OSL internals use automatic
+  differentiation on 2 dimenstions (`Dual<float,2>` a.k.a. `Dual2<float>`),
+  but this change makes `dual.h` a lot more useful outside of OSL.
+  #803 (1.9.1)
+
+Documentation:
+* Fixed unclear explanation about structures with nested arrays. (1.9.0)
+* Full testshade docs in `doc/testshade.md.html` (1.9.0)
+
+
+
+Release 1.8.15 -- 1 Aug 2018 (compared to 1.8.14)
+--------------------------------------------------
+* Fixes for compatibility with OIIO 1.9.
+
+Release 1.8.14 -- 1 May 2018 (compared to 1.8.13)
+--------------------------------------------------
+* New SS attribute "error_repeats", if set to non-zero, turns off the
+  suppression of multiple identical errors and warnings. Setting it (even to
+  its existing value) also clears the "already seen" lists. #880
+* Update to fix with some changes in OpenImageIO 1.9. #882
+
+Release 1.8.13 -- 1 Apr 2018 (compared to 1.8.12)
+--------------------------------------------------
+* Build the version into the shared library .so names. #876
+
+Release 1.8.12 -- 1 Nov 2017 (compared to 1.8.11)
+--------------------------------------------------
+* Improve type checking error messages with structs. #761
+
+Release 1.8.11 -- 3 Oct 2017 (compared to 1.8.10)
+--------------------------------------------------
+* Builds properly against LLVM 5.0, and if compiled by clang 5.0.
+* Changes to test/CI with recent OIIO release.
+
 Release 1.8.10 -- 1 Jul 2017 (compared to 1.8.9)
 --------------------------------------------------
 * Missing faceforward() implementation was added to stdosl.h. #759
@@ -67,11 +706,10 @@ Release 1.8.7 -- 1 Apr 2017 (compared to 1.8.6)
 * Fixed linkage problems where some of our unit test programs were unwisely
   linking against both liboslcomp and liboslexec (not necessary, and caused
   problems for certain LLVM components that appeared statically in both).
-
+  #727
 
 Release 1.8 [1.8.6] -- 1 Mar 2017 (compared to 1.7)
 ---------------------------------------------------
-
 Dependency and standards changes:
 * OSL now builds properly against LLVM 3.9 and 4.0 (in addition to 3.5 and
   3.4). Please note that for 3.9 or 4.0 (which use MCJIT), the JIT overhead

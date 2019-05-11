@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <OpenImageIO/fmath.h>
 
 #include "oslexec_pvt.h"
-#include "OSL/genclosure.h"
+#include <OSL/genclosure.h>
 #include "backendllvm.h"
 
 using namespace OSL;
@@ -57,6 +57,7 @@ static ustring op_fabs("fabs");
 static ustring op_floor("floor");
 static ustring op_for("for");
 static ustring op_format("format");
+static ustring op_fprintf("fprintf");
 static ustring op_ge("ge");
 static ustring op_gt("gt");
 static ustring op_hashnoise("hashnoise");
@@ -156,10 +157,8 @@ BackendLLVM::llvm_call_layer (int layer, bool unconditional)
         // insert point is now then_block
     }
 
-    std::string name = Strutil::format ("%s_%d", parent->layername().c_str(),
-                                        parent->id());
     // Mark the call as a fast call
-    llvm::Value *funccall = ll.call_function (name.c_str(), args, 2);
+    llvm::Value *funccall = ll.call_function (layer_function_name(group(), *parent).c_str(), args, 2);
     if (!parent->entry_layer())
         ll.mark_fast_func_call (funccall);
 
@@ -256,7 +255,7 @@ LLVMGEN (llvm_gen_useparam)
 
 
 
-// Used for printf, error, warning, format
+// Used for printf, error, warning, format, fprintf
 LLVMGEN (llvm_gen_printf)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
@@ -264,8 +263,8 @@ LLVMGEN (llvm_gen_printf)
     // Prepare the args for the call
     
     // Which argument is the format string?  Usually 0, but for op
-    // format(), the formatting string is argument #1.
-    int format_arg = (op.opname() == "format" ? 1 : 0);
+    // format() and fprintf(), the formatting string is argument #1.
+    int format_arg = (op.opname() == "format" || op.opname() == "fprintf") ? 1 : 0;
     Symbol& format_sym = *rop.opargsym (op, format_arg);
 
     std::vector<llvm::Value*> call_args;
@@ -277,8 +276,15 @@ LLVMGEN (llvm_gen_printf)
 
     // For some ops, we push the shader globals pointer
     if (op.opname() == op_printf || op.opname() == op_error ||
-            op.opname() == op_warning)
+            op.opname() == op_warning || op.opname() == op_fprintf)
         call_args.push_back (rop.sg_void_ptr());
+
+    // fprintf also needs the filename
+    if (op.opname() == op_fprintf) {
+        Symbol& Filename = *rop.opargsym (op, 0);
+        llvm::Value* fn = rop.llvm_load_value (Filename);
+        call_args.push_back (fn);
+    }
 
     // We're going to need to adjust the format string as we go, but I'd
     // like to reserve a spot for the char*.
@@ -315,6 +321,8 @@ LLVMGEN (llvm_gen_printf)
             std::string ourformat (oldfmt, format);  // straddle the format
             // Doctor it to fix mismatches between format and data
             Symbol& sym (*rop.opargsym (op, arg));
+            ASSERT (! sym.typespec().is_structure_based());
+
             TypeDesc simpletype (sym.typespec().simpletype());
             int num_elements = simpletype.numelements();
             int num_components = simpletype.aggregate;
@@ -350,10 +358,25 @@ LLVMGEN (llvm_gen_printf)
                         s += " ";
                     s += ourformat;
 
-                    llvm::Value* loaded = rop.llvm_load_value (sym, 0, arrind, c);
+                    llvm::Value* loaded = nullptr;
+                    if (rop.use_optix() && simpletype.basetype == TypeDesc::STRING) {
+                        // TODO: make this work with arrind
+                        // In the OptiX case, we use the device-side string.
+                        loaded = rop.llvm_load_device_string (sym);
+                    }
+                    else {
+                        loaded = rop.llvm_load_value (sym, 0, arrind, c);
+                    }
+
                     if (simpletype.basetype == TypeDesc::FLOAT) {
                         // C varargs convention upconverts float->double.
                         loaded = rop.ll.op_float_to_double(loaded);
+                    }
+
+                    if (simpletype.basetype == TypeDesc::INT && rop.use_optix()) {
+                        // The printf supported by OptiX expects 8-byte arguments,
+                        // so promote int to long long
+                        loaded = rop.ll.op_int_to_longlong(loaded);
                     }
 
                     call_args.push_back (loaded);
@@ -366,6 +389,20 @@ LLVMGEN (llvm_gen_printf)
         }
     }
 
+    if (rop.use_optix() && arg > (format_arg + 2)) {
+        std::cerr << "WARNING: "
+                  << "OptiX only supports 0 or 1 printf arguments at this time. "
+                  << "Ignoring printf call in " << op.sourcefile() << std::endl;
+        return true;
+    }
+
+    // In OptiX, printf currently supports 0 or 1 arguments, and the signature
+    // requires 1 argument, so push a null pointer onto the call args if there
+    // is no argument.
+    if (rop.use_optix() && arg == format_arg + 1) {
+        call_args.push_back(rop.ll.void_ptr_null());
+    }
+
     // Some ops prepend things
     if (op.opname() == op_error || op.opname() == op_warning) {
         std::string prefix = Strutil::format ("Shader %s [%s]: ",
@@ -375,7 +412,13 @@ LLVMGEN (llvm_gen_printf)
     }
 
     // Now go back and put the new format string in its place
-    call_args[new_format_slot] = rop.ll.constant (s.c_str());
+    if (! rop.use_optix()) {
+        call_args[new_format_slot] = rop.ll.constant (s.c_str());
+    }
+    else {
+        // In the OptiX case, we use the pointer to the device-side string
+        call_args[new_format_slot] = rop.llvm_load_device_string (format_sym);
+    }
 
     // Construct the function name and call it.
     std::string opname = std::string("osl_") + op.opname().string();
@@ -1328,9 +1371,24 @@ LLVMGEN (llvm_gen_aassign)
     }
 
     int num_components = Result.typespec().simpletype().aggregate;
+
+    // Allow float <=> int casting
+    TypeDesc cast;
+    if (num_components == 1 && !Result.typespec().is_closure() && !Src.typespec().is_closure() &&
+        (Result.typespec().is_int_based() ||  Result.typespec().is_float_based()) &&
+        (Src.typespec().is_int_based() ||  Src.typespec().is_float_based())) {
+        cast = Result.typespec().simpletype();
+        cast.arraylen = 0;
+    } else {
+        // Try to warn before llvm_fatal_error is called which provides little
+        // context as to what went wrong.
+        ASSERT (Result.typespec().simpletype().basetype ==
+                Src.typespec().simpletype().basetype);
+    }
+
     for (int d = 0;  d <= 2;  ++d) {
         for (int c = 0;  c < num_components;  ++c) {
-            llvm::Value *val = rop.loadLLVMValue (Src, c, d);
+            llvm::Value *val = rop.loadLLVMValue (Src, c, d, cast);
             rop.llvm_store_value (val, Result, d, index, c);
         }
         if (! Result.has_derivs())
@@ -1588,6 +1646,26 @@ LLVMGEN (llvm_gen_transform)
 
 
 
+// transformc (string fromspace, string tospace, color p)
+LLVMGEN (llvm_gen_transformc)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    ASSERT (op.nargs() == 4);
+    Symbol *Result = rop.opargsym (op, 0);
+    Symbol *From = rop.opargsym (op, 1);
+    Symbol *To = rop.opargsym (op, 2);
+    Symbol *C = rop.opargsym (op, 3);
+
+    llvm::Value *args[] = { rop.sg_void_ptr(),
+        rop.llvm_void_ptr(*C), rop.ll.constant(C->has_derivs()),
+        rop.llvm_void_ptr(*Result), rop.ll.constant(Result->has_derivs()),
+        rop.llvm_load_value(*From), rop.llvm_load_value(*To) };
+    rop.ll.call_function ("osl_transformc", args);
+    return true;
+}
+
+
+
 // Derivs
 LLVMGEN (llvm_gen_DxDy)
 {
@@ -1691,6 +1769,27 @@ LLVMGEN (llvm_gen_compare_op)
 
     llvm::Value* final_result = 0;
     ustring opname = op.opname();
+
+    if (rop.use_optix() && A.typespec().is_string()) {
+        ASSERT (B.typespec().is_string() && "Only string-to-string comparison is supported");
+
+        llvm::Value* a = rop.llvm_load_device_string (A);
+        llvm::Value* b = rop.llvm_load_device_string (B);
+
+        if (opname == op_eq) {
+            final_result = rop.ll.op_eq (a, b);
+        } else if (opname == op_neq) {
+            final_result = rop.ll.op_ne (a, b);
+        } else {
+            // Don't know how to handle this.
+            ASSERT (0 && "OptiX only supports equality testing for strings");
+        }
+        ASSERT (final_result);
+
+        final_result = rop.ll.op_bool_to_int (final_result);
+        rop.storeLLVMValue (final_result, Result, 0, 0);
+        return true;
+    }
 
     for (int i = 0; i < num_components; i++) {
         // Get A&B component i -- note that these correctly handle mixed
@@ -2065,7 +2164,7 @@ llvm_gen_texture_options (BackendLLVM &rop, int opnum,
         ustring name = *(ustring *)Name.data();
         ++a;  // advance to next argument
 
-        if (! name)    // skip empty string param name
+        if (name.empty())    // skip empty string param name
             continue;
 
         Symbol &Val (*rop.opargsym(op,a));
@@ -2174,7 +2273,7 @@ llvm_gen_texture_options (BackendLLVM &rop, int opnum,
         if (name == Strings::subimage && valtype == TypeDesc::STRING) {
             if (Val.is_constant()) {
                 ustring v = *(ustring *)Val.data();
-                if (! v && ! subimage_set) {
+                if (v.empty() && ! subimage_set) {
                     continue;     // Ignore nulls unless they are overrides
                 }
             }
@@ -2284,13 +2383,11 @@ LLVMGEN (llvm_gen_texture)
     std::vector<llvm::Value *> args;
     args.push_back (rop.sg_void_ptr());
     RendererServices::TextureHandle *texture_handle = NULL;
-#if OIIO_VERSION >= 10602
     if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
         texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
         if (! rop.renderer()->good (texture_handle))
             texture_handle = NULL;
     }
-#endif
     args.push_back (rop.llvm_load_value (Filename));
     args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (opt);
@@ -2352,13 +2449,11 @@ LLVMGEN (llvm_gen_texture3d)
     std::vector<llvm::Value *> args;
     args.push_back (rop.sg_void_ptr());
     RendererServices::TextureHandle *texture_handle = NULL;
-#if OIIO_VERSION >= 10602
     if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
         texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
         if (! rop.renderer()->good (texture_handle))
             texture_handle = NULL;
     }
-#endif
     args.push_back (rop.llvm_load_value (Filename));
     args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (opt);
@@ -2366,32 +2461,18 @@ LLVMGEN (llvm_gen_texture3d)
     if (user_derivs) {
         args.push_back (rop.llvm_void_ptr (*rop.opargsym (op, 3)));
         args.push_back (rop.llvm_void_ptr (*rop.opargsym (op, 4)));
-        args.push_back (rop.llvm_void_ptr (*rop.opargsym (op, 5)));
     } else {
         // Auto derivs of P
         args.push_back (rop.llvm_void_ptr (P, 1));
         args.push_back (rop.llvm_void_ptr (P, 2));
-        // dPdz is correct for input P, zero for all else
-        if (&P == rop.inst()->symbol(rop.inst()->Psym())) {
-            args.push_back (rop.llvm_void_ptr (P, 3));
-        } else {
-            // zero for dPdz, for now
-            llvm::Value *fzero = rop.ll.constant (0.0f);
-            llvm::Value *vzero = rop.ll.op_alloca (rop.ll.type_triple());
-            for (int i = 0;  i < 3;  ++i)
-                rop.ll.op_store (fzero, rop.ll.GEP (vzero, 0, i));
-            args.push_back (rop.ll.void_ptr(vzero));
-        }
     }
     args.push_back (rop.ll.constant (nchans));
     args.push_back (rop.ll.void_ptr (rop.llvm_void_ptr (Result, 0)));
     args.push_back (rop.ll.void_ptr (rop.llvm_void_ptr (Result, 1)));
     args.push_back (rop.ll.void_ptr (rop.llvm_void_ptr (Result, 2)));
-    args.push_back (rop.ll.void_ptr_null());  // no dresultdz for now
     args.push_back (rop.ll.void_ptr (alpha    ? alpha    : rop.ll.void_ptr_null()));
     args.push_back (rop.ll.void_ptr (dalphadx ? dalphadx : rop.ll.void_ptr_null()));
     args.push_back (rop.ll.void_ptr (dalphady ? dalphady : rop.ll.void_ptr_null()));
-    args.push_back (rop.ll.void_ptr_null());  // No dalphadz for now
     args.push_back (rop.ll.void_ptr (errormessage ? errormessage : rop.ll.void_ptr_null()));
     rop.ll.call_function ("osl_texture3d", &args[0], (int)args.size());
     rop.generated_texture_call (texture_handle != NULL);
@@ -2428,13 +2509,11 @@ LLVMGEN (llvm_gen_environment)
     std::vector<llvm::Value *> args;
     args.push_back (rop.sg_void_ptr());
     RendererServices::TextureHandle *texture_handle = NULL;
-#if OIIO_VERSION >= 10602
     if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
         texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
         if (! rop.renderer()->good (texture_handle))
             texture_handle = NULL;
     }
-#endif
     args.push_back (rop.llvm_load_value (Filename));
     args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (opt);
@@ -2569,6 +2648,12 @@ llvm_gen_noise_options (BackendLLVM &rop, int opnum,
 {
     llvm::Value* opt = rop.ll.call_function ("osl_get_noise_options",
                                              rop.sg_void_ptr());
+
+    // TODO: implement noise options in OptiX
+    if (rop.use_optix()) {
+        return opt;
+    }
+
     Opcode &op (rop.inst()->ops()[opnum]);
     for (int a = first_optional_arg;  a < op.nargs();  ++a) {
         Symbol &Name (*rop.opargsym(op,a));
@@ -2581,7 +2666,7 @@ llvm_gen_noise_options (BackendLLVM &rop, int opnum,
         Symbol &Val (*rop.opargsym(op,a));
         TypeDesc valtype = Val.typespec().simpletype ();
         
-        if (! name)    // skip empty string param name
+        if (name.empty())    // skip empty string param name
             continue;
 
         if (name == Strings::anisotropic && Val.typespec().is_int()) {
@@ -2672,7 +2757,7 @@ LLVMGEN (llvm_gen_noise)
     derivs &= Result.has_derivs();  // ignore derivs if result doesn't need
 
     bool pass_name = false, pass_sg = false, pass_options = false;
-    if (! name) {
+    if (name.empty()) {
         // name is not a constant
         name = periodic ? Strings::genericpnoise : Strings::genericnoise;
         pass_name = true;
@@ -2736,8 +2821,14 @@ LLVMGEN (llvm_gen_noise)
 
     std::string funcname = "osl_" + name.string() + "_" + arg_typecode(&Result,derivs);
     std::vector<llvm::Value *> args;
-    if (pass_name)
-        args.push_back (rop.llvm_load_value(*Name));
+    if (pass_name) {
+        if (! rop.use_optix()) {
+            args.push_back (rop.llvm_load_value(*Name));
+        }
+        else {
+            args.push_back (rop.llvm_load_device_string (*Name));
+        }
+    }
     llvm::Value *tmpresult = NULL;
     // triple return, or float return with derivs, passes result pointer
     if (outdim == 3 || derivs) {
@@ -2880,13 +2971,11 @@ LLVMGEN (llvm_gen_gettextureinfo)
 
     args.push_back (rop.sg_void_ptr());
     RendererServices::TextureHandle *texture_handle = NULL;
-#if OIIO_VERSION >= 10602
     if (Filename.is_constant() && rop.shadingsys().opt_texture_handle()) {
         texture_handle = rop.renderer()->get_texture_handle (*(ustring *)Filename.data());
         if (! rop.renderer()->good (texture_handle))
             texture_handle = NULL;
     }
-#endif
     args.push_back (rop.llvm_load_value (Filename));
     args.push_back (rop.ll.constant_ptr (texture_handle));
     args.push_back (rop.llvm_load_value (Dataname));
@@ -3240,8 +3329,15 @@ LLVMGEN (llvm_gen_closure)
         DASSERT(p.offset + p.field_size <= clentry->struct_size);
         Symbol &sym = *rop.opargsym (op, carg + 2 + weighted);
         TypeDesc t = sym.typespec().simpletype();
-        if (!sym.typespec().is_closure_array() && !sym.typespec().is_structure()
-            && equivalent(t,p.type)) {
+
+        if (rop.use_optix() && sym.typespec().is_string()) {
+            llvm::Value* dst = rop.ll.offset_ptr (mem_void_ptr, p.offset);
+            llvm::Value* src = rop.llvm_load_device_string (sym);
+            rop.ll.op_memcpy (dst, src, (int)p.type.size(),
+                              4 /* use 4 byte alignment for now */);
+        }
+        else if (!sym.typespec().is_closure_array() && !sym.typespec().is_structure()
+                 && equivalent(t,p.type)) {
             llvm::Value* dst = rop.ll.offset_ptr (mem_void_ptr, p.offset);
             llvm::Value* src = rop.llvm_void_ptr (sym);
             rop.ll.op_memcpy (dst, src, (int)p.type.size(),

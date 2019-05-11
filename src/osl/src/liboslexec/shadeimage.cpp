@@ -26,14 +26,6 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <vector>
-#include <string>
-#include <cstdio>
-#include <fstream>
-#include <cstdlib>
-
-#include <boost/bind.hpp>
-
 #include <OpenImageIO/dassert.h>
 #include <OpenImageIO/thread.h>
 #include <OpenImageIO/imagebuf.h>
@@ -52,16 +44,18 @@ using namespace OSL::pvt;
 OSL_NAMESPACE_ENTER
 
 
+
 bool
 shade_image (ShadingSystem &shadingsys, ShaderGroup &group,
              const ShaderGlobals *defaultsg,
              OIIO::ImageBuf &buf, OIIO::array_view<ustring> outputs,
              ShadeImageLocations shadelocations,
-             OIIO::ROI roi, int nthreads)
+             OIIO::ROI roi, OIIO::ImageBufAlgo::parallel_image_options popt)
 {
+    using namespace OIIO;
+    using namespace ImageBufAlgo;
     if (! roi.defined())
         roi = buf.roi();
-    // std::cout << "shade_image " << roi << "\n";
     if (buf.spec().format != TypeDesc::FLOAT) {
         buf.error ("Cannot OSL::shade_image() into a %f buffer, float is required",
                    buf.spec().format);
@@ -69,18 +63,7 @@ shade_image (ShadingSystem &shadingsys, ShaderGroup &group,
     }
     shadingsys.optimize_group (&group);
 
-    if (nthreads != 1 && roi.npixels() >= 64*64) {
-        // Parallelize
-        OIIO::ImageBufAlgo::parallel_image (
-            boost::bind (shade_image, boost::ref(shadingsys),
-                         boost::ref(group), defaultsg,
-                         boost::ref(buf), outputs, shadelocations,
-                         _1 /*roi*/, 1 /*nthreads*/),
-            roi, nthreads);
-        return true;
-    }
-
-    // Serial case
+    parallel_image (roi, popt, [&](OIIO::ROI roi){
 
     // Optional: high-performance apps may request this thread-specific
     // pointer in order to save a bit of time on each shade.  Just like
@@ -111,7 +94,7 @@ shade_image (ShadingSystem &shadingsys, ShaderGroup &group,
     const ShaderSymbol **output_sym  = OIIO_ALLOCA(const ShaderSymbol*, outputs.size());
     TypeDesc *output_type = OIIO_ALLOCA(TypeDesc, outputs.size());
     int *output_nchans = OIIO_ALLOCA(int, outputs.size());
-    for (size_t i = 0;  i < outputs.size();  ++i) {
+    for (int i = 0;  i < int(outputs.size());  ++i) {
         output_sym[i] = shadingsys.find_symbol (group, outputs[i]);
         output_type[i] = shadingsys.symbol_typedesc (output_sym[i]);
         output_nchans[i] = output_type[i].numelements() * output_type[i].aggregate;
@@ -128,10 +111,10 @@ shade_image (ShadingSystem &shadingsys, ShaderGroup &group,
     if (defaultsg) {
         // If the caller passed a default SG template, use it to initialize
         // the sg and in particular to set all the constant fields.
-        memcpy (&sg, defaultsg, sizeof(ShaderGlobals));
+        memcpy ((char *)&sg, (const char*)defaultsg, sizeof(ShaderGlobals));
     } else {
         // No SG template was passed, so set up reasonable defaults.
-        memset (&sg, 0, sizeof(ShaderGlobals));
+        memset ((char *)&sg, 0, sizeof(ShaderGlobals));
         // Set "shader" space to be Mshad.  In a real renderer, this may be
         // different for each shader group.
         sg.shader2common = OSL::TransformationPtr (&Mshad);
@@ -186,7 +169,7 @@ shade_image (ShadingSystem &shadingsys, ShaderGroup &group,
 
         // Save all the designated outputs.
         int chan = 0;
-        for (size_t i = 0;  i < outputs.size();  ++i) {
+        for (int i = 0;  i < int(outputs.size());  ++i) {
             const void *data = shadingsys.symbol_address (*ctx, output_sym[i]);
             if (!data)
                 continue;  // Skip if symbol isn't found
@@ -214,6 +197,7 @@ shade_image (ShadingSystem &shadingsys, ShaderGroup &group,
     // destroy it when done with it.
     shadingsys.destroy_thread_info (thread_info);
 
+    });   // end of parallel_image
     return true;
 }
 

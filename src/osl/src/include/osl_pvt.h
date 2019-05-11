@@ -28,9 +28,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include "OSL/oslconfig.h"
-
+#include <memory>
 #include <OpenImageIO/dassert.h>
+
+#include <OSL/oslconfig.h>
 
 
 OSL_NAMESPACE_ENTER
@@ -42,10 +43,9 @@ class StructSpec;
 
 /// Kinds of shaders
 ///
-enum ShaderType {
-    ShadTypeUnknown=0, ShadTypeGeneric, ShadTypeSurface,
-    ShadTypeDisplacement, ShadTypeVolume, ShadTypeLight,
-    ShadTypeLast
+enum class ShaderType {
+    Unknown=0, Generic, Surface, Displacement, Volume, Light,
+    Last
 };
 
 
@@ -56,24 +56,6 @@ string_view shadertypename (ShaderType s);
 /// Convert a ShaderType to a human-readable name ("surface", etc.)
 ///
 ShaderType shadertype_from_name (string_view name);
-
-
-
-/// Uses of shaders
-///
-enum ShaderUse {
-    ShadUseSurface, ShadUseDisplacement,
-    ShadUseLast, ShadUseUnknown = ShadUseLast
-};
-
-
-/// Convert a ShaderUse to a human-readable name ("surface", etc.)
-///
-const char *shaderusename (ShaderUse s);
-
-/// Convert a ShaderUse to a human-readable name ("surface", etc.)
-///
-ShaderUse shaderuse_from_name (string_view name);
 
 
 
@@ -201,7 +183,7 @@ public:
 
     /// Return a reference to the structure list.
     ///
-    static std::vector<shared_ptr<StructSpec> > & struct_list ();
+    static std::vector<std::shared_ptr<StructSpec> > & struct_list ();
 
     /// Is this an array (either a simple array, or an array of structs)?
     ///
@@ -430,7 +412,7 @@ public:
     /// Append a new field (with type and name) to this struct.
     ///
     void add_field (const TypeSpec &type, ustring name) {
-        m_fields.push_back (FieldSpec (type, name));
+        m_fields.emplace_back(type, name);
     }
 
     /// The name of this struct (may not be unique across all scopes).
@@ -475,7 +457,8 @@ public:
           m_symtype(symtype),
           m_has_derivs(false), m_const_initializer(false),
           m_connected_down(false),
-          m_initialized(false), m_lockgeom(false), m_renderer_output(false),
+          m_initialized(false), m_lockgeom(false), m_allowconnect(true),
+          m_renderer_output(false), m_readonly(false),
           m_valuesource(DefaultVal), m_free_data(false),
           m_fieldid(-1), m_layer(-1),
           m_scope(0), m_dataoffset(-1), m_initializers(0),
@@ -495,7 +478,8 @@ public:
         // since by design we have made this structure hold no unique
         // pointers and have no elements that aren't safe to memcpy, even
         // though the compiler probably can't figure that out.
-        if (this != &a) memcpy (this, &a, sizeof(Symbol));
+        // Cast to char* to defeat gcc8 rejecting this.
+        if (this != &a) memcpy ((char *)this, (const char *)&a, sizeof(Symbol));
         return *this;
     }
 
@@ -685,6 +669,9 @@ public:
     bool lockgeom () const { return m_lockgeom; }
     void lockgeom (bool lock) { m_lockgeom = lock; }
 
+    bool allowconnect () const { return m_allowconnect; }
+    void allowconnect (bool val) { m_allowconnect = val; }
+
     int  arraylen () const { return m_typespec.arraylength(); }
     void arraylen (int len) {
         m_typespec.make_array(len);
@@ -694,25 +681,28 @@ public:
     bool renderer_output () const { return m_renderer_output; }
     void renderer_output (bool v) { m_renderer_output = v; }
 
+    bool readonly () const { return m_readonly; }
+    void readonly (bool v) { m_readonly = v; }
+
     bool is_constant () const { return symtype() == SymTypeConst; }
     bool is_temp () const { return symtype() == SymTypeTemp; }
 
     // Retrieve the const float value (will ASSERT if not a const float!)
-    float get_float (int index = 0) {
+    float get_float (int index = 0) const {
         ASSERT (data() && typespec().is_float_based());
         return ((const float *)data())[index];
     }
 
     // Retrieve the const int value (will ASSERT if not a const int!)
-    int get_int (int index = 0) {
+    int get_int (int index = 0) const {
         ASSERT (data() && typespec().is_int_based());
         return ((const int *)data())[index];
     }
 
     // Retrieve the const string value (will ASSERT if not a const string!)
-    ustring get_string () {
+    ustring get_string (int index = 0) const {
         ASSERT (data() && typespec().is_string());
-        return ((const ustring *)data())[0];
+        return ((const ustring *)data())[index];
     }
 
     /// Stream output
@@ -730,7 +720,9 @@ protected:
     unsigned m_connected_down:1;///< Connected to a later/downtream layer
     unsigned m_initialized:1;   ///< If a param, has it been initialized?
     unsigned m_lockgeom:1;      ///< Is the param not overridden by geom?
+    unsigned m_allowconnect:1;  ///< Is the param not overridden by geom?
     unsigned m_renderer_output:1; ///< Is this sym a renderer output?
+    unsigned m_readonly:1;      ///< read-only symbol
     char m_valuesource;         ///< Where did the value come from?
     bool m_free_data;           ///< Free m_data upon destruction?
     short m_fieldid;            ///< Struct field of this var (or -1)
@@ -799,9 +791,9 @@ public:
     }
 
     void add_jump (int target) {
-        for (unsigned int i = 0;  i < max_jumps;  ++i)
-            if (m_jump[i] < 0) {
-                m_jump[i] = target;
+        for (int& j : m_jump)
+            if (j < 0) {
+                j = target;
                 return;
             }
     }

@@ -101,17 +101,15 @@ typedef long double max_align_t;
 #include <iostream>
 #include <cstddef>
 
-#include "OSL/oslconfig.h"
-#include "OSL/shaderglobals.h"
-#include "OSL/dual.h"
-#include "OSL/dual_vec.h"
+#include <OSL/oslconfig.h>
+#include <OSL/shaderglobals.h>
+#include <OSL/dual.h>
+#include <OSL/dual_vec.h>
 using namespace OSL;
 
 #include <OpenEXR/ImathFun.h>
 #include <OpenImageIO/fmath.h>
-#if OIIO_VERSION >= 10505
-#  include <OpenImageIO/simd.h>
-#endif
+#include <OpenImageIO/simd.h>
 
 #if defined(_MSC_VER) && _MSC_VER < 1700
 using OIIO::isinf;
@@ -149,7 +147,11 @@ void * __dso_handle = 0; // necessary to avoid linkage issues in bitcode
 
 
 #ifndef OSL_SHADEOP
-#define OSL_SHADEOP extern "C" OSL_LLVM_EXPORT
+#  ifdef __CUDACC__
+#    define OSL_SHADEOP extern "C" __device__ OSL_LLVM_EXPORT
+#  else
+#    define OSL_SHADEOP extern "C" OSL_LLVM_EXPORT
+#  endif
 #endif
 
 
@@ -451,8 +453,8 @@ MAKE_UNARY_PERCOMPONENT_OP     (exp2       , OIIO::fast_exp2      , fast_exp2)
 MAKE_UNARY_PERCOMPONENT_OP     (expm1      , OIIO::fast_expm1     , fast_expm1)
 MAKE_BINARY_PERCOMPONENT_OP    (pow        , OIIO::fast_safe_pow  , fast_safe_pow)
 MAKE_BINARY_PERCOMPONENT_VF_OP (pow        , OIIO::fast_safe_pow  , fast_safe_pow)
-MAKE_UNARY_PERCOMPONENT_OP     (erf        , OIIO::fast_erf       , erf)
-MAKE_UNARY_PERCOMPONENT_OP     (erfc       , OIIO::fast_erfc      , erfc)
+MAKE_UNARY_PERCOMPONENT_OP     (erf        , OIIO::fast_erf       , fast_erf)
+MAKE_UNARY_PERCOMPONENT_OP     (erfc       , OIIO::fast_erfc      , fast_erfc)
 #else
 MAKE_UNARY_PERCOMPONENT_OP     (log        , OIIO::safe_log       , safe_log)
 MAKE_UNARY_PERCOMPONENT_OP     (log2       , OIIO::safe_log2      , safe_log2)
@@ -465,6 +467,7 @@ MAKE_BINARY_PERCOMPONENT_VF_OP (pow        , OIIO::safe_pow       , safe_pow)
 MAKE_UNARY_PERCOMPONENT_OP     (erf        , erff                 , erf)
 MAKE_UNARY_PERCOMPONENT_OP     (erfc       , erfcf                , erfc)
 #endif
+
 MAKE_UNARY_PERCOMPONENT_OP     (sqrt       , OIIO::safe_sqrt      , sqrt)
 MAKE_UNARY_PERCOMPONENT_OP     (inversesqrt, OIIO::safe_inversesqrt, inversesqrt)
 
@@ -519,7 +522,7 @@ OSL_SHADEOP int osl_isfinite_if (float f) { return OIIO::isfinite (f); }
 OSL_SHADEOP int osl_abs_ii (int x) { return abs(x); }
 OSL_SHADEOP int osl_fabs_ii (int x) { return abs(x); }
 
-inline Dual2<float> fabsf (const Dual2<float> &x) {
+OSL_HOSTDEVICE inline Dual2<float> fabsf (const Dual2<float> &x) {
     return x.val() >= 0 ? x : -x;
 }
 
@@ -530,11 +533,11 @@ OSL_SHADEOP int osl_safe_mod_iii (int a, int b) {
     return (b != 0) ? (a % b) : 0;
 }
 
-inline float safe_fmod (float a, float b) {
+OSL_HOSTDEVICE inline float safe_fmod (float a, float b) {
     return (b != 0.0f) ? std::fmod (a,b) : 0.0f;
 }
 
-inline Dual2<float> safe_fmod (const Dual2<float> &a, const Dual2<float> &b) {
+OSL_HOSTDEVICE inline Dual2<float> safe_fmod (const Dual2<float> &a, const Dual2<float> &b) {
     return Dual2<float> (safe_fmod (a.val(), b.val()), a.dx(), a.dy());
 }
 
@@ -613,54 +616,6 @@ OSL_SHADEOP void osl_smoothstep_dfdfdfdf(void *result, void* e0_, void* e1_, voi
 
    DFLOAT(result) = smoothstep(e0, e1, x);
 }
-
-
-// point = M * point
-OSL_SHADEOP void osl_transform_vmv(void *result, void* M_, void* v_)
-{
-   const Vec3 &v = VEC(v_);
-   const Matrix44 &M = MAT(M_);
-   robust_multVecMatrix (M, v, VEC(result));
-}
-
-OSL_SHADEOP void osl_transform_dvmdv(void *result, void* M_, void* v_)
-{
-   const Dual2<Vec3> &v = DVEC(v_);
-   const Matrix44    &M = MAT(M_);
-   robust_multVecMatrix (M, v, DVEC(result));
-}
-
-// vector = M * vector
-OSL_SHADEOP void osl_transformv_vmv(void *result, void* M_, void* v_)
-{
-   const Vec3 &v = VEC(v_);
-   const Matrix44 &M = MAT(M_);
-   M.multDirMatrix (v, VEC(result));
-}
-
-OSL_SHADEOP void osl_transformv_dvmdv(void *result, void* M_, void* v_)
-{
-   const Dual2<Vec3> &v = DVEC(v_);
-   const Matrix44    &M = MAT(M_);
-   multDirMatrix (M, v, DVEC(result));
-}
-
-// normal = M * normal
-OSL_SHADEOP void osl_transformn_vmv(void *result, void* M_, void* v_)
-{
-   const Vec3 &v = VEC(v_);
-   const Matrix44 &M = MAT(M_);
-   M.inverse().transposed().multDirMatrix (v, VEC(result));
-}
-
-OSL_SHADEOP void osl_transformn_dvmdv(void *result, void* M_, void* v_)
-{
-   const Dual2<Vec3> &v = DVEC(v_);
-   const Matrix44    &M = MAT(M_);
-   multDirMatrix (M.inverse().transposed(), v, DVEC(result));
-}
-
-
 
 // Vector ops
 
@@ -775,7 +730,7 @@ osl_normalize_dvdv (void *result, void *a)
 
 
 
-inline Vec3 calculatenormal(void *P_, bool flipHandedness)
+OSL_HOSTDEVICE inline Vec3 calculatenormal(void *P_, bool flipHandedness)
 {
     Dual2<Vec3> &tmpP (DVEC(P_));
     if (flipHandedness)
@@ -800,7 +755,7 @@ OSL_SHADEOP float osl_area(void *P_)
 
 
 
-inline float filter_width(float dx, float dy)
+OSL_HOSTDEVICE inline float filter_width(float dx, float dy)
 {
     return sqrtf(dx*dx + dy*dy);
 }
@@ -822,11 +777,37 @@ OSL_SHADEOP void osl_filterwidth_vdv(void *out, void *x_)
 
 
 
-
-
 // Asked if the raytype includes a bit pattern.
 OSL_SHADEOP int osl_raytype_bit (void *sg_, int bit)
 {
     ShaderGlobals *sg = (ShaderGlobals *)sg_;
     return (sg->raytype & bit) != 0;
 }
+
+
+
+// extern declaration
+OSL_SHADEOP int osl_range_check_err (int indexvalue, int length,
+                         const char *symname, void *sg,
+                         const void *sourcefile, int sourceline,
+                         const char *groupname, int layer,
+                         const char *layername, const char *shadername);
+
+
+
+OSL_SHADEOP int
+osl_range_check (int indexvalue, int length, const char *symname,
+                 void *sg, const void *sourcefile, int sourceline,
+                 const char *groupname, int layer, const char *layername,
+                 const char *shadername)
+{
+    if (indexvalue < 0 || indexvalue >= length) {
+        indexvalue = osl_range_check_err (indexvalue, length, symname, sg,
+                                          sourcefile, sourceline, groupname,
+                                          layer, layername, shadername);
+    }
+    return indexvalue;
+}
+
+
+

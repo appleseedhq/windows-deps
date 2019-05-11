@@ -33,10 +33,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <set>
 #include <map>
 
-#include "OSL/oslcomp.h"
+#include <OSL/oslcomp.h>
 #include "ast.h"
 #include "symtab.h"
-#include "OSL/genclosure.h"
+#include <OSL/genclosure.h>
 
 
 extern int oslparse ();
@@ -72,7 +72,8 @@ public:
     bool compile_buffer (string_view sourcecode,
                          std::string &osobuffer,
                          const std::vector<std::string> &options,
-                         string_view stdoslpath);
+                         string_view stdoslpath,
+                         string_view filename);
 
     bool osl_parse_buffer (const std::string &preprocessed_buffer);
 
@@ -99,12 +100,71 @@ public:
     ErrorHandler &errhandler () const { return *m_errhandler; }
 
     /// Error reporting
-    ///
-    void error (ustring filename, int line, const char *format, ...) const;
+    template<typename... Args>
+    void error (ustring filename, int line,
+                string_view format, const Args&... args) const
+    {
+        ASSERT (format.size());
+        std::string msg = OIIO::Strutil::format (format, args...);
+        if (msg.size() && msg.back() == '\n')  // trim extra newline
+            msg.pop_back();
+        if (filename.size())
+            m_errhandler->error ("%s:%d: error: %s", filename, line, msg);
+        else
+            m_errhandler->error ("error: %s", msg);
+        m_err = true;
+    }
 
     /// Warning reporting
-    ///
-    void warning (ustring filename, int line, const char *format, ...) const;
+    template<typename... Args>
+    void warning (ustring filename, int line,
+                  string_view format, const Args&... args) const
+    {
+        ASSERT (format.size());
+        if (nowarn(filename, line))
+            return;    // skip if the filename/line is on the nowarn list
+        std::string msg = OIIO::Strutil::format (format, args...);
+        if (msg.size() && msg.back() == '\n')  // trim extra newline
+            msg.pop_back();
+        if (m_err_on_warning) {
+            error (filename, line, "%s", msg);
+            return;
+        }
+        if (filename.size())
+            m_errhandler->warning ("%s:%d: warning: %s", filename, line, msg);
+        else
+            m_errhandler->warning ("warning: %s", msg);
+    }
+
+    /// Info reporting
+    template<typename... Args>
+    void info (ustring filename, int line,
+                  string_view format, const Args&... args) const
+    {
+        ASSERT (format.size());
+        std::string msg = OIIO::Strutil::format (format, args...);
+        if (msg.size() && msg.back() == '\n')  // trim extra newline
+            msg.pop_back();
+        if (filename.size())
+            m_errhandler->info ("%s:%d: info: %s", filename, line, msg);
+        else
+            m_errhandler->info ("info: %s", msg);
+    }
+
+    /// message reporting
+    template<typename... Args>
+    void message (ustring filename, int line,
+                  string_view format, const Args&... args) const
+    {
+        ASSERT (format.size());
+        std::string msg = OIIO::Strutil::format (format, args...);
+        if (msg.size() && msg.back() == '\n')  // trim extra newline
+            msg.pop_back();
+        if (filename.size())
+            m_errhandler->message ("%s:%d: %s", filename, line, msg);
+        else
+            m_errhandler->message ("%s", msg);
+    }
 
     /// Have we hit an error?
     ///
@@ -315,6 +375,23 @@ public:
 
     bool debug () const { return m_debug; }
 
+    /// As the compiler generates function declarations, we need to remember
+    /// them (with ref-counted pointers). They'll get freed automatically
+    /// when the compiler destructs.
+    void remember_function_decl (ASTfunction_declaration *f) {
+        m_func_decls.emplace_back (f);
+    }
+
+    // Add a pragma nowarn for the following line
+    void pragma_nowarn () {
+        m_nowarn_lines.insert ({filename(), lineno()+1});
+    }
+
+    // Is the line amont
+    bool nowarn (ustring filename, int line) const {
+        return m_nowarn_lines.find({filename, line}) != m_nowarn_lines.end();
+    }
+
 private:
     void initialize_globals ();
     void initialize_builtin_funcs ();
@@ -324,14 +401,10 @@ private:
     void write_oso_symbol (const Symbol *sym);
     void write_oso_metadata (const ASTNode *metanode) const;
 
-#if OIIO_VERSION >= 10803
     template<typename... Args>
     inline void oso (string_view fmt, const Args&... args) const {
         (*m_osofile) << OIIO::Strutil::format (fmt, args...);
     }
-#else
-    TINYFORMAT_WRAP_FORMAT (void, oso, const, , (*m_osofile), )
-#endif
 
     void track_variable_lifetimes () {
         track_variable_lifetimes (m_ircode, m_opargs, symtab().allsyms());
@@ -381,7 +454,12 @@ private:
             return NULL;
         return static_cast<ASTshader_declaration *>(m_shader.get());
     }
-    std::string retrieve_source (ustring filename, int line);
+
+    // Retrieve the particular line of a file.
+    string_view retrieve_source (ustring filename, int line);
+
+    // Clear internal caches that speed up retrieve_source().
+    void clear_filecontents_cache();
 
     ustring m_filename;       ///< Current file we're parsing
     int m_lineno;             ///< Current line we're parsing
@@ -392,12 +470,14 @@ private:
     ErrorHandler *m_errhandler; ///< Error handler
     mutable bool m_err;       ///< Has an error occurred?
     SymbolTable m_symtab;     ///< Symbol table
+    std::vector<ASTNode::ref> m_func_decls; ///< Ref-counted function decls
     TypeSpec m_current_typespec;  ///< Currently-declared type
     bool m_current_output;        ///< Currently-declared output status
     bool m_verbose;           ///< Verbose mode
     bool m_quiet;             ///< Quiet mode
     bool m_debug;             ///< Debug mode
     bool m_preprocess_only;   ///< Preprocess only?
+    bool m_err_on_warning;    ///< Treat warnings as errors?
     int m_optimizelevel;      ///< Optimization level
     OpcodeVec m_ircode;       ///< Generated IR code
     SymbolPtrVec m_opargs;    ///< Arguments for all instructions
@@ -405,9 +485,6 @@ private:
     int m_next_const;         ///< Next const symbol index
     std::vector<ConstantSymbol *> m_const_syms;  ///< All consts we've made
     std::ostream *m_osofile;  ///< Open .oso stream for output
-    FILE *m_sourcefile;       ///< Open file handle for retrieve_source
-    ustring m_last_sourcefile;///< Last filename for retrieve_source
-    int m_last_sourceline;    ///< Last line read for retrieve_source
     ustring m_codegenmethod;  ///< Current method we're generating code for
     std::stack<FunctionSymbol *> m_function_stack; ///< Stack of called funcs
     int m_total_nesting;      ///< total conditional nesting level (0 == none)
@@ -416,6 +493,13 @@ private:
     Symbol *m_derivsym;       ///< Pseudo-symbol to track deriv dependencies
     int m_main_method_start;  ///< Instruction where 'main' starts
     bool m_declaring_shader_formals; ///< Are we declaring shader formals?
+    std::set<std::pair<ustring,int>> m_nowarn_lines;  ///< Lines for 'nowarn'
+    typedef std::unordered_map<ustring,std::string,ustringHash> FCMap;
+    FCMap m_filecontents_map; ///< Contents of source files we've seen
+    ustring m_last_sourcefile;///< Last filename for retrieve_source
+    std::string* m_last_filecontents = nullptr; //< Last file contents
+    int m_last_sourceline;
+    size_t m_last_sourceline_offset;
 };
 
 

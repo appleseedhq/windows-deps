@@ -27,7 +27,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "lpeparse.h"
-#include "OSL/oslclosure.h"
+#include <OSL/oslclosure.h>
 #include <OpenImageIO/dassert.h>
 
 
@@ -106,7 +106,7 @@ Parser::buildStop(LPexp *etype, LPexp *scatter, const std::list<LPexp*> &custom)
 LPexp *
 Parser::parseSymbol()
 {
-    bool iscustom;
+    bool iscustom = false;
     ustring sym = parseRawSymbol(iscustom);
     if (m_ingroup) {
         if (sym == udot)
@@ -396,6 +396,10 @@ LPexp *
 Parser::parseModifier(LPexp *e)
 {
     if (hasInput()) {
+        if (m_ingroup && (head() == '*' || head() == '{' || head() == '+')) {
+            m_error = std::string("Repetitions not allowed inside '<...>'");
+            return NULL;
+        }
         if (head() == '*') {
             next();
             return new lpexp::Repeat(e);

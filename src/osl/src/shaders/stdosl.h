@@ -60,6 +60,7 @@
     color  name (color x) BUILTIN;              \
     float  name (float x) BUILTIN;
 
+// Declare name (T,T) for T in {triples,float}
 #define PERCOMP2(name)                          \
     normal name (normal x, normal y) BUILTIN;   \
     vector name (vector x, vector y) BUILTIN;   \
@@ -67,13 +68,12 @@
     color  name (color x, color y) BUILTIN;     \
     float  name (float x, float y) BUILTIN;
 
+// Declare name(T,float) for T in {triples}
 #define PERCOMP2F(name)                         \
     normal name (normal x, float y) BUILTIN;    \
     vector name (vector x, float y) BUILTIN;    \
     point  name (point x, float y) BUILTIN;     \
-    color  name (color x, float y) BUILTIN;     \
-    float  name (float x, float y) BUILTIN;
-
+    color  name (color x, float y) BUILTIN;
 
 // Basic math
 normal degrees (normal x) { return x*(180.0/M_PI); }
@@ -96,8 +96,17 @@ PERCOMP2 (atan2)
 PERCOMP1 (cosh)
 PERCOMP1 (sinh)
 PERCOMP1 (tanh)
-PERCOMP2F (pow)
-PERCOMP2 (pow)
+
+normal pow (normal x, normal y) BUILTIN;
+vector pow (vector x, vector y) BUILTIN;
+point  pow (point x, point y) BUILTIN;
+color  pow (color x, color y) BUILTIN;
+normal pow (normal x, float y) BUILTIN;
+vector pow (vector x, float y) BUILTIN;
+point  pow (point x, float y) BUILTIN;
+color  pow (color x, float y) BUILTIN;
+float  pow (float x, float y) BUILTIN;
+
 PERCOMP1 (exp)
 PERCOMP1 (exp2)
 PERCOMP1 (expm1)
@@ -122,8 +131,17 @@ PERCOMP1 (floor)
 PERCOMP1 (ceil)
 PERCOMP1 (round)
 PERCOMP1 (trunc)
-PERCOMP2 (fmod)
-PERCOMP2F (fmod)
+
+normal fmod (normal x, normal y) BUILTIN;
+vector fmod (vector x, vector y) BUILTIN;
+point  fmod (point x, point y) BUILTIN;
+color  fmod (color x, color y) BUILTIN;
+normal fmod (normal x, float y) BUILTIN;
+vector fmod (vector x, float y) BUILTIN;
+point  fmod (point x, float y) BUILTIN;
+color  fmod (color x, float y) BUILTIN;
+float  fmod (float x, float y) BUILTIN;
+
 int    mod (int    a, int    b) { return a - b*(int)floor(a/b); }
 point  mod (point  a, point  b) { return a - b*floor(a/b); }
 vector mod (vector a, vector b) { return a - b*floor(a/b); }
@@ -292,6 +310,11 @@ point rotate (point p, float angle, point a, point b)
     return transform (M, p-a) + a;
 }
 
+point rotate (point p, float angle, vector axis)
+{
+    return rotate (p, angle, point(0), axis);
+}
+
 
 
 // Color functions
@@ -299,133 +322,10 @@ point rotate (point p, float angle, point a, point b)
 float luminance (color c) BUILTIN;
 color blackbody (float temperatureK) BUILTIN;
 color wavelength_color (float wavelength_nm) BUILTIN;
+color transformc (string from, string to, color c) BUILTIN;
+color transformc (string to, color c) { return transformc ("rgb", to, c); }
 
 
-color transformc (string to, color x)
-{
-    color rgb_to_hsv (color rgb) {  // See Foley & van Dam
-        float r = rgb[0], g = rgb[1], b = rgb[2];
-        float mincomp = min (r, min (g, b));
-        float maxcomp = max (r, max (g, b));
-        float delta = maxcomp - mincomp;  // chroma
-        float h, s, v;
-        v = maxcomp;
-        if (maxcomp > 0)
-            s = delta / maxcomp;
-        else s = 0;
-        if (s <= 0)
-            h = 0;
-        else {
-            if      (r >= maxcomp) h = (g-b) / delta;
-            else if (g >= maxcomp) h = 2 + (b-r) / delta;
-            else                   h = 4 + (r-g) / delta;
-            h /= 6;
-            if (h < 0)
-                h += 1;
-        }
-        return color (h, s, v);
-    }
-
-    color rgb_to_hsl (color rgb) {  // See Foley & van Dam
-        // First convert rgb to hsv, then to hsl
-        float minval = min (rgb[0], min (rgb[1], rgb[2]));
-        color hsv = rgb_to_hsv (rgb);
-        float maxval = hsv[2];   // v == maxval
-        float h = hsv[0], s, l = (minval+maxval) / 2;
-        if (minval == maxval)
-            s = 0;  // special 'achromatic' case, hue is 0
-        else if (l <= 0.5)
-            s = (maxval - minval) / (maxval + minval);
-        else
-            s = (maxval - minval) / (2 - maxval - minval);
-        return color (h, s, l);
-    }
-
-    color r;
-    if (to == "rgb" || to == "RGB")
-        r = x;
-    else if (to == "hsv")
-        r = rgb_to_hsv (x);
-    else if (to == "hsl")
-        r = rgb_to_hsl (x);
-    else if (to == "YIQ")
-        r = color (dot (vector(0.299,  0.587,  0.114), (vector)x),
-                   dot (vector(0.596, -0.275, -0.321), (vector)x),
-                   dot (vector(0.212, -0.523,  0.311), (vector)x));
-    else if (to == "XYZ")
-        r = color (dot (vector(0.412453, 0.357580, 0.180423), (vector)x),
-                   dot (vector(0.212671, 0.715160, 0.072169), (vector)x),
-                   dot (vector(0.019334, 0.119193, 0.950227), (vector)x));
-    else {
-        error ("Unknown color space \"%s\"", to);
-        r = x;
-    }
-    return r;
-}
-
-
-color transformc (string from, string to, color x)
-{
-    color hsv_to_rgb (color c) { // Reference: Foley & van Dam
-        float h = c[0], s = c[1], v = c[2];
-        color r;
-        if (s < 0.0001) {
-            r = v;
-        } else {
-            h = 6 * (h - floor(h));  // expand to [0..6)
-            int hi = (int)h;
-            float f = h - hi;
-            float p = v * (1-s);
-            float q = v * (1-s*f);
-            float t = v * (1-s*(1-f));
-            if      (hi == 0) r = color (v, t, p);
-            else if (hi == 1) r = color (q, v, p);
-            else if (hi == 2) r = color (p, v, t);
-            else if (hi == 3) r = color (p, q, v);
-            else if (hi == 4) r = color (t, p, v);
-            else              r = color (v, p, q);
-        }
-        return r;
-    }
-
-    color hsl_to_rgb (color c) {
-        float h = c[0], s = c[1], l = c[2];
-        // Easiest to convert hsl -> hsv, then hsv -> RGB (per Foley & van Dam)
-        float v = (l <= 0.5) ? (l * (1 + s)) : (l * (1 - s) + s);
-        color r;
-        if (v <= 0) {
-            r = 0;
-        } else {
-            float min = 2 * l - v;
-            s = (v - min) / v;
-            r = hsv_to_rgb (color (h, s, v));
-        }
-        return r;
-    }
-
-    color r;
-    if (from == "rgb" || from == "RGB")
-        r = x;
-    else if (from == "hsv")
-        r = hsv_to_rgb (x);
-    else if (from == "hsl")
-        r = hsl_to_rgb (x);
-    else if (from == "YIQ")
-        r = color (dot (vector(1,  0.9557,  0.6199), (vector)x),
-                   dot (vector(1, -0.2716, -0.6469), (vector)x),
-                   dot (vector(1, -1.1082,  1.7051), (vector)x));
-    else if (from == "XYZ")
-        r = color (dot (vector( 3.240479, -1.537150, -0.498535), (vector)x),
-                   dot (vector(-0.969256,  1.875991,  0.041556), (vector)x),
-                   dot (vector( 0.055648, -0.204043,  1.057311), (vector)x));
-    else {
-        error ("Unknown color space \"%s\"", to);
-        r = x;
-    }
-    return transformc (to, r);
-}
-
- 
 
 // Matrix functions
 
@@ -443,17 +343,17 @@ normal step (normal edge, normal x) BUILTIN;
 float step (float edge, float x) BUILTIN;
 float smoothstep (float edge0, float edge1, float x) BUILTIN;
 
-color smoothstep (color edge0, color edge1, color in)
+color smoothstep (color edge0, color edge1, color x)
 {
-    return color (smoothstep(edge0[0], edge1[0], in[0]),
-                  smoothstep(edge0[1], edge1[1], in[1]),
-                  smoothstep(edge0[2], edge1[2], in[2]));
+    return color (smoothstep(edge0[0], edge1[0], x[0]),
+                  smoothstep(edge0[1], edge1[1], x[1]),
+                  smoothstep(edge0[2], edge1[2], x[2]));
 }
-vector smoothstep (vector edge0, vector edge1, vector in)
+vector smoothstep (vector edge0, vector edge1, vector x)
 {
-    return vector (smoothstep(edge0[0], edge1[0], in[0]),
-                   smoothstep(edge0[1], edge1[1], in[1]),
-                   smoothstep(edge0[2], edge1[2], in[2]));
+    return vector (smoothstep(edge0[0], edge1[0], x[0]),
+                   smoothstep(edge0[1], edge1[1], x[1]),
+                   smoothstep(edge0[2], edge1[2], x[2]));
 }
 
 float linearstep (float edge0, float edge1, float x) {
@@ -465,6 +365,18 @@ float linearstep (float edge0, float edge1, float x) {
         result = step (edge0, x);
     }
     return result;
+}
+color linearstep (color edge0, color edge1, color x)
+{
+    return color (linearstep(edge0[0], edge1[0], x[0]),
+                  linearstep(edge0[1], edge1[1], x[1]),
+                  linearstep(edge0[2], edge1[2], x[2]));
+}
+vector linearstep (vector edge0, vector edge1, vector x)
+{
+    return vector (linearstep(edge0[0], edge1[0], x[0]),
+                   linearstep(edge0[1], edge1[1], x[1]),
+                   linearstep(edge0[2], edge1[2], x[2]));
 }
 
 float smooth_linearstep (float edge0, float edge1, float x_, float eps_) {
@@ -483,6 +395,19 @@ float smooth_linearstep (float edge0, float edge1, float x_, float eps_) {
         result = step (edge0, x_);
     }
     return result;
+}
+
+color smooth_linearstep (color edge0, color edge1, color x, color eps)
+{
+    return color (smooth_linearstep(edge0[0], edge1[0], x[0], eps[0]),
+                  smooth_linearstep(edge0[1], edge1[1], x[1], eps[1]),
+                  smooth_linearstep(edge0[2], edge1[2], x[2], eps[2]));
+}
+vector smooth_linearstep (vector edge0, vector edge1, vector x, vector eps)
+{
+    return vector (smooth_linearstep(edge0[0], edge1[0], x[0], eps[0]),
+                   smooth_linearstep(edge0[1], edge1[1], x[1], eps[1]),
+                   smooth_linearstep(edge0[2], edge1[2], x[2], eps[2]));
 }
 
 float aastep (float edge, float s, float dedge, float ds) {

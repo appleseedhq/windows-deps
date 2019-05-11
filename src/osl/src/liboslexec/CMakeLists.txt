@@ -62,12 +62,6 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
         MESSAGE (STATUS "LLVM_COMPILE cpp=${llvm_bc_cpp}")
     endif ()
     SET ( ${srclist} ${${srclist}} ${llvm_bc_cpp} )
-    if (OSL_NAMESPACE)
-        SET (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} "-DOSL_NAMESPACE=${OSL_NAMESPACE}")
-    endif ()
-    if (OPENIMAGEIO_NAMESPACE)
-        SET (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} "-DOPENIMAGEIO_NAMESPACE=${OPENIMAGEIO_NAMESPACE}")
-    endif ()
     get_property (CURRENT_DEFINITIONS DIRECTORY PROPERTY COMPILE_DEFINITIONS)
     if (VERBOSE)
         message (STATUS "Current #defines are ${CURRENT_DEFINITIONS}")
@@ -75,7 +69,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     foreach (def ${CURRENT_DEFINITIONS})
         set (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} "-D${def}")
     endforeach()
-    set (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} ${OSL_SIMD_FLAGS} ${OSL_CSTD_FLAGS})
+    set (LLVM_COMPILE_FLAGS ${LLVM_COMPILE_FLAGS} ${SIMD_COMPILE_FLAGS} ${CSTD_FLAGS} ${TOOLCHAIN_FLAGS})
 
     # Figure out what program we will use to make the bitcode.
     if (NOT LLVM_BC_GENERATOR)
@@ -115,7 +109,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
           ${LLVM_COMPILE_FLAGS}
           "-I${CMAKE_CURRENT_SOURCE_DIR}"
           "-I${CMAKE_SOURCE_DIR}/src/include"
-          "-I${CMAKE_BINARY_DIR}/include/OSL"
+          "-I${CMAKE_BINARY_DIR}/include"
           "-I${OPENIMAGEIO_INCLUDE_DIR}"
           "-I${ILMBASE_INCLUDE_DIR}"
           "-I${Boost_INCLUDE_DIRS}"
@@ -123,14 +117,82 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
           -Wno-deprecated-register
           -O3 -fno-math-errno -S -emit-llvm -o ${llvm_asm} ${llvm_src}
       COMMAND "${LLVM_DIRECTORY}/bin/llvm-as" -f -o ${llvm_bc} ${llvm_asm}
-      COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash" ${llvm_bc} ${llvm_bc_cpp}
+      COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash" ${llvm_bc} ${llvm_bc_cpp} "osl_llvm_compiled_ops"
       MAIN_DEPENDENCY ${llvm_src}
       DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash"
+              ${exec_headers} ${PROJECT_PUBLIC_HEADERS}
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" )
+
+ENDMACRO ( )
+
+# Function to compile a C++ source file to CUDA-compatible LLVM bitcode
+FUNCTION ( MAKE_CUDA_BITCODE src generated_bc )
+    GET_FILENAME_COMPONENT ( src_we ${src} NAME_WE )
+    SET ( asm_cuda "${CMAKE_CURRENT_BINARY_DIR}/${src_we}_cuda.s" )
+    SET ( bc_cuda "${CMAKE_CURRENT_BINARY_DIR}/${src_we}_cuda.bc" )
+
+    ADD_CUSTOM_COMMAND ( OUTPUT ${bc_cuda}
+        COMMAND ${LLVM_BC_GENERATOR}
+            ${LLVM_COMPILE_FLAGS}
+            "-I${CMAKE_CURRENT_SOURCE_DIR}"
+            "-I${CMAKE_SOURCE_DIR}/src/include"
+            "-I${CMAKE_BINARY_DIR}/include"
+            "-I${OPENIMAGEIO_INCLUDE_DIR}"
+            "-I${ILMBASE_INCLUDE_DIR}"
+            "-I${Boost_INCLUDE_DIRS}"
+            -D__CUDACC__ -DOSL_COMPILING_TO_BITCODE=1 -DNDEBUG -DOIIO_NO_SSE
+            --language=cuda --cuda-device-only --cuda-gpu-arch=${CUDA_TARGET_ARCH}
+            ${CUDA_LIB_FLAGS}
+            -std=c++11 -Wno-deprecated-register
+            -O3 -fno-math-errno -S -emit-llvm -o ${asm_cuda} ${src}
+        COMMAND "${LLVM_DIRECTORY}/bin/llvm-as" -f -o ${bc_cuda} ${asm_cuda}
+        DEPENDS ${exec_headers} ${PROJECT_PUBLIC_HEADERS} ${src}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" )
+
+    SET ( ${generated_bc} ${bc_cuda} PARENT_SCOPE )
+ENDFUNCTION ()
+
+MACRO ( CUDA_SHADEOPS_COMPILE srclist )
+    # Add all of the "shadeops" sources that need to be compiled to LLVM bitcode for CUDA
+    set ( shadeops_srcs
+        llvm_ops.cpp
+        opnoise.cpp
+        ../liboslnoise/simplexnoise.cpp
+        )
+
+    SET ( shadeops_bc_cuda_cpp "${CMAKE_CURRENT_BINARY_DIR}/shadeops_cuda.bc.cpp" )
+    SET ( linked_shadeops_bc "${CMAKE_CURRENT_BINARY_DIR}/linked_shadeops.bc" )
+
+    LIST ( APPEND ${srclist} ${shadeops_bc_cuda_cpp} )
+
+    FOREACH ( shadeops_src ${shadeops_srcs} )
+        MAKE_CUDA_BITCODE ( ${shadeops_src} shadeops_bc )
+        LIST ( APPEND shadeops_bc_list ${shadeops_bc} )
+    ENDFOREACH ()
+
+    # Link all of the individual LLVM bitcode files
+    ADD_CUSTOM_COMMAND ( OUTPUT ${linked_shadeops_bc}
+        COMMAND "${LLVM_DIRECTORY}/bin/llvm-link" -internalize ${shadeops_bc_list} -o ${linked_shadeops_bc}
+        DEPENDS ${shadeops_bc_list} ${exec_headers} ${PROJECT_PUBLIC_HEADERS} ${shadeops_srcs}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" )
+
+    # Serialze the linked bitcode into a CPP file and add it to the list of liboslexec soures
+    ADD_CUSTOM_COMMAND ( OUTPUT ${shadeops_bc_cuda_cpp}
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash"
+            ${linked_shadeops_bc} ${shadeops_bc_cuda_cpp} "osl_llvm_compiled_ops_cuda"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash" ${linked_shadeops_bc}
+        ${exec_headers} ${PROJECT_PUBLIC_HEADERS}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" )
 ENDMACRO ( )
 
 if (USE_LLVM_BITCODE)
     LLVM_COMPILE ( llvm_ops.cpp liboslexec_srcs )
+
+    # Optionally repeat the bitcode compilation with CUDA-specific options
+    if (CUDA_FOUND)
+        ADD_DEFINITIONS (-DOSL_LLVM_CUDA_BITCODE)
+        CUDA_SHADEOPS_COMPILE ( liboslexec_srcs )
+    endif ()
 else ()
     # With MSVC/Mingw, we don't compile llvm_ops.cpp to LLVM bitcode, due
     # to clang being unable to compile MSVC C++ header files at this time.
@@ -143,27 +205,38 @@ if (BUILDSTATIC)
     ADD_LIBRARY ( oslexec STATIC ${liboslexec_srcs} )
 else ()
     ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
+
+    if (VERBOSE)
+        message(STATUS "Setting SOVERSION to: ${SOVERSION}")
+    endif ()
+    set_target_properties( oslexec
+                          PROPERTIES
+                          VERSION ${OSL_VERSION_MAJOR}.${OSL_VERSION_MINOR}.${OSL_VERSION_PATCH}
+                          SOVERSION ${SOVERSION} )
 endif ()
 
 TARGET_LINK_LIBRARIES ( oslexec
                         ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
-                        ${OPENIMAGEIO_LIBRARY} ${ILMBASE_LIBRARIES}
+                        ${OPENIMAGEIO_LIBRARIES} ${ILMBASE_LIBRARIES}
                         ${PUGIXML_LIBRARIES}
                         ${PARTIO_LIBRARIES} ${ZLIB_LIBRARIES}
                         ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
                         ${CLANG_LIBRARIES}
-                        ${LLVM_LIBRARY} ${LLVM_MCJIT_LIBRARY}
                         ${LLVM_LIBRARIES} ${LLVM_LDFLAGS}
                         ${LLVM_SYSTEM_LIBRARIES})
 ADD_DEPENDENCIES (oslexec "${CMAKE_SOURCE_DIR}/src/build-scripts/hidesymbols.map")
 
-INSTALL ( TARGETS oslexec RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib )
+install_targets (oslexec)
 
 # Unit tests
 if (OSL_BUILD_TESTS)
     add_executable (accum_test accum_test.cpp)
     target_link_libraries ( accum_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
     add_test (unit_accum "${CMAKE_BINARY_DIR}/src/liboslexec/accum_test")
+
+    add_executable (dual_test dual_test.cpp)
+    target_link_libraries ( dual_test ${OPENIMAGEIO_LIBRARIES} ${ILMBASE_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+    add_test (unit_dual "${CMAKE_BINARY_DIR}/src/liboslexec/dual_test")
 
     add_executable (llvmutil_test llvmutil_test.cpp)
     target_link_libraries ( llvmutil_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})

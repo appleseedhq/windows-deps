@@ -9,6 +9,7 @@ Open Shading Language
 Build status:
 
 [![Build Status](https://travis-ci.org/imageworks/OpenShadingLanguage.svg?branch=master)](https://travis-ci.org/imageworks/OpenShadingLanguage)
+[![Appveyor status](https://ci.appveyor.com/api/projects/status/github/imageworks/openshadinglanguage?svg=true&branch=master)](https://ci.appveyor.com/project/lgritz/openshadinglanguage)
 
 **Table of contents**
 
@@ -242,6 +243,7 @@ adding OSL support):
 * [DNA Research: 3Delight](http://www.3delight.com/)
 * Ubisoft motion picture group's proprietary renderer
 * [Autodesk/SolidAngle: Arnold](https://www.solidangle.com/arnold/)
+* [Autodesk: 3DS Max 2019](https://help.autodesk.com/view/3DSMAX/2019/ENU/?guid=__developer_3ds_max_sdk_features_rendering_osl_html)
 
 Films using OSL (grouped by year of release date):
 * **(2012)**
@@ -275,8 +277,10 @@ Films using OSL (grouped by year of release date):
   Suicide Squad,
   Kingsglaive: Final Fantasy XV,
   Storks,
-  Miss Peregrine's Home for Peculiar Children, Assassin's Creed
-* **(2017) / upcoming**
+  Miss Peregrine's Home for Peculiar Children,
+  Fantastic Beasts and Where to Find Them,
+  Assassin's Creed
+* **(2017)**
   Lego Batman,
   The Great Wall,
   A Cure for Wellness,
@@ -289,6 +293,50 @@ Films using OSL (grouped by year of release date):
   Guardians of the Galaxy 2,
   The Mummy,
   Wonder Woman,
+  Cars 3,
+  Baby Driver,
+  Spider-Man: Homecoming,
+  Dunkirk,
+  The Emoji Movie,
+  Detroit,
+  Kingsman: The Golden Circle,
+  Lego Ninjago Movie,
+  Blade Runner 2049,
+  Geostorm,
+  Coco,
+  Justice League,
+  Thor: Ragnarok
+* **(2018)**
+  Peter Rabbit,
+  Black Panther,
+  Annnihilation,
+  Red Sparrow,
+  Pacific Rim Uprising,
+  Avengers Infinity War,
+  Deadpool 2,
+  Incredibles 2,
+  Jurassic World: Fallen Kingdom,
+  Hotel Transylvania 3: Summer Vacation,
+  Ant Man and the Wasp,
+  Skyscraper,
+  Mission Impossible: Fallout,
+  The Meg,
+  Kin,
+  Smallfoot,
+  Alpha,
+  Venom,
+  First Man,
+  Bad Times at the El Royale,
+  Fantastic Beasts: The Crimes of Grindelwald,
+  Bohemian Rhapsody,
+  Holmes and Watson,
+  Spider-Man: Into the Spider-Verse
+* **(2019) / upcoming**
+  The Kid Who Would Be King,
+  Alita: Battle Angel,
+  Lego Movie 2,
+  Lucky 13,
+  Captain Marvel,
   ...
 
 
@@ -329,11 +377,12 @@ Van Lommel.
 
 Additionally, many others have contributed features, bug fixes, and other
 changes: Steve Agland, Shane Ambler, Martijn Berger, Farchad Bidgolirad,
-Nicholas Bishop, Stefan Büttner, Matthaus G. Chajdas, Thomas Dinges, Henri
-Fousse, Syoyo Fujita, Derek Haase, Sven-Hendrik Haase, John Haddon, Daniel
-Heckenberg, Ronan Keryell, Elvic Liang, Max Liani, Bastien Montagne, Erich
-Ocean, Mikko Ohtamaa, Alex Schworer, Sergey Sharybin, Stephan Steinbach,
-Esteban Tovagliari, Alexander von Knorring, Roman Zulak. (Listed
+Nicholas Bishop, Stefan Büttner, Matthaus G. Chajdas, Thomas Dinges, Mark
+Final, Henri Fousse, Syoyo Fujita, Tim Grant, Derek Haase, Sven-Hendrik
+Haase, John Haddon, Daniel Heckenberg, Matt Johnson, Ronan Keryell, Elvic
+Liang, Max Liani, Bastien Montagne, Alexis Oblet, Erich Ocean, Mikko
+Ohtamaa, Alex Schworer, Jonathan Scruggs, Sergey Sharybin, Stephan
+Steinbach, Esteban Tovagliari, Alexander von Knorring, Roman Zulak. (Listed
 alphabetically; if we've left anybody out, please let us know.)
 
 We cannot possibly express sufficient gratitude to the managers at Sony
@@ -351,19 +400,18 @@ you, and we hope we've been responsive to your needs.
 
 OSL was not developed in isolation.  We owe a debt to the individuals
 and studios who patiently read early drafts of the language
-specification and gave us very helpful feedback and additional ideas.
-(I hope to mention them by name after we get permission of the people
-and studios involved.)
+specification and gave us very helpful feedback and additional ideas,
+as well as to the continuing contributions and feedback of its current
+developers and users at other VFX and animation studios.
 
-The OSL implementation incorporates or depends upon several other open
-source packages:
+The OSL implementation depends upon several other open source packages,
+all with compatible licenses:
 
-[OpenImageIO (c) Larry Gritz, et al](http://www.openimageio.org)
+* [OpenImageIO (c) Larry Gritz, et al](http://www.openimageio.org)
+* [Boost - various authors](http://www.boost.org)
+* [IlmBase (c) Industrial Light & Magic](http://www.openexr.com)
+* [LLVM Compiler Infrastructure](http://llvm.org)
 
-[Boost - various authors](http://www.boost.org)
-
-[IlmBase (c) Industrial Light & Magic](http://www.openexr.com)
-
-[LLVM Compiler Infrastructure](http://llvm.org)
-
-
+OSL's documentation incorporates parts of [Markdeep](https://casual-effects.com/markdeep/)
+(c) 2015-2016, Morgan McGuire, and [highlight.js](https://highlightjs.org/)
+(c) 2006, Ivan Sagalaev, both distributed under BSD licenses.
