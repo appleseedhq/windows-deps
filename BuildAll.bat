@@ -86,7 +86,7 @@ echo   python_library ....... %python_library%
 echo.
 
 set src=%root%src
-set devenv=call %root%Tools\devenv-wrapper.bat
+set devenv=call %root%tools\devenv-wrapper.bat
 set redirect=^>^> BUILDLOG.txt 2^>^&1
 
 mkdir %root%build\%platform% 2>nul
