@@ -28,8 +28,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include "export.h"
-#include "oslversion.h"
+#include <OSL/export.h>
+#include <OSL/oslversion.h>
 
 #include <vector>
 
@@ -43,7 +43,7 @@ namespace llvm {
   class ExecutionEngine;
   class Function;
   class FunctionType;
-  class JITMemoryManager;
+  class SectionMemoryManager;
   class Linker;
   class LLVMContext;
   class Module;
@@ -322,6 +322,10 @@ public:
     /// data type, return the llvm::Value of the new pointer.
     llvm::Value *ptr_cast (llvm::Value* val, const OIIO::TypeDesc &type);
 
+    /// Cast the variable specified by val to a pointer of type void*,
+    /// return the llvm::Value of the new pointer.
+    llvm::Value *int_to_ptr_cast (llvm::Value* val);
+
     /// Cast the pointer variable specified by val to a pointer of type
     /// void* return the llvm::Value of the new pointer.
     llvm::Value *void_ptr (llvm::Value* val);
@@ -410,6 +414,10 @@ public:
     /// Generate code for a memcpy.
     void op_memcpy (llvm::Value *dst, llvm::Value *src, int len, int align=1);
 
+    /// Generate code for a memcpy.
+    void op_memcpy (llvm::Value *dst, int dstalign,
+                    llvm::Value *src, int srcalign, int len);
+
     /// Dereference a pointer:  return *ptr
     llvm::Value *op_load (llvm::Value *ptr);
 
@@ -448,6 +456,7 @@ public:
     llvm::Value *op_int_to_float (llvm::Value *a);
     llvm::Value *op_bool_to_int (llvm::Value *a);
     llvm::Value *op_float_to_double (llvm::Value *a);
+    llvm::Value *op_int_to_longlong (llvm::Value *a);
 
     llvm::Value *op_and (llvm::Value *a, llvm::Value *b);
     llvm::Value *op_or (llvm::Value *a, llvm::Value *b);
@@ -474,7 +483,14 @@ public:
     /// file.  If err is not NULL, errors will be deposited there.
     void write_bitcode_file (const char *filename, std::string *err=NULL);
 
-    /// Convert a function's bitcode to a string.
+    /// Generate PTX for the current Module and return it as a string
+    bool ptx_compile_group (llvm::Module* lib_module, const std::string& name,
+                            std::string& out);
+
+    /// Convert a whole module's bitcode to a string.
+    std::string bitcode_string (llvm::Module *module);
+
+    /// Convert one function's bitcode to a string.
     std::string bitcode_string (llvm::Function *func);
 
     /// Delete the IR for the body of the given function to reclaim its
@@ -500,7 +516,7 @@ private:
     llvm::LLVMContext *m_llvm_context;
     llvm::Module *m_llvm_module;
     IRBuilder *m_builder;
-    MemoryManager *m_llvm_jitmm;
+    llvm::SectionMemoryManager *m_llvm_jitmm;
     llvm::Function *m_current_function;
     llvm::legacy::PassManager *m_llvm_module_passes;
     llvm::legacy::FunctionPassManager *m_llvm_func_passes;

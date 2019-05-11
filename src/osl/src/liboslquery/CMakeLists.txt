@@ -10,8 +10,16 @@ if (BUILDSTATIC)
     ADD_LIBRARY ( oslquery STATIC ${liboslquery_srcs} )
 else ()
     ADD_LIBRARY ( oslquery SHARED ${liboslquery_srcs} )
+
+    if (VERBOSE)
+        message(STATUS "Setting SOVERSION to: ${SOVERSION}")
+    endif ()
+    set_target_properties( oslquery
+                          PROPERTIES
+                          VERSION ${OSL_VERSION_MAJOR}.${OSL_VERSION_MINOR}.${OSL_VERSION_PATCH}
+                          SOVERSION ${SOVERSION} )
 endif ()
 
-TARGET_LINK_LIBRARIES ( oslquery ${OPENIMAGEIO_LIBRARY} ${ILMBASE_LIBRARIES} ${Boost_LIBRARIES} )
+TARGET_LINK_LIBRARIES ( oslquery ${OPENIMAGEIO_LIBRARIES} ${ILMBASE_LIBRARIES} ${Boost_LIBRARIES} )
 
-INSTALL ( TARGETS oslquery RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib )
+install_targets (oslquery)

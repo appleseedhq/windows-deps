@@ -1,0 +1,18 @@
+// Open Shading Language : Copyright (c) 2009-2017 Sony Pictures Imageworks Inc., et al.
+// https://github.com/imageworks/OpenShadingLanguage/blob/master/LICENSE
+//
+// MaterialX specification (c) 2017 Lucasfilm Ltd.
+// http://www.materialx.org/
+
+#include "mx_funcs.h"
+
+
+shader mx_convert_TYPE_SUFFIX_OTHERTYPE_SUFFIX
+    [[ string help = "Convert TYPE_SUFFIX to OTHERTYPE_SUFFIX" ]]
+  (
+    TYPE in1 = TYPE_DEFAULT_IN,
+    output OTHERTYPE out = OTHERTYPE_DEFAULT_OUT
+  )
+{
+    out = mx_convert (in1);
+}

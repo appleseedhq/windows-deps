@@ -8,6 +8,7 @@
 #  LLVM_SYSTEM_LIBRARIES - additional libraries needed by LLVM
 #  LLVM_DIRECTORY   - If not already set, the root of the LLVM install
 #  LLVM_LIB_DIR     - where to find llvm libs
+#  LLVM_TARGETS     - List of available LLVM targets
 #  CLANG_LIBRARIES  - list of libraries for clang components (optional,
 #                        those may not be found)
 #
@@ -48,18 +49,13 @@ execute_process (COMMAND ${LLVM_CONFIG} --libdir
 execute_process (COMMAND ${LLVM_CONFIG} --includedir
        OUTPUT_VARIABLE LLVM_INCLUDES
        OUTPUT_STRIP_TRAILING_WHITESPACE)
-if (NOT ${LLVM_VERSION} VERSION_LESS 3.8)
-    execute_process (COMMAND ${LLVM_CONFIG} --system-libs
-                     OUTPUT_VARIABLE LLVM_SYSTEM_LIBRARIES
-                     OUTPUT_STRIP_TRAILING_WHITESPACE)
-else ()
-    # Older LLVM did not have llvm-config --system-libs, but we know that
-    # on Linux, we'll need curses.
-    find_package (Curses)
-    if (CURSES_FOUND)
-        list (APPEND LLVM_SYSTEM_LIBRARIES ${CURSES_LIBRARIES})
-    endif ()
-endif ()
+execute_process (COMMAND ${LLVM_CONFIG} --targets-built
+       OUTPUT_VARIABLE LLVM_TARGETS
+       OUTPUT_STRIP_TRAILING_WHITESPACE)
+execute_process (COMMAND ${LLVM_CONFIG} --system-libs
+                 OUTPUT_VARIABLE LLVM_SYSTEM_LIBRARIES
+                 OUTPUT_STRIP_TRAILING_WHITESPACE)
+string (REPLACE " " ";" LLVM_SYSTEM_LIBRARIES "${LLVM_SYSTEM_LIBRARIES}")
 
 find_library ( LLVM_LIBRARY
                NAMES LLVM-${LLVM_VERSION} LLVM
@@ -67,7 +63,6 @@ find_library ( LLVM_LIBRARY
 find_library ( LLVM_MCJIT_LIBRARY
                NAMES LLVMMCJIT
                PATHS ${LLVM_LIB_DIR})
-
 
 foreach (COMPONENT clangFrontend clangDriver clangSerialization
                    clangParse clangSema clangAnalysis clangAST clangBasic
@@ -81,12 +76,6 @@ foreach (COMPONENT clangFrontend clangDriver clangSerialization
 endforeach ()
 
 
-# if (NOT LLVM_LIBRARY)
-#     execute_process (COMMAND ${LLVM_CONFIG} --libfiles engine
-#                      OUTPUT_VARIABLE LLVM_LIBRARIES
-#                      OUTPUT_STRIP_TRAILING_WHITESPACE)
-# endif ()
-
 # shared llvm library may not be available, this is not an error if we use LLVM_STATIC.
 if ((LLVM_LIBRARY OR LLVM_LIBRARIES OR LLVM_STATIC) AND LLVM_INCLUDES AND LLVM_DIRECTORY AND LLVM_LIB_DIR)
   if (LLVM_STATIC)
@@ -97,10 +86,6 @@ if ((LLVM_LIBRARY OR LLVM_LIBRARIES OR LLVM_STATIC) AND LLVM_INCLUDES AND LLVM_D
                      OUTPUT_VARIABLE LLVM_LIBRARIES
                      OUTPUT_STRIP_TRAILING_WHITESPACE)
     string (REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES}")
-    # We are using an old version of LLVM (3.4.2) and with this version, llvm-config --libfiles
-    # outputs a list of library file paths missing .lib file extensions, so we just manually
-    # add them here.
-    string (REGEX REPLACE "([^;]+)" "\\1.lib" LLVM_LIBRARIES "${LLVM_LIBRARIES}")
     set (LLVM_LIBRARY "")
   else ()
     set (LLVM_LIBRARIES "${LLVM_LIBRARY}")

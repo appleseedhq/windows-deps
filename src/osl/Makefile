@@ -12,7 +12,6 @@
 .PHONY: all debug profile clean realclean nuke
 
 working_dir	:= ${shell pwd}
-INSTALLDIR	=${working_dir}
 
 # Figure out which architecture we're on
 include ${working_dir}/src/make/detectplatform.mk
@@ -36,14 +35,9 @@ NINJA ?= ninja
 CMAKE ?= cmake
 
 # Site-specific build instructions
-ifndef OSL_SITE
-    OSL_SITE := ${shell uname -n}
-endif
-ifneq (${shell echo ${OSL_SITE} | grep imageworks},)
+OSL_SITE ?= ${shell uname -n}
+ifneq (${shell echo ${OSL_SITE} | grep imageworks.com},)
 include ${working_dir}/site/spi/Makefile-bits
-endif
-ifneq (${shell echo ${OSL_SITE} | grep pixar},)
-include ${working_dir}/site/pixar/Makefile-bits
 endif
 
 # Set up variables holding the names of platform-dependent directories --
@@ -52,6 +46,14 @@ top_build_dir := build
 build_dir     := ${top_build_dir}/${platform}${variant}
 top_dist_dir  := dist
 dist_dir      := ${top_dist_dir}/${platform}${variant}
+OSL_ROOT_DIR  ?= ${working_dir}/${dist_dir}
+
+ifndef INSTALL_PREFIX
+INSTALL_PREFIX := ${working_dir}/${dist_dir}
+INSTALL_PREFIX_BRIEF := ${dist_dir}
+else
+INSTALL_PREFIX_BRIEF := ${INSTALL_PREFIX}
+endif
 
 VERBOSE ?= ${SHOWCOMMANDS}
 ifneq (${VERBOSE},)
@@ -63,7 +65,7 @@ ifneq (${VERBOSE},0)
 endif
 $(info OSL_SITE = ${OSL_SITE})
 $(info dist_dir = ${dist_dir})
-$(info INSTALLDIR = ${INSTALLDIR})
+$(info INSTALL_PREFIX = ${INSTALL_PREFIX})
 endif
 
 ifneq (${LLVM_DIRECTORY},)
@@ -102,12 +104,20 @@ ifneq (${USE_FAST_MATH},)
 MY_CMAKE_FLAGS += -DUSE_FAST_MATH:BOOL=${USE_FAST_MATH}
 endif
 
+# Old names -- DEPRECATED (1.9)
 ifneq (${OPENEXR_HOME},)
-MY_CMAKE_FLAGS += -DOPENEXR_HOME:STRING=${OPENEXR_HOME}
+MY_CMAKE_FLAGS += -DOPENEXR_ROOT_DIR:STRING=${OPENEXR_HOME}
+endif
+ifneq (${ILMBASE_HOME},)
+MY_CMAKE_FLAGS += -DILMBASE_ROOT_DIR:STRING=${ILMBASE_HOME}
 endif
 
-ifneq (${ILMBASE_HOME},)
-MY_CMAKE_FLAGS += -DILMBASE_HOME:STRING=${ILMBASE_HOME}
+ifneq (${OPENEXR_ROOT_DIR},)
+MY_CMAKE_FLAGS += -DOPENEXR_ROOT_DIR:STRING=${OPENEXR_ROOT_DIR}
+endif
+
+ifneq (${ILMBASE_ROOT_DIR},)
+MY_CMAKE_FLAGS += -DILMBASE_ROOT_DIR:STRING=${ILMBASE_ROOT_DIR}
 endif
 
 ifneq (${USE_PARTIO},)
@@ -122,12 +132,20 @@ ifneq (${BOOST_HOME},)
 MY_CMAKE_FLAGS += -DBOOST_ROOT:STRING=${BOOST_HOME}
 endif
 
+ifneq (${USE_QT},)
+MY_CMAKE_FLAGS += -DUSE_QT:BOOL=${USE_QT}
+endif
+
 ifneq (${STOP_ON_WARNING},)
 MY_CMAKE_FLAGS += -DSTOP_ON_WARNING:BOOL=${STOP_ON_WARNING}
 endif
 
 ifneq (${BUILDSTATIC},)
 MY_CMAKE_FLAGS += -DBUILDSTATIC:BOOL=${BUILDSTATIC}
+endif
+
+ifneq (${SOVERSION},)
+MY_CMAKE_FLAGS += -DSOVERSION:STRING=${SOVERSION}
 endif
 
 ifneq (${LINKSTATIC},)
@@ -138,8 +156,12 @@ ifneq (${OSL_BUILD_TESTS},)
 MY_CMAKE_FLAGS += -DOSL_BUILD_TESTS:BOOL=${OSL_BUILD_TESTS}
 endif
 
-ifneq (${USE_EXTERNAL_PUGIXML},)
-MY_CMAKE_FLAGS += -DUSE_EXTERNAL_PUGIXML:BOOL=${USE_EXTERNAL_PUGIXML} -DPUGIXML_HOME=${PUGIXML_HOME}
+ifneq (${OSL_BUILD_SHADERS},)
+MY_CMAKE_FLAGS += -DOSL_BUILD_SHADERS:BOOL=${OSL_BUILD_SHADERS}
+endif
+
+ifneq (${OSL_BUILD_MATERIALX},)
+MY_CMAKE_FLAGS += -DOSL_BUILD_MATERIALX:BOOL=${OSL_BUILD_MATERIALX}
 endif
 
 ifdef DEBUG
@@ -157,16 +179,16 @@ ifneq (${MYCXX},)
 MY_CMAKE_FLAGS += -DCMAKE_CXX_COMPILER:STRING="${MYCXX}"
 endif
 
-ifneq (${USE_CPP11},)
-MY_CMAKE_FLAGS += -DUSE_CPP11:BOOL=${USE_CPP11}
-endif
-
-ifneq (${USE_CPP14},)
-MY_CMAKE_FLAGS += -DUSE_CPP14:BOOL=${USE_CPP14}
+ifneq (${USE_CPP},)
+MY_CMAKE_FLAGS += -DUSE_CPP=${USE_CPP}
 endif
 
 ifneq (${USE_LIBCPLUSPLUS},)
 MY_CMAKE_FLAGS += -DUSE_LIBCPLUSPLUS:BOOL=${USE_LIBCPLUSPLUS}
+endif
+
+ifneq (${GLIBCXX_USE_CXX11_ABI},)
+MY_CMAKE_FLAGS += -DGLIBCXX_USE_CXX11_ABI=${GLIBCXX_USE_CXX11_ABI}
 endif
 
 ifneq (${EXTRA_CPP_ARGS},)
@@ -192,6 +214,29 @@ endif
 
 ifneq (${CODECOV},)
 MY_CMAKE_FLAGS += -DCMAKE_BUILD_TYPE:STRING=Debug -DCODECOV:BOOL=${CODECOV}
+endif
+
+ifneq (${SANITIZE},)
+MY_CMAKE_FLAGS += -DSANITIZE=${SANITIZE}
+endif
+
+ifneq (${CLANG_TIDY},)
+  MY_CMAKE_FLAGS += -DCLANG_TIDY:BOOL=1
+endif
+ifneq (${CLANG_TIDY_CHECKS},)
+  MY_CMAKE_FLAGS += -DCLANG_TIDY_CHECKS:STRING=${CLANG_TIDY_CHECKS}
+endif
+ifneq (${CLANG_TIDY_ARGS},)
+  MY_CMAKE_FLAGS += -DCLANG_TIDY_ARGS:STRING=${CLANG_TIDY_ARGS}
+endif
+ifneq (${CLANG_TIDY_FIX},)
+  MY_CMAKE_FLAGS += -DCLANG_TIDY_FIX:BOOL=${CLANG_TIDY_FIX}
+  MY_NINJA_FLAGS += -j 1
+  # N.B. when fixing, you don't want parallel jobs!
+endif
+
+ifneq (${USE_OPTIX},)
+MY_CMAKE_FLAGS += -DUSE_OPTIX:BOOL=${USE_OPTIX}
 endif
 
 #$(info MY_CMAKE_FLAGS = ${MY_CMAKE_FLAGS})
@@ -223,7 +268,7 @@ cmakesetup:
 	@ (if [ ! -e ${build_dir}/${BUILDSENTINEL} ] ; then \
 		${CMAKE} -E make_directory ${build_dir} ; \
 		cd ${build_dir} ; \
-		${CMAKE} -DCMAKE_INSTALL_PREFIX=${INSTALLDIR}/${dist_dir} \
+		${CMAKE} -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} \
 			${MY_CMAKE_FLAGS} -DBOOST_ROOT=${BOOST_HOME} \
 			../.. ; \
 	 fi)
@@ -281,19 +326,20 @@ TEST_FLAGS += --force-new-ctest-process --output-on-failure
 test: cmake
 	@ ${CMAKE} -E cmake_echo_color --switch=$(COLOR) --cyan "Running tests ${TEST_FLAGS}..."
 	@ # if [ "${CODECOV}" == "1" ] ; then lcov -b ${build_dir} -d ${build_dir} -z ; rm -rf ${build_dir}/cov ; fi
-	@ ( cd ${build_dir} ; PYTHONPATH=${PWD}/${build_dir}/src/python ctest -E broken ${TEST_FLAGS} )
+	@ ( cd ${build_dir} ; \
+	    OSL_ROOT_DIR=${OSL_ROOT_DIR} \
+	    LD_LIBRARY_PATH=${INSTALL_PREFIX}/lib:${LD_LIBRARY_PATH} \
+	    DYLD_LIBRARY_PATH=${INSTALL_PREFIX}/lib:${DYLD_LIBRARY_PATH} \
+	    OIIO_LIBRARY_PATH=${INSTALL_PREFIX}/lib:${OIIO_LIBRARY_PATH} \
+	    PYTHONPATH=${working_dir}/${build_dir}/src/python:${PYTHONPATH} \
+	    ctest -E broken ${TEST_FLAGS} ;\
+	  )
 	@ ( if [ "${CODECOV}" == "1" ] ; then \
 	      cd ${build_dir} ; \
 	      lcov -b . -d . -c -o cov.info ; \
 	      lcov --remove cov.info "/usr*" -o cov.info ; \
 	      genhtml -o ./cov -t "OSL test coverage" --num-spaces 4 cov.info ; \
 	  fi )
-
-# 'make testall' does a full build and then runs all tests (even the ones
-# that are expected to fail on some platforms)
-testall: cmake
-	${CMAKE} -E cmake_echo_color --switch=$(COLOR) --cyan "Running all tests ${TEST_FLAGS}..."
-	( cd ${build_dir} ; PYTHONPATH=${PWD}/${build_dir}/src/python ctest ${TEST_FLAGS} )
 
 # 'make clean' clears out the build directory for this platform
 clean:
@@ -315,17 +361,13 @@ nuke:
 # 'make help' prints important make targets
 help:
 	@echo "Targets:"
-	@echo "  make              Build optimized binaries and libraries in ${dist_dir},"
-	@echo "                        temporary build files in ${build_dir}"
-	@echo "  make debug        Build unoptimized with symbols in ${dist_dir}.debug,"
-	@echo "                        temporary build files in ${build_dir}.debug"
-	@echo "  make profile      Build for profiling in ${dist_dir}.profile,"
-	@echo "                        temporary build files in ${build_dir}.profile"
+	@echo "  make              Build optimized binaries and libraries"
+	@echo "  make debug        Build unoptimized with symbols"
+	@echo "  make profile      Build for profiling"
 	@echo "  make clean        Remove the temporary files in ${build_dir}"
 	@echo "  make realclean    Remove both ${build_dir} AND ${dist_dir}"
 	@echo "  make nuke         Remove ALL of build and dist (not just ${platform})"
 	@echo "  make test         Run tests"
-	@echo "  make testall      Run all tests, even broken ones"
 	@echo ""
 	@echo "Helpful modifiers:"
 	@echo "  C++ compiler and build process:"
@@ -333,37 +375,44 @@ help:
 	@echo "      STOP_ON_WARNING=0        Do not stop building if compiler warns"
 	@echo "      OSL_SITE=xx              Use custom site build mods"
 	@echo "      MYCC=xx MYCXX=yy         Use custom compilers"
-	@echo "      USE_CPP11=0              Compile in C++11 mode (=0 means use CPP03!)"
-	@echo "      USE_CPP14=1              Compile in C++14 mode"
+	@echo "      USE_CPP=14               Compile in C++14 mode (default is C++11)"
 	@echo "      USE_LIBCPLUSPLUS=1       Use clang libc++"
+	@echo "      GLIBCXX_USE_CXX11_ABI=1  For gcc, use the new string ABI"
 	@echo "      EXTRA_CPP_ARGS=          Additional args to the C++ command"
 	@echo "      USE_NINJA=1              Set up Ninja build (instead of make)"
 	@echo "      USE_CCACHE=0             Disable ccache (even if available)"
 	@echo "      CODECOV=1                Enable code coverage tests"
+	@echo "      SANITIZE=name1,...       Enablie sanitizers (address, leak, thread)"
+	@echo "      CLANG_TIDY=1             Run clang-tidy on all source (can be modified"
+	@echo "                                  by CLANG_TIDY_ARGS=... and CLANG_TIDY_FIX=1"
 	@echo "  Linking and libraries:"
 	@echo "      HIDE_SYMBOLS=1           Hide symbols not in the public API"
 	@echo "      BUILDSTATIC=1            Build static library instead of shared"
 	@echo "      LINKSTATIC=1             Link with static external libs when possible"
 	@echo "  Finding and Using Dependencies:"
 	@echo "      BOOST_HOME=path          Custom Boost installation"
-	@echo "      OPENEXR_HOME=path        Custom OpenEXR installation"
-	@echo "      ILMBASE_HOME=path        Custom Ilmbase installation"
-	@echo "      PARTIO_HOME=             Use Partio from the given location"
-	@echo "      USE_EXTERNAL_PUGIXML=1   Use the system PugiXML, not the one in OIIO"
+	@echo "      OPENEXR_ROOT_DIR=path    Custom OpenEXR installation"
+	@echo "      ILMBASE_ROOT_DIR=path    Custom Ilmbase installation"
+	@echo "      PARTIO_HOME=path         Use Partio from the given location"
+	@echo "      USE_QT=0                 Skip anything that needs Qt"
 	@echo "  LLVM-related options:"
-	@echo "      LLVM_VERSION=3.4         Specify which LLVM version to use"
+	@echo "      LLVM_VERSION=4.0         Specify which LLVM version to use"
 	@echo "      LLVM_DIRECTORY=xx        Specify where LLVM lives"
 	@echo "      LLVM_NAMESPACE=xx        Specify custom LLVM namespace"
 	@echo "      LLVM_STATIC=1            Use static LLVM libraries"
 	@echo "      USE_LLVM_BITCODE=0       Don't generate embedded LLVM bitcode"
 	@echo "      USE_BOOST_WAVE=1         Force boost wave rather than clang preprocessor"
 	@echo "  OSL build-time options:"
-	@echo "      NAMESPACE=name           Wrap OSL APIs in another namespace"
+	@echo "      INSTALL_PREFIX=path      Set installation prefix (default: ./${INSTALL_PREFIX_BRIEF})"
+	@echo "      NAMESPACE=name           Override namespace base name (default: OSL)"
 	@echo "      USE_FAST_MATH=1          Use faster, but less accurate math (set to 0 for libm defaults)"
 	@echo "      OSL_BUILD_TESTS=0        Don't build unit tests, testshade, testrender"
+	@echo "      OSL_BUILD_SHADERS=0      Don't build any shaders"
+	@echo "      OSL_BUILD_MATERIALX=0    Don't build MaterialX shaders"
 	@echo "      USE_SIMD=arch            Build with SIMD support (choices: 0, sse2, sse3,"
-	@echo "                                  ssse3, sse4.1, sse4.2, f16c,"
+	@echo "                                  ssse3, sse4.1, sse4.2, f16c, avx, avx2"
 	@echo "                                  comma-separated ok)"
+	@echo "      USE_OPTIX=1              Build the OptiX test renderer"
 	@echo "  make test, extra options:"
 	@echo "      TEST=regex               Run only tests matching the regex"
 	@echo ""

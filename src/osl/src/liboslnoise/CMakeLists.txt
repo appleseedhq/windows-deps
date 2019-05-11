@@ -7,11 +7,19 @@ if (BUILDSTATIC)
     ADD_LIBRARY ( oslnoise STATIC ${liboslnoise_srcs} )
 else ()
     ADD_LIBRARY ( oslnoise SHARED ${liboslnoise_srcs} )
+
+    if (VERBOSE)
+        message(STATUS "Setting SOVERSION to: ${SOVERSION}")
+    endif ()
+    set_target_properties( oslnoise
+                          PROPERTIES
+                          VERSION ${OSL_VERSION_MAJOR}.${OSL_VERSION_MINOR}.${OSL_VERSION_PATCH}
+                          SOVERSION ${SOVERSION} )
 endif ()
 
-TARGET_LINK_LIBRARIES ( oslnoise ${OPENIMAGEIO_LIBRARY} ${ILMBASE_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} )
+TARGET_LINK_LIBRARIES ( oslnoise ${OPENIMAGEIO_LIBRARIES} ${ILMBASE_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} )
 
-INSTALL ( TARGETS oslnoise RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib )
+install_targets (oslnoise)
 
 
 if (OSL_BUILD_TESTS)

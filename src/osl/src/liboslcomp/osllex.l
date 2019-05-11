@@ -98,6 +98,7 @@ CPLUSCOMMENT    \/\/.*\n
 #include <string>
 
 #include <OpenImageIO/thread.h>
+#include <OpenImageIO/strutil.h>
 #include "oslcomp_pvt.h"
 
 using namespace OSL;
@@ -118,6 +119,12 @@ using namespace OSL::pvt;
 #endif
 #endif
 
+// flex itself will generate fatal warnings about signed vs unsigned.
+// Bypass that nonsense.
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 6
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#endif
+
 void preprocess (const char *yytext);
 
 // Macro that sets the yylloc line variables to the current parse line.
@@ -133,7 +140,7 @@ void preprocess (const char *yytext);
   ************************************************/
 
  /* preprocessor symbols */
-{CPP}	 	        {  preprocess (yytext); SETLINE; }
+{CPP}                   {  preprocess (yytext); SETLINE; }
 
  /* Comments */
 {CPLUSCOMMENT}          {  oslcompiler->incr_lineno(); /* skip it */
@@ -141,32 +148,32 @@ void preprocess (const char *yytext);
                         }
 
  /* keywords */
-"break"			{  SETLINE;  return (yylval.i=BREAK); }
-"closure"		{  SETLINE;  return (yylval.i=CLOSURE); }
-"color"			{  SETLINE;  return (yylval.i=COLORTYPE); }
-"continue"		{  SETLINE;  return (yylval.i=CONTINUE); }
-"do"		        {  SETLINE;  return (yylval.i=DO); }
-"else"			{  SETLINE;  return (yylval.i=ELSE); }
-"float"			{  SETLINE;  return (yylval.i=FLOATTYPE); }
-"for"			{  SETLINE;  return (yylval.i=FOR); }
-"if"			{  SETLINE;  return (yylval.i=IF_TOKEN); }
-"illuminance"	        {  SETLINE;  return (yylval.i=ILLUMINANCE); }
-"illuminate"	        {  SETLINE;  return (yylval.i=ILLUMINATE); }
-"int"		        {  SETLINE;  return (yylval.i=INTTYPE); }
-"matrix"		{  SETLINE;  return (yylval.i=MATRIXTYPE); }
-"normal"		{  SETLINE;  return (yylval.i=NORMALTYPE); }
+"break"                 {  SETLINE;  return (yylval.i=BREAK); }
+"closure"               {  SETLINE;  return (yylval.i=CLOSURE); }
+"color"                 {  SETLINE;  return (yylval.i=COLORTYPE); }
+"continue"              {  SETLINE;  return (yylval.i=CONTINUE); }
+"do"                    {  SETLINE;  return (yylval.i=DO); }
+"else"                  {  SETLINE;  return (yylval.i=ELSE); }
+"float"                 {  SETLINE;  return (yylval.i=FLOATTYPE); }
+"for"                   {  SETLINE;  return (yylval.i=FOR); }
+"if"                    {  SETLINE;  return (yylval.i=IF_TOKEN); }
+"illuminance"           {  SETLINE;  return (yylval.i=ILLUMINANCE); }
+"illuminate"            {  SETLINE;  return (yylval.i=ILLUMINATE); }
+"int"                   {  SETLINE;  return (yylval.i=INTTYPE); }
+"matrix"                {  SETLINE;  return (yylval.i=MATRIXTYPE); }
+"normal"                {  SETLINE;  return (yylval.i=NORMALTYPE); }
 "output"                {  SETLINE;  return (yylval.i=OUTPUT); }
-"point"			{  SETLINE;  return (yylval.i=POINTTYPE); }
-"public"		{  SETLINE;  return (yylval.i=PUBLIC); }
-"return"		{  SETLINE;  return (yylval.i=RETURN); }
-"string"		{  SETLINE;  return (yylval.i=STRINGTYPE); }
-"struct"		{  SETLINE;  return (yylval.i=STRUCT); }
-"vector"		{  SETLINE;  return (yylval.i=VECTORTYPE); }
-"void"			{  SETLINE;  return (yylval.i=VOIDTYPE); }
-"while"			{  SETLINE;  return (yylval.i=WHILE); }
-"or"			{  SETLINE;  return (yylval.i=OR_OP); }
-"and"			{  SETLINE;  return (yylval.i=AND_OP); }
-"not"			{  SETLINE;  return (yylval.i=NOT_OP); }
+"point"                 {  SETLINE;  return (yylval.i=POINTTYPE); }
+"public"                {  SETLINE;  return (yylval.i=PUBLIC); }
+"return"                {  SETLINE;  return (yylval.i=RETURN); }
+"string"                {  SETLINE;  return (yylval.i=STRINGTYPE); }
+"struct"                {  SETLINE;  return (yylval.i=STRUCT); }
+"vector"                {  SETLINE;  return (yylval.i=VECTORTYPE); }
+"void"                  {  SETLINE;  return (yylval.i=VOIDTYPE); }
+"while"                 {  SETLINE;  return (yylval.i=WHILE); }
+"or"                    {  SETLINE;  return (yylval.i=OR_OP); }
+"and"                   {  SETLINE;  return (yylval.i=AND_OP); }
+"not"                   {  SETLINE;  return (yylval.i=NOT_OP); }
 
  /* reserved words */
 "bool"|"case"|"char"|"class"|"const"|"default"|"double" |    \
@@ -174,17 +181,17 @@ void preprocess (const char *yytext);
 "protected"|"short"|"signed"|"sizeof"|"static"|"struct" |    \
 "switch"|"template"|"this"|"true"|"typedef"|"uniform" |      \
 "union"|"unsigned"|"varying"|"virtual" {
-                            fprintf (stderr, "Error: \"%s\", line %d:\n"
-                                     "\t'%s' is a reserved word\n",
-                                     oslcompiler->filename().c_str(),
-                                     oslcompiler->lineno(), yytext);
+                            oslcompiler->error (oslcompiler->filename(),
+                                                oslcompiler->lineno(),
+                                                "'%s' is a reserved word",
+                                                yytext);
                             SETLINE;
                             return (yylval.i=RESERVED);
                         }
 
 
  /* Identifiers */
-{IDENT}	                {
+{IDENT}                 {
                             yylval.s = ustring(yytext).c_str();
                             SETLINE;
                             return IDENTIFIER;
@@ -223,7 +230,7 @@ void preprocess (const char *yytext);
 
 
 {FLT}                   {
-                            yylval.f = atof (yytext);
+                            yylval.f = OIIO::Strutil::from_string<float>(yytext);
                             SETLINE;
                             return FLOAT_LITERAL;
                         }
@@ -240,23 +247,23 @@ void preprocess (const char *yytext);
   * catch-all rule, but we need to define the two-character operators
   * so they are not lexed as '+' and '=' separately, for example.
   */
-"+="			{  SETLINE;  return (yylval.i=ADD_ASSIGN); }
-"-="			{  SETLINE;  return (yylval.i=SUB_ASSIGN); }
-"*="			{  SETLINE;  return (yylval.i=MUL_ASSIGN); }
-"/="			{  SETLINE;  return (yylval.i=DIV_ASSIGN); }
-"&="			{  SETLINE;  return (yylval.i=BIT_AND_ASSIGN); }
-"|="			{  SETLINE;  return (yylval.i=BIT_OR_ASSIGN); }
-"^="			{  SETLINE;  return (yylval.i=XOR_ASSIGN); }
-"<<="			{  SETLINE;  return (yylval.i=SHL_ASSIGN); }
-">>="			{  SETLINE;  return (yylval.i=SHR_ASSIGN); }
-"<<"			{  SETLINE;  return (yylval.i=SHL_OP); }
-">>"			{  SETLINE;  return (yylval.i=SHR_OP); }
-"&&"			{  SETLINE;  return (yylval.i=AND_OP); }
-"||"			{  SETLINE;  return (yylval.i=OR_OP); }
-"<="			{  SETLINE;  return (yylval.i=LE_OP); }
-">="			{  SETLINE;  return (yylval.i=GE_OP); }
-"=="			{  SETLINE;  return (yylval.i=EQ_OP); }
-"!="			{  SETLINE;  return (yylval.i=NE_OP); }
+"+="                    {  SETLINE;  return (yylval.i=ADD_ASSIGN); }
+"-="                    {  SETLINE;  return (yylval.i=SUB_ASSIGN); }
+"*="                    {  SETLINE;  return (yylval.i=MUL_ASSIGN); }
+"/="                    {  SETLINE;  return (yylval.i=DIV_ASSIGN); }
+"&="                    {  SETLINE;  return (yylval.i=BIT_AND_ASSIGN); }
+"|="                    {  SETLINE;  return (yylval.i=BIT_OR_ASSIGN); }
+"^="                    {  SETLINE;  return (yylval.i=XOR_ASSIGN); }
+"<<="                   {  SETLINE;  return (yylval.i=SHL_ASSIGN); }
+">>="                   {  SETLINE;  return (yylval.i=SHR_ASSIGN); }
+"<<"                    {  SETLINE;  return (yylval.i=SHL_OP); }
+">>"                    {  SETLINE;  return (yylval.i=SHR_OP); }
+"&&"                    {  SETLINE;  return (yylval.i=AND_OP); }
+"||"                    {  SETLINE;  return (yylval.i=OR_OP); }
+"<="                    {  SETLINE;  return (yylval.i=LE_OP); }
+">="                    {  SETLINE;  return (yylval.i=GE_OP); }
+"=="                    {  SETLINE;  return (yylval.i=EQ_OP); }
+"!="                    {  SETLINE;  return (yylval.i=NE_OP); }
 "++"                    {  SETLINE;  return (yylval.i=INCREMENT); }
 "--"                    {  SETLINE;  return (yylval.i=DECREMENT); }
 
@@ -264,17 +271,17 @@ void preprocess (const char *yytext);
 "[["                    {  SETLINE;  return (yylval.i=METADATA_BEGIN); }
 
  /* End of line */
-"\\\n"			|
-[\n]			{  oslcompiler->incr_lineno();
+"\\\n"                  |
+[\n]                    {  oslcompiler->incr_lineno();
                            SETLINE;
                         }
 
  /* Ignore whitespace */
-{WHITE} 		{  }
+{WHITE}                 {  }
 
  /* catch-all rule for any other single characters */
-!			{  SETLINE;  return (yylval.i = NOT_OP); }
-.			{  SETLINE;  return (yylval.i = *yytext); }
+!                       {  SETLINE;  return (yylval.i = NOT_OP); }
+.                       {  SETLINE;  return (yylval.i = *yytext); }
 
 %%
 
@@ -289,29 +296,54 @@ preprocess (const char *yytext)
     while (*p == ' ' || *p == '\t')
         p++;
     if (*p != '#') {
-	fprintf (stderr, "Possible bug in shader preprocess\n");
+        oslcompiler->error (oslcompiler->filename(), oslcompiler->lineno(),
+                            "Possible bug in shader preprocess");
         SETLINE;
-	return;
+        return;
     }
     p++;
     while (*p == ' ' || *p == '\t')
         p++;
     if (! strncmp (p, "pragma", 6)) {
-	// pragma
-	fprintf (stderr, "Unknown pragma '%s'\n", p);
+        // pragma
+        OIIO::string_view line (p+6);
+        string_view pragmatype = OIIO::Strutil::parse_word (line);
+        if (OIIO::Strutil::iequals (pragmatype, "osl")) {
+            string_view pragmaname = OIIO::Strutil::parse_word (line);
+            if (pragmaname == "nowarn") {
+                oslcompiler->pragma_nowarn ();
+            } else {
+                oslcompiler->warning (oslcompiler->filename(), oslcompiler->lineno(),
+                                      "Unknown pragma '%s'", pragmaname);
+            }
+        }
+        // N.B. Pragmas that don't start with "osl" are ignored
         oslcompiler->incr_lineno();  // the pragma ends with an EOLN
     } else {  /* probably the line number and filename */
         if (! strncmp (p, "line", 4))
             p += 4;
         int line = atoi (p);
         if (line > 0) {
-	    const char *f = strchr (yytext, '\"');
-	    if (f) {
+            const char *f = strchr (yytext, '\"');
+            if (f) {
                 ++f;  // increment to past the quote
-	        int len = 0;  // count of chars within quotes
-	        while (f[len] && f[len] != '\"')
-		    ++len;
+                int len = 0;  // count of chars within quotes
+                while (f[len] && f[len] != '\"')
+                    ++len;
                 std::string filename (f, len);
+#if defined(_WIN32) && defined(USE_BOOST_WAVE) && (USE_BOOST_WAVE != 0)
+                // Assuming boost is the culprit and escaping Windows path
+                // separators incorrectly which clang's preprocessor won't do.
+                // Should this just be for Windows CI builds?
+                auto replace_all = [](std::string& str, const std::string& from, const std::string& to) {
+                    size_t start = 0;
+                    while((start = str.find(from, start)) != std::string::npos) {
+                        str.replace(start, from.size(), to);
+                        start += to.size();
+                    }
+                };
+                replace_all( filename, "\\\\", "\\");
+#endif
                 // Make it relative to the working directory, so error output
                 // isn't hugely cluttered (and also to make Boost::wave's
                 // error output match the standard cpp.
@@ -321,7 +353,7 @@ preprocess (const char *yytext)
                         (filename[0] == '/' || filename[0] == '\\'))
                         filename.erase (0, 1);
                 }
-	        oslcompiler->filename (ustring (filename));
+                oslcompiler->filename (ustring (filename));
                 // Spooky workaround for Boost Wave bug: force_include
                 // is broken and doesn't give us the right lines/files, so
                 // instead we forcefully insert a '#include "stdosl.h"' into
@@ -332,10 +364,9 @@ preprocess (const char *yytext)
                     --line;
             }
             oslcompiler->lineno (line);
-	} else {
-            fprintf (stderr, "Error: \"%s\", line %d:\n"
-                     "\tUnrecognized preprocessor command: #%s\n",
-                     oslcompiler->filename().c_str(), oslcompiler->lineno(), p);
+        } else {
+            oslcompiler->error (oslcompiler->filename(), oslcompiler->lineno(),
+                                "Unrecognized preprocessor command: #%s", p);
         }
     }
     SETLINE;
@@ -350,14 +381,25 @@ namespace pvt {   // OSL::pvt
 bool
 OSLCompilerImpl::osl_parse_buffer (const std::string &preprocessed_buffer)
 {
-    // Thread safety with the lexer/parser
-    static OIIO::mutex oslcompiler_mutex;
-    OIIO::lock_guard lock (oslcompiler_mutex);
+    // N.B. This should only be called if oslcompiler_mutex is held.
+    ASSERT (oslcompiler == this);
+
+#ifndef OIIO_STRUTIL_HAS_STOF
+    // Force classic "C" locale for correct '.' decimal parsing.
+    // N.B. This is not safe in a multi-threaded program where another
+    // application thread is expecting the native locale to work properly.
+    // This is not necessary for versions of OIIO that have Strutil::stof,
+    // and we can remove it entirely when OIIO 1.9 is the minimum.
+    std::locale oldlocale = std::locale::global (std::locale::classic());
+#endif
+
     osl_switch_to_buffer (osl_scan_string (preprocessed_buffer.c_str()));
-    oslcompiler = this;
     oslparse ();
     bool parseerr = error_encountered();
     osl_delete_buffer (YY_CURRENT_BUFFER);
+#ifndef OIIO_STRUTIL_HAS_STOF
+    std::locale::global (oldlocale);  // Restore the original locale.
+#endif
     return parseerr;
 }
 

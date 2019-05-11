@@ -34,8 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "oslexec_pvt.h"
 #include "osoreader.h"
 
-#include <boost/algorithm/string.hpp>
-
 #include <OpenImageIO/strutil.h>
 #include <OpenImageIO/dassert.h>
 #include <OpenImageIO/timer.h>
@@ -97,7 +95,7 @@ private:
     int m_oso_major, m_oso_minor;     ///< oso file format version
     int m_sym_default_index;          ///< Next sym default value to fill in
     bool m_errors;                    ///< Did we hit any errors?
-    typedef boost::unordered_map<ustring,int,ustringHash> UstringIntMap;
+    typedef std::unordered_map<ustring,int,ustringHash> UstringIntMap;
     UstringIntMap m_symmap;           ///< map sym name to index
 };
 
@@ -233,7 +231,7 @@ void
 OSOReaderToMaster::add_param_default (const char *def, size_t offset, const Symbol& sym)
 {
   if (sym.typespec().is_unsized_array() && offset >= m_master->m_sdefaults.size())
-      m_master->m_sdefaults.push_back(ustring(def));
+      m_master->m_sdefaults.emplace_back(def);
   else
       m_master->m_sdefaults[offset] = ustring(def);
 }
@@ -333,129 +331,109 @@ OSOReaderToMaster::parameter_done ()
 
 
 
-inline bool
-starts_with (const std::string &source, const std::string &pattern)
-{
-    return ! strncmp (source.c_str(), pattern.c_str(), pattern.length());
-}
-
-
-
-// If the string 'source' begins with 'pattern', erase the pattern from
-// the start of source and return true.  Otherwise, do not alter source
-// and return false.
-inline bool
-extract_prefix (std::string &source, const std::string &pattern)
-{
-    if (starts_with (source, pattern)) {
-        source.erase (0, pattern.length());
-        return true;
-    }
-    return false;
-}
-
-
-
-// Return the prefix of source that doesn't contain any characters in
-// 'stop', erase that prefix from source (up to and including the stop
-// character.  Also, the returned string is trimmed of leading and trailing
-// spaces if 'do_trim' is true.
-static std::string
-readuntil (std::string &source, const std::string &stop, bool do_trim=false)
-{
-    size_t e = source.find_first_of (stop);
-    if (e == source.npos)
-        return std::string ();
-    std::string r (source, 0, e);
-    source.erase (0, e == source.npos ? e : e+1);
-    if (do_trim)
-        boost::trim (r);
-    return r;
-}
-
-
-
 void
 OSOReaderToMaster::hint (string_view hintstring)
 {
-    std::string h (hintstring);   // FIXME -- use string_view ops here
-    if (extract_prefix (h, "%filename{\"")) {
-        m_sourcefile = readuntil (h, "\"");
+    string_view h (hintstring);
+
+    if (Strutil::parse_prefix (h, "%filename{\"")) {
+        m_sourcefile = Strutil::parse_until (h, "\"");
         return;
     }
-    if (extract_prefix (h, "%line{")) {
-        m_sourceline = atoi (h.c_str());
+    if (Strutil::parse_prefix (h, "%line{")) {
+        Strutil::parse_int (h, m_sourceline);
         return;
     }
-    if (extract_prefix (h, "%structfields{")) {
-        ASSERT (m_master->m_symbols.size() && "structfields hint but no sym");
+    if (Strutil::parse_prefix (h, "%structfields{") && m_master->m_symbols.size()) {
         Symbol &sym (m_master->m_symbols.back());
         StructSpec *structspec = sym.typespec().structspec();
         if (structspec->numfields() == 0) {
             while (1) {
-                std::string afield = readuntil (h, ",}", true);
+                std::string afield = Strutil::parse_until (h, ",}");
+                Strutil::parse_char (h, ','); // skip the separator
                 if (! afield.length())
                     break;
-//                std::cerr << " struct field " << afield << "\n";
                 structspec->add_field (TypeSpec(), ustring(afield));
             }
         }
         return;
     }
-    if (extract_prefix (h, "%mystructfield{")) {
-        ASSERT (m_master->m_symbols.size() && "mystructfield hint but no sym");
-        Symbol &sym (m_master->m_symbols.back());
-        sym.fieldid (atoi(h.c_str()+15));
+    if (Strutil::parse_prefix (h, "%mystructfield{") && m_master->m_symbols.size()) {
+        int ival = -1;
+        if (Strutil::parse_int (h, ival) && ival >= 0)
+            m_master->m_symbols.back().fieldid (ival);
         return;
     }
-    if (extract_prefix (h, "%read{")) {
-        ASSERT (m_master->m_symbols.size() && "read hint but no sym");
-        Symbol &sym (m_master->m_symbols.back());
-        int first, last;
-        sscanf (h.c_str(), "%d,%d", &first, &last);
-        sym.set_read (first, last);
-        return;
-    }
-    if (extract_prefix (h, "%write{")) {
-        ASSERT (m_master->m_symbols.size() && "write hint but no sym");
+    if (Strutil::parse_prefix (h, "%read{") && m_master->m_symbols.size()) {
         Symbol &sym (m_master->m_symbols.back());
         int first, last;
-        sscanf (h.c_str(), "%d,%d", &first, &last);
-        sym.set_write (first, last);
+        if (Strutil::parse_int (h, first) && Strutil::parse_char(h, ',')
+                && Strutil::parse_int (h, last))
+            sym.set_read (first, last);
         return;
     }
-    if (extract_prefix(h, "%argrw{")) {
-        const char* str = h.c_str();
-        ASSERT(*str == '\"');
-        str++; // skip open quote
-        size_t i = 0;
-        for (; *str != '\"'; i++, str++) {
-            ASSERT(*str == 'r' || *str == 'w' || *str == 'W' || *str == '-');
-            m_master->m_ops.back().argwrite(i, *str == 'w' || *str =='W');
-            m_master->m_ops.back().argread(i, *str == 'r' || *str =='W');
+    if (Strutil::parse_prefix (h, "%write{") && m_master->m_symbols.size()) {
+        Symbol &sym (m_master->m_symbols.back());
+        int first, last;
+        if (Strutil::parse_int (h, first) && Strutil::parse_char(h, ',')
+                && Strutil::parse_int (h, last))
+            sym.set_write (first, last);
+        return;
+    }
+    if (Strutil::parse_prefix(h, "%argrw{") && m_master->m_ops.size()) {
+        Opcode &op (m_master->m_ops.back());
+        string_view str = Strutil::parse_until (h, "}");
+        Strutil::parse_string (str, str, false, Strutil::DeleteQuotes);
+        if (str.size() != m_nargs) {
+            m_shadingsys.error ("Parsing shader %s: malformed hint '%s' on op %s line %d",
+                                m_master->shadername(), hintstring,
+                                m_master->m_ops.back().opname(), m_sourceline);
+            m_errors = true;
         }
-        ASSERT(m_nargs == i);
+        for (size_t i = 0; str.size() && i < m_nargs; i++, str.remove_prefix(1)) {
+            char c = str.front();
+            op.argwrite (i, c == 'w' || c =='W');
+            op.argread (i, c == 'r' || c =='W');
+        }
         // Fix old bug where oslc forgot to mark getmatrix last arg as write
+        ustring opname = m_master->m_ops.back().opname();
         static ustring getmatrix("getmatrix");
-        if (m_master->m_ops.back().opname() == getmatrix)
-            m_master->m_ops.back().argwrite(m_nargs-1, true);
+        if (opname == getmatrix)
+            m_master->m_ops.back().argwriteonly (m_nargs-1);
+        // Fix old bug where oslc forgot to mark regex results as write.
+        // This was a bug prior to 1.10.
+        static ustring regex_search("regex_search");
+        static ustring regex_match("regex_match");
+        if (opname == regex_search || opname == regex_search)
+            m_master->m_ops.back().argwriteonly (2);
+        return;
     }
-    if (extract_prefix(h, "%argderivs{")) {
+    if (Strutil::parse_prefix(h, "%argderivs{")) {
         while (1) {
-            std::string afield = readuntil (h, ",}", true);
+            string_view afield = Strutil::parse_until (h, ",}");
+            Strutil::parse_char (h, ','); // skip the separator
             if (! afield.length())
                 break;
-            int arg = atoi (afield.c_str());
-            if (arg >= 0)
+            int arg = -1;
+            if (Strutil::parse_int (afield, arg) && arg >= 0)
                 m_master->m_ops.back().argtakesderivs (arg, true);
         }
+        return;
     }
-    if (extract_prefix (h, "%meta{") && m_master->m_symbols.size()) {
+    if (Strutil::parse_prefix (h, "%meta{") && m_master->m_symbols.size()) {
         Symbol &sym (m_master->m_symbols.back());
-        int lockval = -1;
-        int ok = sscanf (h.c_str(), " int , lockgeom , %d", &lockval);
-        if (ok)
-            sym.lockgeom (lockval);
+        int ival = -1;
+        TypeDesc type (Strutil::parse_identifier (h, "", true));
+        Strutil::parse_char (h, ',');
+        string_view ident = Strutil::parse_identifier (h, "", true);
+        Strutil::parse_char (h, ',');
+        if (type == TypeDesc::TypeInt && ident == "lockgeom"
+                && Strutil::parse_int (h, ival) && ival >= 0)
+            sym.lockgeom (ival);
+        else if (type == TypeDesc::TypeInt && ident == "allowconnect"
+                && Strutil::parse_int (h, ival) && ival >= 0)
+            sym.allowconnect (ival);
+        return;
     }
 }
 
@@ -499,7 +477,7 @@ OSOReaderToMaster::codeend ()
         // If we were previously chalking up the code to init ops for a
         // symbol, mark the end.
         m_master->symbol(m_codesym)->initend (nextop);
-    } else if (m_codesection && m_codesection == "___main___") {
+    } else if (m_codesection == "___main___") {
         // If we were previously reading ops for the ___main___ entry
         // point, mark its end properly.
         m_master->m_maincodeend = nextop;
@@ -568,6 +546,8 @@ OSOReaderToMaster::instruction_end ()
 ShaderMaster::ref
 ShadingSystemImpl::loadshader (string_view cname)
 {
+    if (Strutil::ends_with (cname, ".oso"))
+        cname.remove_suffix (4);   // strip superfluous .oso
     if (! cname.size()) {
         error ("Attempt to load shader with empty name \"\".");
         return NULL;
@@ -585,15 +565,17 @@ ShadingSystemImpl::loadshader (string_view cname)
 
     // Not found in the map
     OSOReaderToMaster oso (*this);
+    bool testcwd = m_searchpath_dirs.empty();  // test "." if there's no searchpath
     std::string filename = OIIO::Filesystem::searchpath_find (name.string() + ".oso",
-                                                        m_searchpath_dirs);
+                                                        m_searchpath_dirs,
+                                                        testcwd);
     if (filename.empty ()) {
-        error ("No .oso file could be found for shader \"%s\"", name.c_str());
+        error ("No .oso file could be found for shader \"%s\"", name);
         return NULL;
     }
     OIIO::Timer timer;
     bool ok = oso.parse_file (filename);
-    ShaderMaster::ref r = ok ? oso.master() : NULL;
+    ShaderMaster::ref r = ok ? oso.master() : nullptr;
     m_shader_masters[name] = r;
     double loadtime = timer();
     {
@@ -636,9 +618,9 @@ ShadingSystemImpl::LoadMemoryCompiledShader (string_view shadername,
     ustring name (shadername);
     lock_guard guard (m_mutex);  // Thread safety
     ShaderNameMap::const_iterator found = m_shader_masters.find (name);
-    if (found != m_shader_masters.end()) {
+    if (found != m_shader_masters.end() && ! allow_shader_replacement()) {
         if (debug())
-            info ("Preload shader %s already exists in shader_masters", name.c_str());
+            info ("Preload shader %s already exists in shader_masters", name);
         return false;
     }
 
@@ -646,7 +628,7 @@ ShadingSystemImpl::LoadMemoryCompiledShader (string_view shadername,
     OSOReaderToMaster reader (*this);
     OIIO::Timer timer;
     bool ok = reader.parse_memory (buffer);
-    ShaderMaster::ref r = ok ? reader.master() : NULL;
+    ShaderMaster::ref r = ok ? reader.master() : nullptr;
     m_shader_masters[name] = r;
     double loadtime = timer();
     {

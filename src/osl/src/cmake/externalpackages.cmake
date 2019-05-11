@@ -15,30 +15,11 @@ if (NOT VERBOSE)
     set (PugiXML_FIND_QUIETLY TRUE)
     set (PythonInterp_FIND_QUIETLY true)
     set (PythonLibs_FIND_QUIETLY true)
+    set (Qt5_FIND_QUIETLY true)
     set (Threads_FIND_QUIETLY true)
     set (ZLIB_FIND_QUIETLY true)
-endif ()
-
-
-setup_path (THIRD_PARTY_TOOLS_HOME
-            "unknown"
-            "Location of third party libraries in the external project")
-
-# Add all third party tool directories to the include and library paths so
-# that they'll be correctly found by the various FIND_PACKAGE() invocations.
-if (THIRD_PARTY_TOOLS_HOME AND EXISTS "${THIRD_PARTY_TOOLS_HOME}")
-    set (CMAKE_INCLUDE_PATH "${THIRD_PARTY_TOOLS_HOME}/include" "${CMAKE_INCLUDE_PATH}")
-    # Detect third party tools which have been successfully built using the
-    # lock files which are placed there by the external project Makefile.
-    file (GLOB _external_dir_lockfiles "${THIRD_PARTY_TOOLS_HOME}/*.d")
-    foreach (_dir_lockfile ${_external_dir_lockfiles})
-        # Grab the tool directory_name.d
-        get_filename_component (_ext_dirname ${_dir_lockfile} NAME)
-        # Strip off the .d extension
-        string (REGEX REPLACE "\\.d$" "" _ext_dirname ${_ext_dirname})
-        set (CMAKE_INCLUDE_PATH "${THIRD_PARTY_TOOLS_HOME}/include/${_ext_dirname}" ${CMAKE_INCLUDE_PATH})
-        set (CMAKE_LIBRARY_PATH "${THIRD_PARTY_TOOLS_HOME}/lib/${_ext_dirname}" ${CMAKE_LIBRARY_PATH})
-    endforeach ()
+    set (CUDA_FIND_QUIETLY true)
+    set (OptiX_FIND_QUIETLY true)
 endif ()
 
 
@@ -53,21 +34,18 @@ endif ()
 ###########################################################################
 # IlmBase setup
 
-find_package (OpenEXR REQUIRED)
+find_package (OpenEXR 2.0 REQUIRED)
 #OpenEXR 2.2 still has problems with importing ImathInt64.h unqualified
 #thus need for ilmbase/OpenEXR
 include_directories ("${OPENEXR_INCLUDE_DIR}"
                      "${ILMBASE_INCLUDE_DIR}"
                      "${ILMBASE_INCLUDE_DIR}/OpenEXR")
 if (${OPENEXR_VERSION} VERSION_LESS 2.0.0)
-    # OpenEXR 1.x had weird #include dirctives, this is also necessary:
-    include_directories ("${OPENEXR_INCLUDE_DIR}/OpenEXR")
-else ()
-    add_definitions (-DUSE_OPENEXR_VERSION2=1)
+    message (FATAL_ERROR "OpenEXR/Ilmbase is too old")
 endif ()
 if (NOT OpenEXR_FIND_QUIETLY)
-    message (STATUS "ILMBASE_INCLUDE_DIR = ${ILMBASE_INCLUDE_DIR}")
-    message (STATUS "ILMBASE_LIBRARIES = ${ILMBASE_LIBRARIES}")
+    message (STATUS "OPENEXR_INCLUDE_DIR = ${OPENEXR_INCLUDE_DIR}")
+    message (STATUS "OPENEXR_LIBRARIES = ${OPENEXR_LIBRARIES}")
 endif ()
 
 # end IlmBase setup
@@ -77,7 +55,7 @@ endif ()
 ###########################################################################
 # OpenImageIO
 
-find_package (OpenImageIO 1.6 REQUIRED)
+find_package (OpenImageIO 1.8.5 REQUIRED)
 include_directories ("${OPENIMAGEIO_INCLUDE_DIR}")
 link_directories ("${OPENIMAGEIO_LIBRARY_DIRS}")
 message (STATUS "Using OpenImageIO ${OPENIMAGEIO_VERSION}")
@@ -89,17 +67,18 @@ message (STATUS "Using OpenImageIO ${OPENIMAGEIO_VERSION}")
 ###########################################################################
 # LLVM library setup
 
-find_package (LLVM 3.4 REQUIRED)
+find_package (LLVM 4.0 REQUIRED)
 
-if (LLVM_FOUND)
-  # ensure include directory is added (in case of non-standard locations
-  include_directories (BEFORE SYSTEM "${LLVM_INCLUDES}")
-  link_directories ("${LLVM_LIB_DIR}")
-  # Extract and concatenate major & minor, remove wayward patches,
-  # dots, and "svn" or other suffixes.
-  string (REGEX REPLACE "([0-9]+)\\.([0-9]+).*" "\\1\\2" OSL_LLVM_VERSION ${LLVM_VERSION})
-  add_definitions (-DOSL_LLVM_VERSION=${OSL_LLVM_VERSION})
-  add_definitions (-DOSL_LLVM_FULL_VERSION="${LLVM_VERSION}")
+# ensure include directory is added (in case of non-standard locations
+include_directories (BEFORE SYSTEM "${LLVM_INCLUDES}")
+link_directories ("${LLVM_LIB_DIR}")
+# Extract and concatenate major & minor, remove wayward patches,
+# dots, and "svn" or other suffixes.
+string (REGEX REPLACE "([0-9]+)\\.([0-9]+).*" "\\1\\2" OSL_LLVM_VERSION ${LLVM_VERSION})
+add_definitions (-DOSL_LLVM_VERSION=${OSL_LLVM_VERSION})
+add_definitions (-DOSL_LLVM_FULL_VERSION="${LLVM_VERSION}")
+if (LLVM_NAMESPACE)
+    add_definitions ("-DLLVM_NAMESPACE=${LLVM_NAMESPACE}")
 endif ()
 
 # end LLVM library setup
@@ -113,65 +92,45 @@ if (NOT Boost_FIND_QUIETLY)
     message (STATUS "BOOST_ROOT ${BOOST_ROOT}")
 endif ()
 
-if (NOT DEFINED Boost_ADDITIONAL_VERSIONS)
-  set (Boost_ADDITIONAL_VERSIONS "1.60" "1.59" "1.58" "1.57" "1.56"
-                                 "1.55" "1.54" "1.53" "1.52" "1.51" "1.50"
-                                 "1.49" "1.48" "1.47" "1.46" "1.45" "1.44"
-                                 "1.43" "1.43.0" "1.42" "1.42.0")
-endif ()
 if (LINKSTATIC)
-    set (Boost_USE_STATIC_LIBS   ON)
+    set (Boost_USE_STATIC_LIBS ON)
 endif ()
 set (Boost_USE_MULTITHREADED ON)
-if (BOOST_CUSTOM)
-    set (Boost_FOUND true)
-    # N.B. For a custom version, the caller had better set up the variables
-    # Boost_VERSION, Boost_INCLUDE_DIRS, Boost_LIBRARY_DIRS, Boost_LIBRARIES.
-    if (USE_BOOST_WAVE)
-        add_definitions (-DUSE_BOOST_WAVE=1)
-    endif ()
-else ()
-    set (Boost_COMPONENTS system thread)
-    if (NOT USE_STD_REGEX)
-        list (APPEND Boost_COMPONENTS regex)
-    endif ()
-    if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_APPLECLANG OR
-            ${LLVM_VERSION} VERSION_LESS 3.6)
+set (Boost_COMPONENTS system thread)
+if (NOT USE_STD_REGEX)
+    list (APPEND Boost_COMPONENTS regex)
+endif ()
+if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_APPLECLANG)
+    set (_CLANG_PREPROCESSOR_CAN_WORK ON)
+endif ()
+if (GCC_VERSION)
+    if (${GCC_VERSION} VERSION_LESS 4.9)
         set (_CLANG_PREPROCESSOR_CAN_WORK ON)
     endif ()
-    if (GCC_VERSION)
-        if (${GCC_VERSION} VERSION_LESS 4.9)
-            set (_CLANG_PREPROCESSOR_CAN_WORK ON)
-        endif ()
-    endif ()
-    if (${LLVM_VERSION} VERSION_LESS 3.9)
-        # Bug in old LLVM creates some linkage problems we've seen involving
-        # some singleton globals that are duplicated when we include both
-        # the clang libs we need for the preprocessing as well as certain
-        # LLVM support libraries we also need, triggering assertions.
-        # See this for description of the issue:
-        # http://lists.llvm.org/pipermail/llvm-commits/Week-of-Mon-20140203/203968.html
-        # Sweep under the rug by falling back to boost wave when using older
-        # LLVM (it seems fixed and no longer triggers for 3.9+).
-        set (_CLANG_PREPROCESSOR_CAN_WORK OFF)
-    endif ()
-    if (USE_BOOST_WAVE OR (NOT CLANG_LIBRARIES)
-        OR (NOT USE_CPP11 AND NOT USE_CPP14)
-        OR (NOT _CLANG_PREPROCESSOR_CAN_WORK))
-        # N.B. Using clang for preprocessing seems to work when using clang,
-        # or gcc 4.8.x, or LLVM <= 3.5. When those conditions aren't met,
-        # fall back on Boost Wave. We'll lift this restriction as soon as we
-        # fix whatever is broken.
-        # Also, for C++03, we need Boost Wave still, because we're too lazy
-        # to deal with it.
-        list (APPEND Boost_COMPONENTS filesystem wave)
-        add_definitions (-DUSE_BOOST_WAVE=1)
-        message (STATUS "Using Boost Wave for preprocessing")
-    else ()
-        message (STATUS "Using clang internals for preprocessing")
-    endif ()
-    find_package (Boost 1.42 REQUIRED
+endif ()
+if (USE_BOOST_WAVE OR (NOT CLANG_LIBRARIES)
+    OR (NOT _CLANG_PREPROCESSOR_CAN_WORK))
+    # N.B. Using clang for preprocessing seems to work when using clang,
+    # or gcc 4.8.x, or LLVM <= 3.5. When those conditions aren't met,
+    # fall back on Boost Wave. We'll lift this restriction as soon as we
+    # fix whatever is broken.
+    list (APPEND Boost_COMPONENTS filesystem wave)
+    add_definitions (-DUSE_BOOST_WAVE=1)
+    message (STATUS "Using Boost Wave for preprocessing")
+else ()
+    message (STATUS "Using clang internals for preprocessing")
+endif ()
+if (BOOST_CUSTOM)
+    set (Boost_FOUND true)
+else ()
+    find_package (Boost 1.55 REQUIRED
                   COMPONENTS ${Boost_COMPONENTS})
+endif ()
+
+# Needed for static boost libraries on Windows
+if (WIN32 AND Boost_USE_STATIC_LIBS)
+    add_definitions ("-DBOOST_ALL_NO_LIB")
+    add_definitions ("-DBOOST_THREAD_USE_LIB")
 endif ()
 
 # On Linux, Boost 1.55 and higher seems to need to link against -lrt
@@ -209,19 +168,94 @@ if (USE_PARTIO)
     endif ()
 endif (USE_PARTIO)
 
-# end GL Extension Wrangler library setup
+# end Partio setup
 ###########################################################################
 
 
 ###########################################################################
-# Pugixml setup.  Normally we just use the version bundled with oiio, but
-# some linux distros are quite particular about having separate packages so we
-# allow this to be overridden to use the distro-provided package if desired.
-if (USE_EXTERNAL_PUGIXML)
-    find_package (PugiXML REQUIRED)
-    # insert include path to pugixml first, to ensure that the external
-    # pugixml is found, and not the one in OIIO's include directory.
-    include_directories (BEFORE "${PUGIXML_INCLUDE_DIR}")
-endif()
+# Pugixml setup.  Prefer a system install, but note that FindPugiXML.cmake
+# will look in the OIIO distribution if it's not found on the system.
+find_package (PugiXML REQUIRED)
+include_directories (BEFORE "${PUGIXML_INCLUDE_DIR}")
 # end Pugixml setup
 ###########################################################################
+
+
+###########################################################################
+# Qt setup
+
+if (USE_QT)
+    set (qt5_modules Core Gui Widgets)
+    # if (USE_OPENGL)
+    #     list (APPEND qt5_modules OpenGL)
+    # endif ()
+    find_package (Qt5 COMPONENTS ${qt5_modules})
+endif ()
+if (USE_QT AND Qt5_FOUND)
+    if (NOT Qt5_FIND_QUIETLY)
+        message (STATUS "Qt5_FOUND=${Qt5_FOUND}")
+    endif ()
+else ()
+    message (STATUS "No Qt5 -- skipping components that need Qt5.")
+    if (USE_QT AND NOT Qt5_FOUND AND APPLE)
+        message (STATUS "If you think you installed qt5 with Homebrew and it still doesn't work,")
+        message (STATUS "try:   export PATH=/usr/local/opt/qt5/bin:$PATH")
+    endif ()
+endif ()
+
+# end Qt setup
+###########################################################################
+
+###########################################################################
+# CUDA setup
+
+if (USE_CUDA OR USE_OPTIX)
+    if (NOT CUDA_TOOLKIT_ROOT_DIR AND NOT $ENV{CUDA_TOOLKIT_ROOT_DIR} STREQUAL "")
+        set (CUDA_TOOLKIT_ROOT_DIR $ENV{CUDA_TOOLKIT_ROOT_DIR})
+    endif ()
+
+    if (NOT CUDA_FIND_QUIETLY OR NOT OptiX_FIND_QUIETLY)
+        message (STATUS "CUDA_TOOLKIT_ROOT_DIR = ${CUDA_TOOLKIT_ROOT_DIR}")
+    endif ()
+
+    find_package (CUDA 8.0 REQUIRED)
+    set (CUDA_INCLUDE_DIR ${CUDA_TOOLKIT_ROOT_DIR}/include)
+    include_directories (BEFORE "${CUDA_INCLUDE_DIR}")
+
+    message (STATUS "CUDA version = ${CUDA_VERSION}")
+
+    if (NOT CUDA_FIND_QUIETLY OR NOT OptiX_FIND_QUIETLY)
+        message (STATUS "CUDA includes  = ${CUDA_INCLUDE_DIR}")
+        message (STATUS "CUDA libraries = ${CUDA_LIBRARIES}")
+    endif ()
+
+    STRING (FIND ${LLVM_TARGETS} "NVPTX" nvptx_index)
+    if (NOT ${nvptx_index} GREATER -1)
+        message (FATAL_ERROR "NVTPX target is not available in the provided LLVM build")
+    endif()
+
+    if (${CUDA_VERSION_MAJOR} GREATER 8 AND ${LLVM_VERSION} LESS 6)
+        message (FATAL_ERROR "CUDA ${CUDA_VERSION} requires LLVM 6.0 or greater")
+    endif ()
+
+    set (CUDA_LIB_FLAGS "--cuda-path=${CUDA_TOOLKIT_ROOT_DIR}")
+endif ()
+
+# end CUDA setup
+###########################################################################
+
+###########################################################################
+# OptiX setup
+
+if (USE_OPTIX)
+    find_package (OptiX 5.1 REQUIRED)
+    include_directories (BEFORE "${OPTIX_INCLUDE_DIR}")
+
+    if (NOT USE_LLVM_BITCODE OR NOT USE_FAST_MATH)
+        message (FATAL_ERROR "Enabling OptiX requires USE_LLVM_BITCODE=1 and USE_FAST_MATH=1")
+    endif ()
+endif ()
+
+# end OptiX setup
+###########################################################################
+

@@ -117,6 +117,12 @@ using namespace OSL::pvt;
 #define isatty _isatty
 #endif
 
+// flex itself will generate fatal warnings about signed vs unsigned.
+// Bypass that nonsense.
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 6
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#endif
+
 %}
 
 /* Declare modes */
@@ -194,13 +200,13 @@ using namespace OSL::pvt;
 
  /* Literal values */
 {INTEGER}               {
-                            yylval.i = atoi (yytext);
+                            yylval.i = OIIO::Strutil::from_string<int>(yytext);
                             // std::cerr << "lex int " << yylval.i << "\n";
                             return INT_LITERAL;
                         }
 
 {FLT}                   {
-                            yylval.f = atof (yytext);
+                            yylval.f = OIIO::Strutil::from_string<float>(yytext);
                             // std::cerr << "lex float " << yylval.f << "\n";
                             return FLOAT_LITERAL;
                         }
@@ -243,7 +249,7 @@ namespace pvt {   // OSL::pvt
 
 
 OSOReader * OSOReader::osoreader = NULL;
-static OIIO::mutex osoread_mutex;
+static std::mutex osoread_mutex;
 
 
 
@@ -252,7 +258,13 @@ OSOReader::parse_file (const std::string &filename)
 {
     // The lexer/parser isn't thread-safe, so make sure Only one thread
     // can actually be reading a .oso file at a time.
-    OIIO::lock_guard guard (osoread_mutex);
+    std::lock_guard<std::mutex> guard (osoread_mutex);
+
+    // Force classic "C" locale for correct '.' decimal parsing.
+    // N.B. This is not safe in a multi-threaded program where another
+    // application thread is expecting the native locale to work properly.
+    std::locale oldlocale;   // save the previous native locale
+    std::locale::global (std::locale::classic());
 
     osoin = OIIO::Filesystem::fopen (filename, "r");
     if (! osoin) {
@@ -271,6 +283,7 @@ OSOReader::parse_file (const std::string &filename)
     }
     oso_delete_buffer (YY_CURRENT_BUFFER);
     fclose (osoin);
+    std::locale::global (oldlocale);  // Restore the original locale.
 
     return ok;
 }
@@ -281,7 +294,16 @@ OSOReader::parse_memory (const std::string &buffer)
 {
     // The lexer/parser isn't thread-safe, so make sure Only one thread
     // can actually be reading a .oso file at a time.
-    OIIO::lock_guard guard (osoread_mutex);
+    std::lock_guard<std::mutex> guard (osoread_mutex);
+
+#ifndef OIIO_STRUTIL_HAS_STOF
+    // Force classic "C" locale for correct '.' decimal parsing.
+    // N.B. This is not safe in a multi-threaded program where another
+    // application thread is expecting the native locale to work properly.
+    // This is not necessary for versions of OIIO that have Strutil::stof,
+    // and we can remove it entirely when OIIO 1.9 is the minimum.
+    std::locale oldlocale = std::locale::global (std::locale::classic());
+#endif
 
     oso_switch_to_buffer (oso_scan_string (buffer.c_str()));
     osoreader = this;
@@ -292,6 +314,9 @@ OSOReader::parse_memory (const std::string &buffer)
         m_err.error ("Failed parse of preloaded OSO code");
     }
     oso_delete_buffer (YY_CURRENT_BUFFER);
+#ifndef OIIO_STRUTIL_HAS_STOF
+    std::locale::global (oldlocale);  // Restore the original locale.
+#endif
 
     return ok;
 }

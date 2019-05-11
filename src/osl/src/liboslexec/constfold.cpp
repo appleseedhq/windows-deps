@@ -30,8 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstdlib>
 
-#include <boost/regex.hpp>
-
 #include <OpenImageIO/fmath.h>
 #include <OpenImageIO/sysutil.h>
 
@@ -299,6 +297,35 @@ DECLFOLDER(constfold_div)
             rop.turn_into_assign (op, cind, "const / const");
             return 1;
         }
+    }
+    return 0;
+}
+
+
+
+DECLFOLDER(constfold_mod)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol &A (*rop.inst()->argsymbol(op.firstarg()+1));
+    Symbol &B (*rop.inst()->argsymbol(op.firstarg()+2));
+
+    if (rop.is_zero(A)) {
+        // R = 0 % B  =>   R = 0
+        rop.turn_into_assign_zero (op, "0 % A => 0");
+        return 1;
+    }
+    if (rop.is_zero(B)) {
+        // R = A % 0   =>   R = 0
+        rop.turn_into_assign_zero (op, "A % 0 => 0");
+        return 1;
+    }
+    if (A.is_constant() && B.is_constant() &&
+        A.typespec().is_int() && B.typespec().is_int()) {
+        int a = A.get_int();
+        int b = B.get_int();
+        int cind = rop.add_constant (b ? (a % b) : 0);
+        rop.turn_into_assign (op, cind, "const % const");
+        return 1;
     }
     return 0;
 }
@@ -1212,7 +1239,7 @@ DECLFOLDER(constfold_stoi)
     if (S.is_constant()) {
         ASSERT (S.typespec().is_string());
         ustring s = *(ustring *)S.data();
-        int cind = rop.add_constant ((int) strtol(s.c_str(), NULL, 10));
+        int cind = rop.add_constant (Strutil::from_string<int>(s));
         rop.turn_into_assign (op, cind, "const fold stoi");
         return 1;
     }
@@ -1229,7 +1256,7 @@ DECLFOLDER(constfold_stof)
     if (S.is_constant()) {
         ASSERT (S.typespec().is_string());
         ustring s = *(ustring *)S.data();
-        int cind = rop.add_constant ((float) strtod(s.c_str(), NULL));
+        int cind = rop.add_constant (Strutil::from_string<float>(s));
         rop.turn_into_assign (op, cind, "const fold stof");
         return 1;
     }
@@ -1444,8 +1471,8 @@ DECLFOLDER(constfold_regex_search)
         DASSERT (Subj.typespec().is_string() && Reg.typespec().is_string());
         const ustring &s (*(ustring *)Subj.data());
         const ustring &r (*(ustring *)Reg.data());
-        boost::regex reg (r.string());
-        int result = boost::regex_search (s.string(), reg);
+        regex reg (r.string());
+        int result = regex_search (s.string(), reg);
         int cind = rop.add_constant (result);
         rop.turn_into_assign (op, cind, "const fold regex_search");
         return 1;
@@ -2170,6 +2197,39 @@ DECLFOLDER(constfold_transform)
 
 
 
+DECLFOLDER(constfold_transformc)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    // Symbol &Result = *rop.opargsym (op, 0);
+    Symbol &From = *rop.opargsym (op, 1);
+    Symbol &To = *rop.opargsym (op, 2);
+    Symbol &C = *rop.opargsym (op, 3);
+
+    if (From.is_constant() && To.is_constant()) {
+        ustring from = From.get_string();
+        ustring to = To.get_string();
+        if (from == Strings::RGB)
+            from = Strings::rgb;
+        if (to == Strings::RGB)
+            to = Strings::rgb;
+        if (from == to) {
+            rop.turn_into_assign (op, rop.inst()->arg(op.firstarg()+3),
+                                  "transformc by identity");
+            return 1;
+        }
+        if (C.is_constant()) {
+            Color3 Cin (C.get_float(0), C.get_float(1), C.get_float(2));
+            Color3 result = rop.shadingcontext()->transformc (from, to, Cin);
+            rop.turn_into_assign (op, rop.add_constant(result),
+                                  "transformc => constant");
+            return 1;
+        }
+    }
+    return 0;
+}
+
+
+
 DECLFOLDER(constfold_setmessage)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
@@ -2285,7 +2345,7 @@ DECLFOLDER(constfold_getattribute)
         ustring obj_name;
         if (object_lookup)
             obj_name = *(const ustring *)ObjectName.data();
-        if (! obj_name)
+        if (obj_name.empty())
             return 0;
 
         found = array_lookup
@@ -2479,9 +2539,18 @@ DECLFOLDER(constfold_texture)
 #endif
             CHECK_str (width, float, TypeDesc::FLOAT)
             else CHECK_str (blur, float, TypeDesc::FLOAT)
-            else CHECK_str (wrap, ustring, TypeDesc::STRING)
             else CHECK (firstchannel, int, TypeDesc::INT)
             else CHECK (fill, float, TypeDesc::FLOAT)
+
+            else if ((name == Strings::wrap || name == Strings::swrap ||
+                 name == Strings::twrap || name == Strings::rwrap)
+                 && value && valuetype == TypeDesc::STRING) {
+                // Special trick is needed for wrap modes because the input
+                // is a string but the field we're setting is an int enum.
+                OIIO::Tex::Wrap wrapmode = OIIO::Tex::decode_wrapmode (*(ustring *)value);
+                void* value = &wrapmode;
+                CHECK_str (wrap, int, TypeDesc::INT);
+            }
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
@@ -2606,14 +2675,10 @@ DECLFOLDER(constfold_pointcloud_search)
     for (int i = 0; i < nattrs; ++i) {
         // We had stashed names, data types, and destinations earlier.
         // Retrieve them now to build a query.
-        if (! names[i])
+        if (names[i].empty())
             continue;
         void *const_data = NULL;
         TypeDesc const_valtype = value_types[i];
-        // How big should the constant arrays be?  Shrink to the size of
-        // the results if they are much smaller.
-        if (count < const_valtype.arraylen/2 && const_valtype.arraylen > 8)
-            const_valtype.arraylen = count;
         tmp.clear ();
         tmp.resize (const_valtype.size(), 0);
         const_data = &tmp[0];
@@ -2704,7 +2769,7 @@ DECLFOLDER(constfold_pointcloud_get)
     int ok = rop.renderer()->pointcloud_get (rop.shaderglobals(), filename,
                                              indices, count,
                                              *(ustring *)Attr_name.data(),
-                                             valtype.elementtype(), &data[0]);
+                                             valtype, &data[0]);
     rop.shadingsys().pointcloud_stats (0, 1, 0);
 
     rop.turn_into_assign (op, rop.add_constant (TypeDesc::TypeInt, &ok),

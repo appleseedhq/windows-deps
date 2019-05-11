@@ -34,21 +34,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 
 #include <OpenImageIO/imageio.h>
+#include <OpenImageIO/imagebuf.h>
+#include <OpenImageIO/imagebufalgo.h>
 #include <OpenImageIO/argparse.h>
 #include <OpenImageIO/strutil.h>
 #include <OpenImageIO/timer.h>
 #include <OpenImageIO/thread.h>
 
-#ifdef USE_EXTERNAL_PUGIXML
-# include <pugixml.hpp>
-#else
-# include <OpenImageIO/pugixml.hpp>
+#include <pugixml.hpp>
+
+#ifdef USING_OIIO_PUGI
+namespace pugi = OIIO::pugi;
 #endif
 
-#include <boost/thread.hpp>
-#include <boost/ref.hpp>
-
-#include "OSL/oslexec.h"
+#include <OSL/oslexec.h>
 #include "simplerend.h"
 #include "raytracer.h"
 #include "background.h"
@@ -153,22 +152,14 @@ void getargs(int argc, const char *argv[])
         errhandler.verbosity (ErrorHandler::VERBOSE);
 }
 
-Vec3 strtovec(const char* str) {
+Vec3 strtovec(string_view str) {
     Vec3 v(0, 0, 0);
-    sscanf(str, " %f , %f , %f", &v.x, &v.y, &v.z);
+    OIIO::Strutil::parse_float (str, v[0]);
+    OIIO::Strutil::parse_char (str, ',');
+    OIIO::Strutil::parse_float (str, v[1]);
+    OIIO::Strutil::parse_char (str, ',');
+    OIIO::Strutil::parse_float (str, v[2]);
     return v;
-}
-
-int strtoint(const char* str) {
-    int i = 0;
-    sscanf(str, " %d", &i);
-    return i;
-}
-
-float strtoflt(const char* str) {
-    float f = 0;
-    sscanf(str, " %f", &f);
-    return f;
 }
 
 bool strtobool(const char* str) {
@@ -235,9 +226,6 @@ void parse_scene() {
     }
     text.push_back(0); // make sure text ends with trailing 0
 
-#ifdef USING_OIIO_PUGI
-    namespace pugi = OIIO::pugi;
-#endif
     // build DOM tree
     pugi::xml_document doc;
     pugi::xml_parse_result parse_result = doc.load_file(scenefile.c_str());
@@ -282,7 +270,7 @@ void parse_scene() {
             if (dir_attr) dir = strtovec(dir_attr.value()); else
             if ( at_attr) dir = strtovec( at_attr.value()) - eye;
             if ( up_attr)  up = strtovec( up_attr.value());
-            if (fov_attr) fov = strtoflt(fov_attr.value());
+            if (fov_attr) fov = OIIO::Strutil::from_string<float>(fov_attr.value());
 
             // create actual camera
             camera = Camera(eye, dir, up, fov, xres, yres);
@@ -292,7 +280,7 @@ void parse_scene() {
             pugi::xml_attribute radius_attr = node.attribute("radius");
             if (center_attr && radius_attr) {
                 Vec3  center = strtovec(center_attr.value());
-                float radius = strtoflt(radius_attr.value());
+                float radius = OIIO::Strutil::from_string<float>(radius_attr.value());
                 if (radius > 0) {
                     pugi::xml_attribute light_attr = node.attribute("is_light");
                     bool is_light = light_attr ? strtobool(light_attr.value()) : false;
@@ -315,7 +303,7 @@ void parse_scene() {
         } else if (strcmp(node.name(), "Background") == 0) {
             pugi::xml_attribute res_attr = node.attribute("resolution");
             if (res_attr)
-                backgroundResolution = strtoint(res_attr.value());
+                backgroundResolution = OIIO::Strutil::from_string<int>(res_attr.value());
             backgroundShaderID = int(shaders.size()) - 1;
         } else if (strcmp(node.name(), "ShaderGroup") == 0) {
             ShaderGroupRef group;
@@ -382,7 +370,7 @@ void parse_scene() {
 }
 
 void globals_from_hit(ShaderGlobals& sg, const Ray& r, const Dual2<float>& t, int id, bool flip) {
-    memset(&sg, 0, sizeof(ShaderGlobals));
+    memset((char *)&sg, 0, sizeof(ShaderGlobals));
     Dual2<Vec3> P = r.point(t);
     sg.P = P.val(); sg.dPdx = P.dx(); sg.dPdy = P.dy();
     Dual2<Vec3> N = scene.normal(P, id);
@@ -408,7 +396,7 @@ void globals_from_hit(ShaderGlobals& sg, const Ray& r, const Dual2<float>& t, in
 
 Vec3 eval_background(const Dual2<Vec3>& dir, ShadingContext* ctx) {
     ShaderGlobals sg;
-    memset(&sg, 0, sizeof(ShaderGlobals));
+    memset((char *)&sg, 0, sizeof(ShaderGlobals));
     sg.I = dir.val();
     sg.dIdx = dir.dx();
     sg.dIdy = dir.dy();
@@ -500,7 +488,8 @@ Color3 subpixel_radiance(float x, float y, Sampler& sampler, ShadingContext* ctx
             float light_pdf;
             Vec3 ldir = scene.sample(lid, sg.P, xi, yi, light_pdf);
             float bsdf_pdf = 0;
-            Color3 contrib = path_weight * result.bsdf.eval(sg, ldir, bsdf_pdf) * MIS::power_heuristic<MIS::EVAL_WEIGHT>(light_pdf, bsdf_pdf);
+            Color3 bsdf_weight = result.bsdf.eval(sg, ldir, bsdf_pdf);
+            Color3 contrib = path_weight * bsdf_weight * MIS::power_heuristic<MIS::EVAL_WEIGHT>(light_pdf, bsdf_pdf);
             if ((contrib.x + contrib.y + contrib.z) > 0) {
                 Ray shadow_ray = Ray(sg.P, ldir);
                 // trace a shadow ray and see if we actually hit the target
@@ -563,7 +552,7 @@ void scanline_worker(Counter& counter, std::vector<Color3>& pixels) {
     OSL::PerThreadInfo *thread_info = shadingsys->create_thread_info();
 
     // Request a shading context so that we can execute the shader.
-    // We could get_context/release_constext for each shading point,
+    // We could get_context/release_context for each shading point,
     // but to save overhead, it's more efficient to reuse a context
     // within a thread.
     ShadingContext *ctx = shadingsys->get_context (thread_info);
@@ -610,7 +599,7 @@ int main (int argc, const char *argv[]) {
     // will not be overridden with interpolated or
     // per-geometric-primitive data).
     // 
-    // In order to most fully optimize shader, we typically want any
+    // In order to most fully optimize the shader, we typically want any
     // shader parameter not explicitly specified to default to being
     // locked (i.e. no per-geometry override):
     shadingsys->attribute("lockgeom", 1);
@@ -637,7 +626,7 @@ int main (int argc, const char *argv[]) {
     // validate options
     if (aa < 1) aa = 1;
     if (num_threads < 1)
-        num_threads = boost::thread::hardware_concurrency();
+        num_threads = std::thread::hardware_concurrency();
 
     // prepare background importance table (if requested)
     if (backgroundResolution > 0 && backgroundShaderID >= 0) {
@@ -658,32 +647,43 @@ int main (int argc, const char *argv[]) {
 
     double setuptime = timer.lap ();
 
+    // Local memory for the pixels
     std::vector<Color3> pixels(xres * yres, Color3(0,0,0));
+    // Make an ImageBuf that wraps it ('pixels' still owns the memory)
+    ImageBuf pixelbuf (ImageSpec(xres, yres, 3, TypeDesc::FLOAT), pixels.data());
 
     // Create shared counter to iterate over one scanline at a time
     Counter scanline_counter(errhandler, yres, "Rendering");
     // launch a scanline worker for each thread
-    boost::thread_group workers;
+    OIIO::thread_group workers;
     for (int i = 0; i < num_threads; i++)
-        workers.add_thread(new boost::thread(scanline_worker, boost::ref(scanline_counter), boost::ref(pixels)));
+        workers.add_thread(new std::thread (scanline_worker, std::ref(scanline_counter), std::ref(pixels)));
     workers.join_all();
+    double runtime = timer.lap();
 
     // Write image to disk
-    ImageOutput* out = ImageOutput::create(imagefile);
-    ImageSpec spec(xres, yres, 3, TypeDesc::HALF);
-    if (out && out->open(imagefile, spec)) {
-        out->write_image(TypeDesc::TypeFloat, &pixels[0]);
-    } else {
-        errhandler.error("Unable to write output image");
+    if (Strutil::iends_with (imagefile, ".jpg") ||
+        Strutil::iends_with (imagefile, ".jpeg") ||
+        Strutil::iends_with (imagefile, ".gif") ||
+        Strutil::iends_with (imagefile, ".png")) {
+        // JPEG, GIF, and PNG images should be automatically saved as sRGB
+        // because they are almost certainly supposed to be displayed on web
+        // pages.
+        ImageBufAlgo::colorconvert (pixelbuf, pixelbuf,
+                                    "linear", "sRGB", false, "", "");
     }
-    delete out;
+    pixelbuf.set_write_format (TypeDesc::HALF);
+    if (! pixelbuf.write (imagefile))
+        errhandler.error ("Unable to write output image: %s",
+                          pixelbuf.geterror().c_str());
 
     // Print some debugging info
     if (debug1 || runstats || profile) {
-        double runtime = timer.lap();
+        double writetime = timer.lap();
         std::cout << "\n";
         std::cout << "Setup: " << OIIO::Strutil::timeintervalformat (setuptime,2) << "\n";
         std::cout << "Run  : " << OIIO::Strutil::timeintervalformat (runtime,2) << "\n";
+        std::cout << "Write: " << OIIO::Strutil::timeintervalformat (writetime,2) << "\n";
         std::cout << "\n";
         std::cout << shadingsys->getstats (5) << "\n";
         OIIO::TextureSystem *texturesys = shadingsys->texturesys();

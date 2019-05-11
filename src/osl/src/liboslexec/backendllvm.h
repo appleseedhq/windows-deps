@@ -36,8 +36,12 @@ using namespace OSL;
 using namespace OSL::pvt;
 
 #include "runtimeoptimize.h"
-#include "OSL/llvm_util.h"
+#include <OSL/llvm_util.h>
 
+// additional includes for creating global OptiX variables
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Module.h"
 
 
 OSL_NAMESPACE_ENTER
@@ -85,7 +89,7 @@ public:
 
     typedef std::map<std::string, llvm::Value*> AllocationMap;
 
-    void llvm_assign_initial_value (const Symbol& sym);
+    void llvm_assign_initial_value (const Symbol& sym, bool force = false);
     llvm::LLVMContext &llvm_context () const { return ll.context(); }
     AllocationMap &named_values () { return m_named_values; }
 
@@ -141,6 +145,10 @@ public:
                                   TypeDesc cast=TypeDesc::UNKNOWN) {
         return llvm_load_value (sym, deriv, NULL, component, cast);
     }
+
+    /// Load the address of a global device-side string pointer, optionally
+    /// follow the pointer and cast the result to UINT64.
+    llvm::Value *llvm_load_device_string (const Symbol& sym, bool follow=true);
 
     /// Legacy version
     ///
@@ -211,6 +219,26 @@ public:
     /// map, the symbol is alloca'd and placed in the map.
     llvm::Value *getOrAllocateLLVMSymbol (const Symbol& sym);
 
+    /// Allocate a CUDA variable for the given OSL symbol and return a pointer
+    /// to the corresponding LLVM GlobalVariable, or return the pointer if it
+    /// has already been allocated.
+    llvm::Value *getOrAllocateCUDAVariable (const Symbol& sym);
+
+    /// Create a CUDA global variable and add it to the current Module
+    llvm::Value *addCUDAVariable (const std::string& name, int size,
+                                  int alignment, void* data,
+                                  const std::string& type="");
+
+    /// Create a CUDA variable, along with the extra semantic information needed
+    /// by OptiX.
+    llvm::Value *createOptixVariable (const std::string& name,
+                                      const std::string& type,
+                                      int size, void* data );
+
+    /// Create the extra semantic information needed for OptiX variables
+    void createOptixMetadata (const std::string& name,
+                              const std::string& type, int size );
+
     /// Retrieve an llvm::Value that is a pointer holding the start address
     /// of the specified symbol. This always works for globals and params;
     /// for stack variables (locals/temps) is succeeds only if the symbol is
@@ -229,7 +257,8 @@ public:
 
     /// Implementaiton of Simple assignment.  If arrayindex >= 0, in
     /// designates a particular array index to assign.
-    bool llvm_assign_impl (Symbol &Result, Symbol &Src, int arrayindex = -1);
+    bool llvm_assign_impl (Symbol &Result, Symbol &Src, int arrayindex = -1,
+                           int srcomp = -1, int dstcomp = -1);
 
 
     /// Convert the name of a global (and its derivative index) into the
@@ -403,6 +432,12 @@ public:
             shadingsys().m_stat_tex_calls_as_handles += 1;
     }
 
+    /// Return the mapping from symbol names to GlobalVariables.
+    std::map<std::string,llvm::GlobalVariable*>& get_const_map() { return m_const_map; }
+
+    /// Return whether or not we are compiling for an OptiX-based renderer.
+    bool use_optix() { return m_use_optix; }
+
     LLVM_Util ll;
 
 private:
@@ -428,6 +463,16 @@ private:
     llvm::PointerType *m_llvm_type_prepare_closure_func;
     llvm::PointerType *m_llvm_type_setup_closure_func;
     int m_llvm_local_mem;             // Amount of memory we use for locals
+
+    // A mapping from symbol names to llvm::GlobalVariables
+    std::map<std::string,llvm::GlobalVariable*> m_const_map;
+
+    // A mapping from canonical strings to string variable names, used to
+    // detect collisions that might occur due to using the string hash to
+    // create variable names.
+    std::map<std::string,std::string>           m_varname_map;
+
+    bool m_use_optix;                   ///< Compile for OptiX?
 
     friend class ShadingSystemImpl;
 };

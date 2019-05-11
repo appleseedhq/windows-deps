@@ -1,49 +1,55 @@
 # SPI-specific settings
 
-OSL_NAMESPACE ?= 'OSL_Arnold'
-OPENIMAGEIO_NAMESPACE ?= 'OpenImageIO_Arnold'
+NAMESPACE ?= 'OSL_Arnold'
 
 MY_CMAKE_FLAGS += -DEXTRA_CPP_ARGS="-DOSL_SPI=1"
 
 ## Rhel7 (current)
 ifeq ($(SP_OS), rhel7)
     platform=rhel7
-    USE_CPP11 ?= 1
+    USE_CPP ?= 11
     USE_SIMD = sse4.1
-    COMPILER ?= clang40
     CMAKE ?= cmake
     USE_NINJA := 1
-    NINJA := /net/soft_scratch/apps/arnold/tools/spinux1/bin/ninja
+    NINJA := ninja
     MY_CMAKE_FLAGS += -DCMAKE_MAKE_PROGRAM=${NINJA}
+    # Override lib64 and use SPI convention of lib
+    MY_CMAKE_FLAGS += -DCMAKE_INSTALL_LIBDIR="${INSTALL_PREFIX}/lib"
+    MY_CMAKE_FLAGS += -DCUDA_TOOLKIT_ROOT_DIR=/net/soft_scratch/apps/arnold/tools/nvidia/cuda8.0 -DOPTIX_EXTRA_LIBS=lzma
+    MY_CMAKE_FLAGS += -DOPTIXHOME=/net/soft_scratch/apps/arnold/tools/nvidia/NVIDIA-OptiX-SDK-5.1.0-linux64
 
     ## If not overridden, here is our preferred LLVM installation
     ## (may be changed as new versions are rolled out to the facility)
-    LLVM_DIRECTORY ?= /shots/spi/home/lib/arnold/spinux1/llvm_3.5
+    LLVM_DIRECTORY ?= /shots/spi/home/lib/arnold/rhel7/llvm_7.0.0
 
     # A variety of tags can be used to try specific versions of gcc or
     # clang from the site-specific places we have installed them.
-    ifeq (${COMPILER}, clang342)
+    ifeq (${COMPILER}, clang4)
         MY_CMAKE_FLAGS += \
-           -DCMAKE_C_COMPILER=/shots/spi/home/lib/arnold/spinux1/llvm_3.4.2/bin/clang \
-           -DCMAKE_CXX_COMPILER=/shots/spi/home/lib/arnold/spinux1/llvm_3.4.2/bin/clang++
-    else ifeq (${COMPILER}, clang35)
+           -DCMAKE_C_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_4.0_final/bin/clang \
+           -DCMAKE_CXX_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_4.0_final/bin/clang++
+    else ifeq (${COMPILER}, clang5)
         MY_CMAKE_FLAGS += \
-           -DCMAKE_C_COMPILER=/shots/spi/home/lib/arnold/spinux1/llvm_3.5/bin/clang \
-           -DCMAKE_CXX_COMPILER=/shots/spi/home/lib/arnold/spinux1/llvm_3.5/bin/clang++
-    else ifeq (${COMPILER}, clang39)
+           -DCMAKE_C_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_5.0.1/bin/clang \
+           -DCMAKE_CXX_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_5.0.1/bin/clang++
+    else ifeq (${COMPILER}, clang6)
         MY_CMAKE_FLAGS += \
-           -DCMAKE_C_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_3.9/bin/clang \
-           -DCMAKE_CXX_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_3.9/bin/clang++
-    else ifeq (${COMPILER}, clang40)
+           -DCMAKE_C_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_6.0.1/bin/clang \
+           -DCMAKE_CXX_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_6.0.1/bin/clang++
+    else ifeq (${COMPILER}, clang7)
         MY_CMAKE_FLAGS += \
-           -DCMAKE_C_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_4.0/bin/clang \
-           -DCMAKE_CXX_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_4.0/bin/clang++
+           -DCMAKE_C_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_7.0.0/bin/clang \
+           -DCMAKE_CXX_COMPILER=/shots/spi/home/lib/arnold/rhel7/llvm_7.0.0/bin/clang++
     else ifeq (${COMPILER},clang)
         MY_CMAKE_FLAGS += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
     else ifeq (${COMPILER}, gcc490)
       MY_CMAKE_FLAGS += \
          -DCMAKE_C_COMPILER=/net/soft_scratch/apps/arnold/tools/gcc-4.9-20130512-test/bin/gcc \
          -DCMAKE_CXX_COMPILER=/net/soft_scratch/apps/arnold/tools/gcc-4.9-20130512-test/bin/g++
+    else ifeq (${COMPILER}, gcc6)
+      MY_CMAKE_FLAGS += \
+         -DCMAKE_C_COMPILER=/opt/rh/devtoolset-6/root/usr/bin/gcc \
+         -DCMAKE_CXX_COMPILER=/opt/rh/devtoolset-6/root/usr/bin/g++
     else ifeq (${COMPILER},gcc)
         MY_CMAKE_FLAGS += -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
     else ifeq (${COMPILER},)
@@ -51,11 +57,15 @@ ifeq ($(SP_OS), rhel7)
         MY_CMAKE_FLAGS += \
            -DCMAKE_C_COMPILER=${LLVM_DIRECTORY}/bin/clang \
            -DCMAKE_CXX_COMPILER=${LLVM_DIRECTORY}/bin/clang++
+        MY_CMAKE_FLAGS += -DCMAKE_C_FLAGS="--gcc-toolchain=/usr" \
+                          -DCMAKE_CXX_FLAGS="--gcc-toolchain=/usr" \
+			  -DTOOLCHAIN_FLAGS="--gcc-toolchain=/usr"
     endif
 
+
     MY_CMAKE_FLAGS += \
-	-DOPENEXR_CUSTOM_INCLUDE_DIR=/usr/include/OpenEXR2 \
-	-DOPENEXR_CUSTOM_LIB_DIR=/usr/lib64/OpenEXR2 \
+	-DOPENEXR_INCLUDE_DIR=/usr/include/OpenEXR2 \
+	-DOPENEXR_LIBRARY_DIR=/usr/lib64/OpenEXR2 \
 	-DPARTIO_HOME="/shots/spi/home/lib/SpComp2/partio/rhel7-gcc48m64/v1" \
 	-DLLVM_STATIC=1 \
         -DLLVM_VERSION=${LLVM_VERSION} \
@@ -64,28 +74,37 @@ ifeq ($(SP_OS), rhel7)
     ifneq (${SPCOMP2_USE_BOOSTVERS}, 1)
 	BOOSTVERS=1.55
     endif
-    BOOSTVERSSP=${BOOSTVERS}sp
+
+    BOOSTSPSUFFIX ?= 
+    BOOSTVERSSP=${BOOSTVERS}${BOOSTSPSUFFIX}
     BOOSTVERS_SUFFIX = -${shell echo ${BOOSTVERS} | sed "s/\\./_/"}
     BOOSTVERS_PREFIX = ${shell echo ${BOOSTVERS} | sed "s/\\./_/"}_0
     CONSTRUCTED_BOOSTVERS = ${shell echo ${BOOSTVERS} | sed "s/\\./0/"}00
-    MY_CMAKE_FLAGS += \
-	-DBOOST_CUSTOM=1 \
-	-DBoost_VERSION=${CONSTRUCTED_BOOSTVERS} \
-	-DBoost_INCLUDE_DIRS=/usr/include/boost_${BOOSTVERSSP} \
-	-DBoost_LIBRARY_DIRS=/usr/lib64/boost_${BOOSTVERS} \
-	-DBoost_LIBRARIES:STRING="/usr/lib64/boost_${BOOSTVERSSP}/libspboost_${BOOSTVERS_PREFIX}_filesystem-gcc48-mt${BOOSTVERS_SUFFIX}.so;/usr/lib64/boost_${BOOSTVERSSP}/libspboost_${BOOSTVERS_PREFIX}_filesystem-gcc48-mt${BOOSTVERS_SUFFIX}.so;/usr/lib64/boost_${BOOSTVERSSP}/libspboost_${BOOSTVERS_PREFIX}_regex-gcc48-mt${BOOSTVERS_SUFFIX}.so;/usr/lib64/boost_${BOOSTVERSSP}/libspboost_${BOOSTVERS_PREFIX}_system-gcc48-mt${BOOSTVERS_SUFFIX}.so;/usr/lib64/boost_${BOOSTVERSSP}/libspboost_${BOOSTVERS_PREFIX}_thread-gcc48-mt${BOOSTVERS_SUFFIX}.so;/usr/lib64/boost_${BOOSTVERSSP}/libspboost_${BOOSTVERS_PREFIX}_wave-gcc48-mt${BOOSTVERS_SUFFIX}.so"
 
+    MY_CMAKE_FLAGS += \
+  -DBOOST_CUSTOM=1 \
+  -DBoost_VERSION=${CONSTRUCTED_BOOSTVERS} \
+  -DBoost_INCLUDE_DIRS=/usr/include/boost_${BOOSTVERSSP} \
+  -DBoost_LIBRARY_DIRS=/usr/lib64/boost_${BOOSTVERS}
+
+    ifeq (${BOOSTSPSUFFIX}, sp)
+      MY_CMAKE_FLAGS += \
+  -DBoost_LIBRARIES:STRING="/usr/lib64/boost_${BOOSTVERSSP}/lib${BOOSTSPSUFFIX}boost_${BOOSTVERS_PREFIX}_regex-gcc48-mt${BOOSTVERS_SUFFIX}.so;/usr/lib64/boost_${BOOSTVERSSP}/lib${BOOSTSPSUFFIX}boost_${BOOSTVERS_PREFIX}_system-gcc48-mt${BOOSTVERS_SUFFIX}.so;/usr/lib64/boost_${BOOSTVERSSP}/lib${BOOSTSPSUFFIX}boost_${BOOSTVERS_PREFIX}_thread-gcc48-mt${BOOSTVERS_SUFFIX}.so"
+    else
+      MY_CMAKE_FLAGS += \
+  -DBoost_LIBRARIES:STRING="/usr/lib64/boost_${BOOSTVERSSP}/lib${BOOSTSPSUFFIX}boost_regex-gcc48-mt${BOOSTVERS_SUFFIX}.so;/usr/lib64/boost_${BOOSTVERSSP}/lib${BOOSTSPSUFFIX}boost_system-gcc48-mt${BOOSTVERS_SUFFIX}.so;/usr/lib64/boost_${BOOSTVERSSP}/lib${BOOSTSPSUFFIX}boost_thread-gcc48-mt${BOOSTVERS_SUFFIX}.so"
+    endif
     # end rhel7
 
 ## Generic OSX machines (including LG's laptop)
 else ifeq (${platform}, macosx)
-    USE_CPP11 ?= 1
+    USE_CPP ?= 11
     USE_SIMD ?= sse4.2
     MY_CMAKE_FLAGS += \
         -DCMAKE_BUILD_WITH_INSTALL_RPATH=1 \
         -DCMAKE_INSTALL_NAME_DIR="${working_dir}/dist/${platform}${variant}/lib"
 
-    LLVM_DIRECTORY ?= /usr/local/opt/llvm35/3.5.1/lib/llvm-3.5
+    LLVM_DIRECTORY ?= /usr/local/opt/llvm
 
     # A variety of tags can be used to try specific versions of gcc or
     # clang from the site-specific places we have installed them.
@@ -97,10 +116,10 @@ else ifeq (${platform}, macosx)
         MY_CMAKE_FLAGS += \
            -DCMAKE_C_COMPILER=gcc-6 -DCMAKE_CXX_COMPILER=g++-6
         USE_LIBCPLUSPLUS := 0
-    else ifeq (${COMPILER},clang35)
-        MY_CMAKE_FLAGS += -DCMAKE_C_COMPILER=clang-3.5 -DCMAKE_CXX_COMPILER=clang++-3.5
-    else ifeq (${COMPILER},clang38)
-        MY_CMAKE_FLAGS += -DCMAKE_C_COMPILER=clang-3.8 -DCMAKE_CXX_COMPILER=clang++-3.8
+    else ifeq (${COMPILER},clang40)
+        MY_CMAKE_FLAGS += -DCMAKE_C_COMPILER=/usr/local/opt/llvm@4/bin/clang -DCMAKE_CXX_COMPILER=/usr/local/opt/llvm@4/bin/clang++
+    else ifeq (${COMPILER},clang7)
+        MY_CMAKE_FLAGS += -DCMAKE_C_COMPILER=/usr/local/Cellar/llvm/7.0.0rc1/bin/clang -DCMAKE_CXX_COMPILER=/usr/local/Cellar/llvm/7.0.0rc1/bin/clang++
     else ifeq (${COMPILER},clang)
         MY_CMAKE_FLAGS += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
     else ifeq (${COMPILER},gcc)
@@ -120,12 +139,10 @@ endif  # endif $(SP_OS)
 
 
 # set up OpenImageIO distribution environment
-ifeq (${OPENIMAGEIOHOME},)
-    MY_CMAKE_FLAGS += -DOPENIMAGEIOHOME:STRING=${working_dir}/../OpenImageIO_local/dist/${platform}${variant}/ \
-                      -DOSL_NAMESPACE:STRING=${OSL_NAMESPACE}
+ifeq (${OPENIMAGEIO_ROOT_DIR},)
+    MY_CMAKE_FLAGS += -DOPENIMAGEIO_ROOT_DIR:STRING=${working_dir}/../OpenImageIO_local/dist/${platform}${variant}/
 else
-    MY_CMAKE_FLAGS += -DOPENIMAGEIOHOME:STRING=${IMAGEIOHOME} \
-                      -DOSL_NAMESPACE:STRING=${OSL_NAMESPACE}
+    MY_CMAKE_FLAGS += -DOPENIMAGEIO_ROOT_DIR:STRING=${OPENIMAGEIO_ROOT_DIR}
 endif
 
 

@@ -28,20 +28,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <memory>
 
-#include "OSL/oslconfig.h"
-#include "OSL/shaderglobals.h"
-#include "OSL/rendererservices.h"
+#include <OSL/oslconfig.h>
+#include <OSL/shaderglobals.h>
+#include <OSL/rendererservices.h>
 
 #include <OpenImageIO/refcnt.h>
 #include <OpenImageIO/ustring.h>
 #include <OpenImageIO/array_view.h>
+#if OPENIMAGEIO_VERSION <= 10902
+#include <OpenImageIO/imagebufalgo_util.h>
+#endif
 
 OSL_NAMESPACE_ENTER
 
 class RendererServices;
 class ShaderGroup;
-typedef shared_ptr<ShaderGroup> ShaderGroupRef;
+typedef std::shared_ptr<ShaderGroup> ShaderGroupRef;
 struct ClosureParam;
 struct PerThreadInfo;
 class ShadingContext;
@@ -79,6 +83,7 @@ public:
     /// 1. Attributes that should be exposed to users:
     ///    int statistics:level   Automatically print OSL statistics (0).
     ///    string searchpath:shader  Colon-separated path to search for .oso
+    ///                                files ("", meaning test "." only)
     ///    string colorspace      Name of RGB color space ("Rec709")
     ///    int range_checking     Generate extra code for component & array
     ///                              range checking (1)
@@ -110,6 +115,9 @@ public:
     ///                              fails to find the layer or parameter? (1)
     ///    int strict_messages    Issue error if a message is set after
     ///                              being queried (1).
+    ///    int error_repeats      If zero, suppress repeats of errors and
+    ///                              warnings that are exact duplicates of
+    ///                              earlier ones. (1)
     ///    int lazylayers         Evaluate shader layers only when their
     ///                              outputs are first needed (1)
     ///    int lazyglobals        Run layers lazily even if they write to
@@ -127,6 +135,8 @@ public:
     ///                              means a param CANNOT be overridden by
     ///                              interpolated geometric parameters.
     ///    int countlayerexecs    Add extra code to count total layers run.
+    ///    int allow_shader_replacement Allow shader to be specified more than
+    ///                              once, replacing former definition.
     ///    string archive_groupname  Name of a group to pickle and archive.
     ///    string archive_filename   Name of file to save the group archive.
     /// 3. Attributes that that are intended for developers debugging
@@ -151,6 +161,8 @@ public:
     ///                              layer functions.
     ///    int llvm_debug_ops     Extra printfs for each OSL op (helpful
     ///                              for devs to find crashes)
+    ///    int llvm_output_bitcode  Output the full bitcode for each group,
+    ///                              for debugging. (0)
     ///    int max_local_mem_KB   Error if shader group needs more than this
     ///                              much local storage to execute (1024K)
     ///    string debug_groupname Name of shader group -- debug only this one
@@ -266,6 +278,12 @@ public:
     ///   int unknown_closures_needed  Nonzero if additional closures may be
     ///                                needed, whose names can't be known
     ///                                without actually running the shader.
+    ///   int globals_read           Bitfield ("or'ed" SGBits values) of
+    ///                                which ShaderGlobals may be read by
+    ///                                by the shader group.
+    ///   int globals_write         Bitfield ("or'ed" SGBits values) of
+    ///                                which ShaderGlobals may be written by
+    ///                                by the shader group.
     ///   int num_globals_needed     The number of named globals needed.
     ///   ptr globals_needed         Retrieves a pointer to the ustring array
     ///                                containing all globals needed.
@@ -391,14 +409,25 @@ public:
     bool Parameter (string_view name, TypeDesc t, const void *val,
                     bool lockgeom);
 
-    /// Create a new shader instance, either replacing the one for the
-    /// specified usage (if not within a group) or appending to the
-    /// current group (if a group has been started).
+    /// Create a new shader instance, either replacing the current group (if
+    /// not within a group) or appending to the current group (if a group
+    /// has been started).
     bool Shader (string_view shaderusage,
-                 string_view shadername = string_view(),
-                 string_view layername = string_view());
+                 string_view shadername,
+                 string_view layername);
 
-    /// Connect two shaders within the current group
+    /// Connect two shaders within the current group. The source layer must
+    /// be *upstream* of down destination layer (i.e. source must be
+    /// declared earlier within the shader group). The named parameters must
+    /// be of compatible type -- float to float, color to color, array to
+    /// array of the same length and element type, etc. In general, it is
+    /// permissible to connect type A to type B if and only if it is allowed
+    /// within OSL to assign an A to a B (i.e., if `A = B` is legal). So any
+    /// "triple" may be connected to any other triple, and a float output
+    /// may be connected to a triple input (but not the other way around).
+    /// It is permitted to connect a single component of an aggregate to a
+    /// float and vice versa, for example,
+    ///   `ConnectShaders ("lay1", "mycolorout[2]", "lay2", "myfloatinput")`
     ///
     bool ConnectShaders (string_view srclayer, string_view srcparam,
                          string_view dstlayer, string_view dstparam);
@@ -447,9 +476,6 @@ public:
     /// layer, and execute_cleanup. If run==false, just do the binding and
     /// setup, don't actually run the shader.
     bool execute (ShadingContext *ctx, ShaderGroup &group,
-                  ShaderGlobals &globals, bool run=true);
-    OSL_DEPRECATED("Deprecated since 1.6, pass context pointer, not reference.")
-    bool execute (ShadingContext &ctx, ShaderGroup &group,
                   ShaderGlobals &globals, bool run=true);
 
     /// Bind a shader group and globals to the context, in preparation to
@@ -541,8 +567,8 @@ public:
     std::string getstats (int level=1) const;
 
     void register_closure (string_view name, int id, const ClosureParam *params,
-                           PrepareClosureFunc prepare, SetupClosureFunc setup,
-                           int alignment = 1);
+                           PrepareClosureFunc prepare, SetupClosureFunc setup);
+
     /// Query either by name or id an existing closure. If name is non
     /// NULL it will use it for the search, otherwise id would be used
     /// and the name will be placed in name if successful. Also return
@@ -550,6 +576,13 @@ public:
     /// optional but at least one of name or id must non NULL.
     bool query_closure (const char **name, int *id,
                         const ClosureParam **params);
+
+    /// For the proposed shader "global" name, return the corresponding
+    /// SGBits enum.
+    static SGBits globals_bit (ustring name);
+
+    /// For the SGBits value, return the shader "globals" name.
+    static ustring globals_name (SGBits bit);
 
     /// For the proposed raytype name, return the bit pattern that
     /// describes it, or 0 for an unrecognized name.  (This retrieves
@@ -563,14 +596,17 @@ public:
     /// to the optimizer, and will be determined strictly at execution time.
     void set_raytypes(ShaderGroup *group, int raytypes_on, int raytypes_off);
 
-    /// Ensure that the group has been optimized and JITed.
-    /// Ensure that the group has been optimized and JITed.
-    void optimize_group (ShaderGroup *group);
+    /// Ensure that the group has been optimized and JITed. The ctx pointer
+    /// optionally supplies a ShadingContext to use; if one is not supplied,
+    /// one will be temporarily allocated if needed.
+    void optimize_group (ShaderGroup *group, ShadingContext *ctx = nullptr);
 
     /// Ensure that the group has been optimized and JITed. This is a
-    /// convenience function that simply calls set_raytypes followed by optimize_group.
+    /// convenience function that simply calls set_raytypes followed by
+    /// optimize_group. The ctx optionally supplies a ShadingContext to use;
+    /// if not supplied, one will be temporarily allocated if needed.
     void optimize_group (ShaderGroup *group, int raytypes_on,
-                         int raytypes_off);
+                         int raytypes_off, ShadingContext *ctx = nullptr);
 
     /// If option "greedyjit" was set, this call will trigger all
     /// shader groups that have not yet been compiled to do so with the
@@ -620,9 +656,9 @@ private:
 
 
 
-#ifdef OPENIMAGEIO_IMAGEBUF_H
+#ifdef OPENIMAGEIO_IMAGEBUFALGO_H
 // To keep from polluting all OSL clients with ImageBuf & ROI, only expose
-// the following declarations if they have included OpenImageIO/imagebuf.h.
+// the following declarations if they have included OpenImageIO/imagebufalgo.h.
 
 // enum describing where shades are located for shade_image().
 enum ShadeImageLocations {
@@ -655,7 +691,8 @@ bool shade_image (ShadingSystem &shadingsys, ShaderGroup &group,
                   const ShaderGlobals *defaultsg,
                   OIIO::ImageBuf &buf, OIIO::array_view<ustring> outputs,
                   ShadeImageLocations shadelocations = ShadePixelCenters,
-                  OIIO::ROI roi = OIIO::ROI(), int nthreads = 0);
+                  OIIO::ROI roi = OIIO::ROI(),
+                  OIIO::ImageBufAlgo::parallel_image_options popt = 0);
 
 #endif
 
