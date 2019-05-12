@@ -27,6 +27,8 @@ REM OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 REM THE SOFTWARE.
 REM
 
+setlocal
+
 if not defined VCINSTALLDIR (
     echo Please run this batch file from a Visual Studio Native Tools Command Prompt.
     goto end
@@ -472,3 +474,5 @@ echo %time% ^| Build complete.
 echo.
 
 :end
+
+endlocal
