@@ -334,10 +334,10 @@ if(OCIO_BUILD_APPS)
     endif()
     
     # ociocheck: verifies an OCIO config
-    add_subdirectory(src/apps/ociocheck)
+    # add_subdirectory(src/apps/ociocheck)
     
     # ociobakelut writes out luts
-    add_subdirectory(src/apps/ociobakelut)
+    # add_subdirectory(src/apps/ociobakelut)
 endif()
 
 ###############################################################################
