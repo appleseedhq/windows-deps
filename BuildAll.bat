@@ -340,6 +340,16 @@ echo %time% ^| [10/14] Building OpenImageIO...
         type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
     popd
 
+    REM Build a Ship variant of OIIO (same as release bu with /GL (Whole Program Optimization) enabled) to work around a bug that causes VS 2015 builds of appleseed in Ship configuration to crash.
+    REM See https://developercommunity.visualstudio.com/content/problem/701555/stdthread-with-lambda-crashes-when-compiled-withou.html for more information.
+    mkdir %root%build\%platform%\oiio-ship 2>nul
+    pushd %root%build\%platform%\oiio-ship
+        echo === OpenImageIO (Ship) ===================================================== > BUILDLOG.txt
+        cmake -Wno-dev -G %generator% -DCMAKE_BUILD_TYPE=Release -DBOOST_ROOT=%boost_root% -DBoost_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=N:\appleseed\Qt\5.12.2\msvc2015_64 -DBUILDSTATIC=ON -DLINKSTATIC=ON -DUSE_SIMD=sse2 -DOIIO_BUILD_TESTS=OFF -DUSE_PYTHON=OFF -DUSE_FIELD3D=OFF -DUSE_OPENVDB=OFF -DUSE_TBB=OFF -DUSE_FFMPEG=OFF -DUSE_OPENJPEG=OFF -DUSE_OPENCV=OFF -DUSE_FREETYPE=OFF -DUSE_GIF=OFF -DUSE_PTEX=OFF -DUSE_WEBP=OFF -DUSE_LIBRAW=OFF -DUSE_NUKE=OFF -DUSE_DICOM=OFF -DEXTRA_CPP_ARGS="/DBOOST_ALL_NO_LIB /DBOOST_PYTHON_STATIC_LIB /GL" -DILMBASE_ROOT_DIR=%root_fwd_slashes%stage/%platform%/ilmbase-release -DOPENEXR_ROOT_DIR=%root_fwd_slashes%stage/%platform%/openexr-release -DZLIB_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/zlib-release/include -DZLIB_LIBRARY=%root_fwd_slashes%stage/%platform%/zlib-release/lib/zlibstatic.lib -DPNG_PNG_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/libpng-debug/include -DPNG_LIBRARY=%root_fwd_slashes%stage/%platform%/libpng-release/lib/libpng16_static.lib -DJPEG_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/libjpeg-turbo-release/include -DJPEG_LIBRARY=%root_fwd_slashes%stage/%platform%/libjpeg-turbo-release/lib/jpeg-static.lib -DTIFF_INCLUDE_DIR=%root_fwd_slashes%stage/%platform%/libtiff-release/include -DTIFF_LIBRARY=%root_fwd_slashes%stage/%platform%/libtiff-release/lib/libtiff.lib -DOCIO_INCLUDE_PATH=%root_fwd_slashes%stage/%platform%/ocio-release/include -DOCIO_LIBRARY_PATH=%root_fwd_slashes%stage/%platform%/ocio-release/lib -DCMAKE_LIBRARY_PATH=%root%build\%platform%\ocio-release\ext\dist\lib -DCMAKE_INSTALL_PREFIX=%root%stage\%platform%\oiio-ship %src%\oiio %redirect%
+        %devenv% OpenImageIO.sln /build Release /project INSTALL %redirect%
+        type BUILDLOG.txt >> %root%build\%platform%\BUILDLOG.txt
+    popd
+
 REM ===============================================================================
 
 :osl
